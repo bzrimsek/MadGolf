@@ -1,0 +1,14 @@
+{
+  "name": "MadGolf",
+  "short_name": "MadGolf",
+  "description": "Your complete golf companion — Foursome, Outing, League, Trip",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a2f1a",
+  "theme_color": "#1a2f1a",
+  "icons": [
+    { "src": "logo.webp", "sizes": "192x192", "type": "image/png" },
+    { "src": "logo.webp", "sizes": "512x512", "type": "image/png" }
+  ]
+}
