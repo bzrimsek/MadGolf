@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<!--
+CHANGELOG
+v1.3  2026-06-09  Layout tightened to fit one screen
+v2.0  2026-06-10  Remove URL date param — date comes from Firebase session.date only
+v1.9  2026-06-10  Fix: expiry and date checked after Firebase load using session.date not stale URL param
+v1.8  2026-06-10  Fix: date badge uses session.date from Firebase not stale URL param
+v1.7  2026-06-09  Use session.date from Firebase state — overrides URL param if date was edited
+v1.6  2026-06-09  Remove all Friday Game branding; title → League RSVP
+v1.5  2026-06-09  Fix AbortSignal clone error; remove Friday Game branding from error screens
+v1.4  2026-06-09  League Manager Pick sub option; tee time accommodation note
+v1.3  2026-06-09  Header shows league name + season name from state
+v1.2  2026-06-09  Date pill moved to top right; "Add a Sub" toggle replaces "bring a guest"; sub block reveals as one unit.
+v1.1  2026-06-09  Layout tightened; GHIN+Index on same line; guest phone + optional index; button "Submit Response".
+v1.0  2026-06-09  Initial Friday Game self-service RSVP page.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>MadGolf League RSVP</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#1a2f1a;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;padding:16px}
+  .card{background:#f4f4f2;border-radius:16px;padding:16px 16px;width:100%;max-width:400px;position:relative;}
+  .card-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;}
+  .logo{font-family:'Bebas Neue',sans-serif;font-size:22px;color:#1a2f1a;letter-spacing:2px;line-height:1;}
+  .subtitle{font-size:11px;color:#4a6741;margin-top:2px;}
+  .date-badge{background:#1a2f1a;color:#c9a227;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;padding:4px 10px;border-radius:20px;white-space:nowrap;flex-shrink:0;margin-left:8px;}
+  label{font-size:11px;font-weight:700;color:#4a6741;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:4px}
+  select,input[type=number],input[type=text],input[type=tel]{width:100%;padding:7px 10px;border-radius:7px;border:1.5px solid #ccc;font-size:13px;font-family:'DM Sans',sans-serif;color:#1a2f1a;background:#fff;margin-bottom:7px;appearance:none}
+  select:focus,input:focus{outline:none;border-color:#c9a227}
+  .row2{display:flex;gap:6px;}
+  .row2>div{flex:1;min-width:0;}
+  .row2 select,.row2 input{margin-bottom:0;}
+  .btn-row{display:flex;gap:8px;margin-bottom:6px}
+  .btn{flex:1;padding:10px;border-radius:8px;border:2px solid #ccc;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;background:#fff;color:#1a2f1a;transition:all .15s}
+  .selected-in{background:#166534;color:#fff;border-color:#166534;transform:scale(1.03)}
+  .selected-out{background:#b91c1c;color:#fff;border-color:#b91c1c;transform:scale(1.03)}
+  .btn-save{width:100%;padding:14px;border-radius:10px;border:none;background:#c9a227;color:#1a2f1a;font-size:16px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:6px}
+  .btn-save:disabled{opacity:.5;cursor:not-allowed}
+  .btn-toggle{width:100%;padding:7px 10px;border-radius:8px;border:1.5px dashed #c9a227;background:transparent;color:#c9a227;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:7px;text-align:left;}
+  .section-box{background:#ebebea;border-radius:8px;padding:8px 10px;margin-bottom:8px}
+  .section-title{font-size:11px;font-weight:700;color:#4a6741;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
+  .nudge{background:#78350f;border-radius:6px;padding:6px 8px;margin-bottom:8px;font-size:11px;color:#fcd34d;line-height:1.4;display:none}
+  .status-msg{text-align:center;font-size:11px;font-weight:600;min-height:14px;margin-bottom:5px}
+  .err-msg{color:#b91c1c;font-size:12px;text-align:center;margin-top:8px;display:none}
+  .loading{text-align:center;padding:20px 0;color:#4a6741;font-size:14px}
+  .expired-icon,.success-icon{font-size:36px;margin:8px 0;text-align:center}
+  .expired-title,.success-msg{font-family:'Bebas Neue',sans-serif;font-size:20px;color:#1a2f1a;letter-spacing:1px;text-align:center}
+  .expired-msg,.success-sub{font-size:12px;color:#4a6741;line-height:1.5;text-align:center;margin-top:4px}
+  .ver{text-align:center;font-size:10px;color:#aaa;margin-top:10px}
+  .close-btn{position:absolute;top:-10px;right:-10px;width:26px;height:26px;border-radius:50%;background:#c9a227;border:none;color:#1a2f1a;font-size:14px;font-weight:700;cursor:pointer}
+  .divider{height:1px;background:#ddd;margin:5px 0;}
+</style>
+</head>
+<body>
+<div style="position:relative;width:100%;max-width:400px;">
+  <div class="card" id="card"><div class="loading">Loading…</div></div>
+  <button class="close-btn" onclick="history.length>1?history.back():window.close()">✕</button>
+</div>
+<script>
+const FB_BASE = 'https://bzs-golf-apps-default-rtdb.firebaseio.com/bz-apps/madgolf';
+const RSVP_VERSION = '3.2';
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+const params    = new URLSearchParams(location.search);
+const sessionId = params.get('s') || '';
+
+function isExpired() {
+  const d = window._sessionDate;
+  if (!d) return false;
+  const [y,m,dy] = d.split('-').map(Number);
+  return new Date() > new Date(y, m-1, dy, 17, 0, 0);
+}
+function effectiveDate() { return window._sessionDate || ''; }
+function fmtDate(d) {
+  if (!d) return '';
+  return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+}
+function decodePhone(s){if(!s)return'';try{const d=atob(s);return/^[0-9]+$/.test(d)?d:s;}catch(e){return s;}}
+function fmtPhoneInput(el){const d=el.value.replace(/\D/g,'').slice(0,10);if(d.length<=3)el.value=d;else if(d.length<=6)el.value='('+d.slice(0,3)+') '+d.slice(3);else el.value='('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6);}
+
+let fullState=null, session=null, players=[], subs=[];
+let selectedStatus=null, selectedEarliest=null, subBlockOpen=false;
+
+function toArr(v) { return v ? (Array.isArray(v) ? v : Object.values(v)) : []; }
+
+async function fetchWT(url,opts={},ms=10000){
+  const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);
+  try{const r=await fetch(url,{...opts,signal:c.signal});clearTimeout(t);return r;}
+  catch(e){clearTimeout(t);throw e;}
+}
+
+async function init() {
+  const card = document.getElementById('card');
+  try {
+    const resp = await fetchWT(`${FB_BASE}/state.json`);
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+    fullState = await resp.json();
+    session = null;
+    if (sessionId && fullState.sessions) session = toArr(fullState.sessions).find(s=>s.id===sessionId);
+    // No activeSession fallback — MadGolf uses events[].sessions[]
+    if (!session) throw new Error('Session not found');
+    players = (fullState.players||[]).filter(p=>p.regular).sort((a,b)=>(a.name||'').localeCompare(b.name));
+    subs    = (fullState.players||[]).filter(p=>!p.regular).sort((a,b)=>(a.name||'').localeCompare(b.name));
+    if (!players.length) throw new Error('No players found');
+    // League and season names
+    window._leagueName = fullState.league?.name || '';
+    const season = (fullState.seasons||[]).find(s => s.id === session.seasonId);
+    window._seasonName = season ? season.name : '';
+    // Always use session.date from Firebase — overrides stale URL param
+    if (session.date) window._sessionDate = session.date;
+    // Check expiry using actual session date (not stale URL param)
+    if (isExpired()) { card.innerHTML = expiredHTML(); return; }
+  } catch(e) { card.innerHTML = errorHTML(e.message); return; }
+  // Auto-submit quick yes if r=in and pid known
+  if (autoRsvp === 'in' && playerId) {
+    await autoSubmitYes();
+    return;
+  }
+  renderForm();
+}
+
+async function autoSubmitYes() {
+  const card = document.getElementById('card');
+  card.innerHTML = `
+    <div class="card-header"><div>
+      <div class="logo">${window._leagueName||''}</div>
+      <div class="subtitle">${window._seasonName ? window._seasonName + ' · RSVP' : 'League RSVP'}</div>
+    </div><div class="date-badge" id="rsvp-date-badge">${fmtDate(session.date||effectiveDate())}</div></div>
+    <div style="text-align:center;padding:30px 10px;">
+      <div style="font-size:48px;margin-bottom:12px;">⛳</div>
+      <div style="font-size:22px;font-weight:700;margin-bottom:6px;">Saving your Yes…</div>
+    </div>`;
+  try {
+    const fresh = await fetchWT(`${FB_BASE}/state.json`);
+    if (!fresh.ok) throw new Error('Could not read state');
+    const state = await fresh.json();
+    const events = toArr(state.events || []);
+    const league = leagueId
+      ? events.find(e=>e.type==='league'&&e.id===leagueId)
+      : events.find(e=>e.type==='league');
+    let sess = null;
+    if (league && sessionId) sess = toArr(league.sessions||[]).find(s=>s.id===sessionId);
+    if (!sess) throw new Error('Session not found');
+    if (!sess.rsvp) sess.rsvp = {};
+
+    const entry = {
+      status: 'in',
+      earliest: (sess.teeTimes||[])[0] || null,
+      autoIn: true   // flag so manager knows this was a quick-yes (no start time preference)
+    };
+    sess.rsvp[playerId] = entry;
+
+    const resp = await fetchWT(`${FB_BASE}/state.json`,
+      {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(state)});
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+
+    const p = players.find(pl=>pl.id===playerId);
+    const name = p ? (p.name.includes(',') ? p.name.split(',')[1].trim().split(' ')[0] : p.name.split(' ')[0]) : 'You';
+    card.innerHTML = `
+      <div class="card-header"><div>
+        <div class="logo">${window._leagueName||''}</div>
+        <div class="subtitle">${window._seasonName ? window._seasonName + ' · RSVP' : 'League RSVP'}</div>
+      </div><div class="date-badge">${fmtDate(sess.date||effectiveDate())}</div></div>
+      <div style="text-align:center;padding:30px 10px;">
+        <div style="font-size:56px;margin-bottom:12px;">⛳</div>
+        <div style="font-size:24px;font-weight:700;color:#166534;margin-bottom:8px;">You're In, ${esc(name)}!</div>
+        <div style="font-size:14px;color:#555;margin-bottom:20px;">Hit 'em straight!</div>
+        <a href="${location.href.replace(/[&?]r=in/,'')}"
+          style="font-size:13px;color:#888;text-decoration:underline;">
+          Change start time or mark out →
+        </a>
+      </div>
+      <div class="ver">RSVP v${RSVP_VERSION}</div>`;
+  } catch(e) {
+    card.innerHTML = errorHTML(e.message);
+  }
+}
+
+function expiredHTML(){return`<div class="card-header"><div><div class="logo">${window._leagueName||''}</div><div class="subtitle">${window._seasonName?window._seasonName+' · RSVP':'League RSVP'}</div></div><div class="date-badge">${fmtDate(effectiveDate())}</div></div><div class="expired-icon">⏰</div><div class="expired-title">Link Expired</div><div class="expired-msg">Expired at 5pm on ${fmtDate(effectiveDate())}.<br>Contact your league manager.</div>`;}
+function errorHTML(msg){return`<div class="logo">${window._leagueName||''}</div><div class="expired-icon">⚠️</div><div class="expired-title">Unavailable</div><div class="expired-msg">Could not load session data.<br><small style="color:#aaa">${esc(msg)}</small></div>`;}
+
+function renderForm() {
+  const card = document.getElementById('card');
+  const teeTimes = session.teeTimes || ['5:20','5:30','5:40','5:50','6:00'];
+  const ttOpts   = teeTimes.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  const subOpts  = subs.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const playerOpts = players.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+
+  card.innerHTML = `
+    <div class="card-header">
+      <div>
+        <div class="logo">${window._leagueName||''}</div>
+        <div class="subtitle">${window._seasonName ? window._seasonName + ' · RSVP' : 'League RSVP'}</div>
+        ${welcomeMsg ? `<div style="font-size:13px;color:#555;margin-top:6px;">${esc(welcomeMsg)}</div>` : ''}
+      </div>
+      <div class="date-badge" id="rsvp-date-badge">${fmtDate(session.date||effectiveDate())}</div>
+    </div>
+
+    <label>Your Name</label>
+    <select id="player-select" onchange="onPlayerChange()">
+      <option value="">— Select your name —</option>${playerOpts}
+    </select>
+
+    <div id="rsvp-section" style="display:none;">
+      <label>Are you playing?</label>
+      <div class="btn-row">
+        <button class="btn" id="btn-in"  onclick="selectStatus('in')">✓ I'm In</button>
+        <button class="btn" id="btn-out" onclick="selectStatus('out')">✗ Can't Make It</button>
+      </div>
+      <div class="status-msg" id="status-msg"></div>
+
+      <div id="in-section" style="display:none;">
+        <label>Earliest tee time I can make</label>
+        <select id="earliest-select" onchange="selectedEarliest=this.value" style="margin-bottom:4px;">${ttOpts}</select>
+        <div style="font-size:11px;color:#4a6741;margin-bottom:10px;font-style:italic;">We'll do our best to accommodate your request.</div>
+      </div>
+
+      <div id="out-section" style="display:none;">
+        <button class="btn-toggle" id="sub-toggle" onclick="toggleSubBlock()">+ Add a Sub</button>
+        <div id="sub-block" style="display:none;">
+          <div class="section-box">
+            <div class="section-title">Sub Details</div>
+            <label>Pick from roster</label>
+            <select id="sub-select" style="margin-bottom:8px;" onchange="onSubSelectChange()">
+              <option value="">— Select a sub —</option>
+              <option value="manager_pick">⭐ League Manager Pick</option>
+              ${subOpts}
+            </select>
+            <div class="divider"></div>
+            <div style="font-size:11px;font-weight:700;color:#4a6741;text-transform:uppercase;letter-spacing:.5px;margin:8px 0 6px;">Or — New Sub</div>
+            <input type="text" id="guest-name" placeholder="Full name" style="margin-bottom:6px;">
+            <input type="tel" id="guest-phone" placeholder="(330) 555-0000" inputmode="numeric" oninput="fmtPhoneInput(this)" style="margin-bottom:6px;">
+            <input type="number" id="guest-hcp" step="0.1" min="-10" max="54" placeholder="Handicap index (optional)" style="margin-bottom:0;">
+          </div>
+        </div>
+      </div>
+
+      <div class="section-box">
+        <div class="section-title">Your Info</div>
+        <div class="nudge" id="phone-nudge">📱 Add your mobile so we can send tee time updates!</div>
+        <label>Mobile Number</label>
+        <input type="tel" id="phone-input" placeholder="(330) 555-0000" inputmode="numeric" oninput="fmtPhoneInput(this)" style="margin-bottom:8px;">
+        <div class="row2">
+          <div><label>GHIN #</label><input type="tel" id="ghin-input" placeholder="e.g. 11695577" inputmode="numeric"></div>
+          <div><label>Index</label><input type="number" id="hcp-input" step="0.1" min="-10" max="54" placeholder="14.2"></div>
+        </div>
+      </div>
+
+      <button class="btn-save" id="btn-save" onclick="submitRsvp()">Submit Response</button>
+      <div class="err-msg" id="err-msg"></div>
+    </div>
+    <div class="ver">RSVP v${RSVP_VERSION}</div>`;
+}
+
+function toggleSubBlock() {
+  subBlockOpen = !subBlockOpen;
+  const block  = document.getElementById('sub-block');
+  const toggle = document.getElementById('sub-toggle');
+  if (block)  block.style.display  = subBlockOpen ? '' : 'none';
+  if (toggle) toggle.textContent   = subBlockOpen ? '− Remove Sub' : '+ Add a Sub';
+  if (!subBlockOpen) {
+    // Clear sub fields when closing
+    const ss = document.getElementById('sub-select');
+    const gn = document.getElementById('guest-name');
+    const gp = document.getElementById('guest-phone');
+    const gh = document.getElementById('guest-hcp');
+    if (ss) ss.value = '';
+    if (gn) gn.value = '';
+    if (gp) gp.value = '';
+    if (gh) gh.value = '';
+  }
+}
+
+function onSubSelectChange() {
+  // If roster sub selected, clear new sub fields
+  const val = document.getElementById('sub-select').value;
+  if (val) {
+    const gn = document.getElementById('guest-name');
+    const gp = document.getElementById('guest-phone');
+    const gh = document.getElementById('guest-hcp');
+    if (gn) gn.value = '';
+    if (gp) gp.value = '';
+    if (gh) gh.value = '';
+  }
+}
+
+function onPlayerChange() {
+  const pid = document.getElementById('player-select').value;
+  const sec = document.getElementById('rsvp-section');
+  if (!pid) { sec.style.display='none'; return; }
+  sec.style.display = 'block';
+  const p = players.find(pl=>pl.id===pid);
+  if (p) {
+    document.getElementById('hcp-input').value  = p.hcp != null ? p.hcp : '';
+    document.getElementById('ghin-input').value = p.ghin || '';
+    const phoneDigits = decodePhone(p.phone||'');
+    document.getElementById('phone-input').value = phoneDigits.length===10
+      ? '('+phoneDigits.slice(0,3)+') '+phoneDigits.slice(3,6)+'-'+phoneDigits.slice(6) : '';
+    document.getElementById('phone-nudge').style.display = (!p.phone) ? 'block' : 'none';
+    const existing = session.rsvp?.[pid];
+    if (existing) {
+      selectStatus(existing.status || 'in');
+      if (existing.earliest) { const el=document.getElementById('earliest-select'); if(el){el.value=existing.earliest;selectedEarliest=existing.earliest;} }
+      if (existing.subId || existing.guestName) {
+        subBlockOpen = false; toggleSubBlock(); // open it
+        if (existing.subId) { const el=document.getElementById('sub-select'); if(el) el.value=existing.subId; }
+        if (existing.guestName) {
+          const gn=document.getElementById('guest-name');
+          const gp=document.getElementById('guest-phone');
+          const gh=document.getElementById('guest-hcp');
+          if(gn) gn.value=existing.guestName;
+          if(gp && existing.guestPhone){const d=existing.guestPhone;gp.value=d.length===10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):d;}
+          if(gh && existing.guestHcp!=null) gh.value=existing.guestHcp;
+        }
+      }
+    } else { selectStatus('in'); }
+  }
+}
+
+function selectStatus(status) {
+  selectedStatus = status;
+  document.getElementById('btn-in').className  = status==='in'  ? 'btn selected-in'  : 'btn';
+  document.getElementById('btn-out').className = status==='out' ? 'btn selected-out' : 'btn';
+  const msg = document.getElementById('status-msg');
+  if (msg){msg.textContent=status==='in'?'✓ Great — see you on the course!':'✗ Got it — maybe next time!';msg.style.color=status==='in'?'#166534':'#b91c1c';}
+  document.getElementById('in-section').style.display  = status==='in'  ? '' : 'none';
+  document.getElementById('out-section').style.display = status==='out' ? '' : 'none';
+  if (status==='in'&&!selectedEarliest){const el=document.getElementById('earliest-select');if(el)selectedEarliest=el.value;}
+}
+
+async function submitRsvp() {
+  if (isExpired()) { showErr('⏰ This link has expired.'); return; }
+  const pid = document.getElementById('player-select').value;
+  if (!pid) { showErr('Please select your name.'); return; }
+  if (!selectedStatus) { showErr('Please select In or Out.'); return; }
+  const btn = document.getElementById('btn-save');
+  btn.textContent='Saving…'; btn.disabled=true; hideErr();
+  try {
+    const fresh = await fetchWT(`${FB_BASE}/state.json`);
+    if (!fresh.ok) throw new Error('Could not read state');
+    const state = await fresh.json();
+    let sess = null;
+    // MadGolf: leagues in events[], find by leagueId then sessionId
+    const events = toArr(state.events || []);
+    const league = leagueId
+      ? events.find(e=>e.type==='league'&&e.id===leagueId)
+      : events.find(e=>e.type==='league');
+    if (league && sessionId) sess = toArr(league.sessions||[]).find(s=>s.id===sessionId);
+    if (!sess) throw new Error('Session not found');
+    if (!sess.rsvp) sess.rsvp = {};
+
+    const entry = { status: selectedStatus };
+    if (selectedStatus==='in') {
+      entry.earliest = selectedEarliest || (sess.teeTimes||[])[0] || null;
+    }
+    if (selectedStatus==='out' && subBlockOpen) {
+      const subId     = document.getElementById('sub-select').value || null;
+      const guestName = document.getElementById('guest-name').value.trim() || null;
+      const guestPhoneRaw = (document.getElementById('guest-phone').value||'').replace(/\D/g,'');
+      const guestHcpVal   = parseFloat(document.getElementById('guest-hcp').value);
+      if (subId === 'manager_pick') {
+        entry.managerPick = true;
+      } else if (subId) {
+        entry.subId = subId;
+      } else if (guestName) {
+        entry.guestName = guestName;
+        if (guestPhoneRaw.length===10) entry.guestPhone = guestPhoneRaw;
+        if (!isNaN(guestHcpVal)) entry.guestHcp = guestHcpVal;
+      }
+    }
+    sess.rsvp[pid] = entry;
+
+    const p = (state.players||[]).find(pl=>pl.id===pid);
+    if (p) {
+      const hcpVal = parseFloat(document.getElementById('hcp-input').value);
+      if (!isNaN(hcpVal)) p.hcp = hcpVal;
+      const ghinVal = (document.getElementById('ghin-input').value||'').replace(/\D/g,'');
+      if (ghinVal) p.ghin = ghinVal;
+      const phoneRaw = (document.getElementById('phone-input').value||'').replace(/\D/g,'');
+      if (phoneRaw.length===10) p.phone = btoa(phoneRaw);
+    }
+
+    const resp = await fetchWT(`${FB_BASE}/state.json`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(state)});
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+
+    const card = document.getElementById('card');
+    const name = players.find(pl=>pl.id===pid)?.name||'You';
+    card.innerHTML = `
+      <div class="card-header"><div><div class="logo">${window._leagueName||''}</div><div class="subtitle">${window._seasonName?window._seasonName+' · RSVP':'League RSVP'}</div></div><div class="date-badge">${fmtDate(sess.date||effectiveDate())}</div></div>
+      <div class="success-icon">${selectedStatus==='in'?'⛳':'👋'}</div>
+      <div class="success-msg">${selectedStatus==='in'?"You're In!":'Got it!'}</div>
+      <div class="success-sub">${esc(name)}, your response has been saved.<br>${selectedStatus==='in'&&entry.earliest?'Earliest tee time: <strong>'+esc(entry.earliest)+'</strong><br>':''}${selectedStatus==='in'?'Hit \'em Straight!':'Thanks for letting us know!'}</div>
+      <div class="ver">RSVP v${RSVP_VERSION}</div>`;
+  } catch(e) {
+    btn.textContent='Submit Response'; btn.disabled=false;
+    showErr('⚠ Could not save: '+e.message);
+  }
+}
+
+function showErr(m){const e=document.getElementById('err-msg');if(e){e.style.display='block';e.textContent=m;}}
+function hideErr(){const e=document.getElementById('err-msg');if(e)e.style.display='none';}
+init();
+</script>
+</body>
+</html>
