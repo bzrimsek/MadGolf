@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.38  Build 2026-07-02 09:34 PM ET
+     Version : v0.90.49  Build 2026-07-04 10:04 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,47 +10,25 @@
 ============================================================ -->
 <!--
 CHANGELOG
-// v0.90.38  2026-07-02  Nav A (Outing): outingGoStep router + WORKFLOW.outing (linearNext:false — keeps the validating forward buttons). Players/Course/Format screens now show [Hub][< prev] TITLE with their existing forward button preserved; player-count header id kept via titleId param. Groups keeps its abandon-guard back; Teams stays a sub-screen. League stays hub-and-spoke (its screens are non-linear settings/lifecycle — linear nav does not apply). +7 tests (§114).
-// v0.90.37  2026-07-02  Nav A (Trip): shared workflowNav helper — every Trip workflow screen (roster/courses/schedule/pairings/results) now has a consistent [Hub][< prev] TITLE [next >] header wired to tripGoScreen. Pure workflowNeighbors resolves prev/next. Screen action buttons preserved via the extra param. +15 tests (§114).
-// v0.90.36  2026-07-02  Foursome: player select now allows 2-4 (was forcing exactly 4). Skins: fixed outing individual skins flooring away the half-stroke (halfStroke skins silently did not apply) — extracted skinsNetOnHole, shared by computeSkins + outingComputeResults so they cannot drift. Nassau: post-round summary rewritten to plain English (fsNassauSummary/fsNassauSegLabel). +10 tests (§112-113).
-// v0.90.35  2026-07-02  Foursome player select: removed regular auto-preselection (was pre-checking all regulars). Self stays pre-checked when My Player auto is on; guests and saved-pick restore unchanged; Regulars/Other/Guests section split unchanged.
-// v0.90.34  2026-07-02  Fix: Outing groups vanished after navigating away (hub/back/format) and everyone collapsed into one group on the scorecard — the group screen read the transient window._outingGroups without rehydrating from the persisted planning.groups, so a save would overwrite planning.groups with []. Now rehydrates on entry (skips partner formats, which reset to fresh pairs). +1 regression guard.
-// v0.90.33  2026-07-02  Fix: League standings scored every session against the league-default course and as 18 holes, ignoring per-session courseId and nineSide overrides. Extracted leagueSessionCtx(lg,s) (honors session course + hole set); leagueRenderResults and leagueRenderStandings now share it. Removed dead c/_par/_sfCfg from standings. +13 tests (§111).
-// v0.90.32  2026-07-02  Housekeeping (code-review remediation): consolidated the two changelog blocks into one canonical header block (full .31→.77 history) and set bump.py to write it once; removed dead publishKey scaffolding (3 sites, never read). No behavior change.
-// v0.90.31  2026-07-02  Fix: League standings rendered its row template as literal source text (backslash-escaped `${rows.map}` inside the outer template) — extracted rowsHtml and interpolated unescaped. Fix: completed league session had no path home — added "← Back to League" button on the completed results screen. +3 regression guards.
-// v0.90.30  2026-07-02  Trip Publish (ported from Golf Trip v2.35): templated intro ({destination}/{dates}) + full itinerary, sent by Text/Email/Both; live preview modal; template persists in config.tripPublishMsg. Extracted shared tripItineraryBody so Publish and Send Schedule stay in sync. +14 tests (§110)
-// v0.90.29  2026-07-02  League standings: countback tie-break (leagueAccumCountback/leagueCmpCountback, mirrors tripCountback; skips no-gross sessions); removed dead allPids+podiums; merged the two per-session scoring loops into one pass. Trip: removed duplicate roster ⎘ Last button. bump.py: three-part auto-increment (patch rolls at 100) + madgolf UI check. JS changelog de-collapsed. +19 tests (§109)
-// v0.90.28  2026-07-02  SW auto-update: page posts SKIP_WAITING when safe; _swIsScoring() defers activation during an active round (toast + manual reload); forced reg.update() on load; guarded controllerchange single-reload
-// v0.90.16-.27  2026-06-29 → 2026-07-02  Collapsed — iterative patches (test-suite work + SW auto-update groundwork); individual entries were not recorded
-// v0.90.15  2026-06-29  §96-100 tests: toArr/phone/uid/stripPII utilities; bestShell tie-break (prefers more-filled shell); leaguePartnersSub; tripFmtBadge; tripGetPairHistory (skips championship rounds)
-// v0.90.14  2026-06-29  §87-90 tests: simple lookups, XSS/injection, contra/wrong inputs, edge cases; pEmpty hcp typo fix
-// v0.90.13  2026-06-29  §81-86 tests: tripPlayerIds/Players/Manager, tripDayLabel/FmtShort, tripCourseById, tripScoringCtx, tripLeaderboard sort, outingDealAbcd
-// v0.90.12  2026-06-29  §61-70 tests: fsCalcOneMatch, wolfCalcTotals/Settlement, outingBuildTeams, leagueBuildPool, leagueGetEstablishedPartner, leagueBuildEstablishedTeams, tripAssignBorrows, leagueDealAbcd; const total= moved to before summary
-// v0.90.11  2026-06-28  §58A-I skins tests: half-stroke, SOB, 90% adj, no-scores, 3-way tie, outright win, gross-only, 9-hole
-// v0.90.10  2026-06-26  Skins half-stroke fix: gross-skinsStrokes not Math.floor; stroked birdie beats unstroked
-// v0.90.9  2026-06-26  Outing scoring Hub back goes to hub not groups
-// v0.90.8  2026-06-26  Hub: Game renamed; Scoring card goes straight to scoring
-// v0.90.7  2026-06-26  Group reorder: drag replaced with ▲▼ buttons
-// v0.90.6  2026-06-26  Scoring crash: unassigned players fall into first group
-// v0.90.5  2026-06-26  Changelog rendered as page text fixed
-// v0.90.4  2026-06-26  Groups screen crash: tts undefined — renamed to ttsAll in rewrite
-// v0.90.3  2026-06-26  Format picker: 2BB/3-2-1 hidden when Shamble selected (they are result methods, not separate games)
-// v0.90.2  2026-06-26  Outing: format picker stays on screen; group name = tee time, drag to reorder; Hub back always works; outingFinish sets status=complete; changelog cleaned
-// v0.90.1  2026-06-26  Three-part versioning: bump.py handles major.minor.patch; patch rolls at 100; fixes 0.72.14→0.73 skip
-// v0.90  2026-06-26  Course picker: card-style rows, HOME/★ badges, Home/My/Other sections, auto-select home; same in League+Trip
-// v0.89  2026-06-26  Consistent Save: Finalize→ → Save→ across 9 Foursome scorecards; 💾 Save Session in League
-// v0.88  2026-06-26  League+Trip collapsible hub sections; League game type click bubbling fixed; skins toggle on game type screen
-// v0.87  2026-06-26  Outing workflow: Course→Tee Times→Format→Groups→Scoring; Tee Times save opens Format; Groups→Scoring restored
-// v0.86  2026-06-26  Outing forward chain: Players→Course→, Course→Tee Times→, Format→Groups→; hub card order matches workflow
-// v0.85  2026-06-26  Nav pattern [← Back][TITLE][page btns][→] on all outing screens; no screen has >1 back button
-// v0.84  2026-06-26  Outing scoring: outingOnScoreInput added; By Player/Hole no re-render; outingNavGroup fixes Next Group
-// v0.83  2026-06-26  Outing: scoring-first format picker (filters games); Scoring card on hub; Groups tee time per group
-// v0.82  2026-06-26  Wolf unlock after selection; Clear History live; normalizeState merge adds missing game sub-keys
-// v0.81  2026-06-26  Wolf: highlight all 18 holes, Blind/Lone disabled, inputs locked until selection; History tab deduped
-// v0.80  2026-06-26  History: dedicated 📋 tab; renderHistory with per-game delete and Clear All
-// v0.79  2026-06-26  10-bug pass: History, double-tap finalize, Wolf button layout, Wolf auto-advance, captain cell border
-// v0.78  2026-06-26  Nassau match play: nassauMode=match|stroke; X UP/Dormie/AS banners; 31 new tests
-// v0.77  2026-06-26  Team/partner scoring: teamSize/teamAssign/teams[]; format picker scoring-first; league season partners
+// v0.90.49  2026-07-04  Consolidation fixes. #4 Admin: relabeled Delete Data to Remove (removes the registry entry only; the hardened rules block admin from deleting another user golf data), honest confirm text, removed the dead state.json DELETE that always 403s. #5 Renamed leagueActiveSession to leagueFirstOpenSession (it is the first incomplete session, not the open one) to end the near-identical clash with leagueCurrentSession. #6 Converted the one plain-text openConfirm to confirmDo; the other openConfirm stays (renders an HTML preview confirmDo cannot).
+// v0.90.48  2026-07-04  League and Outing now have an HC Adjustment (allowance) %, completing the courseHandicap work. League: per-season strokeAllowance (picker in Seasons and Schedules; migration default 100; inherited by new seasons; scoring resolves it via leagueSessionAllowance from the session season). Outing: per-outing strokeAllowance (picker in the format screen; migration default 100; applied in _outingDoStart via courseHandicap). Both plug into the shared courseHandicap function. +7 tests (S120).
+// v0.90.47  2026-07-04  Scoring-context consolidation (#5) + Trip HC-adjustment fix. Added courseHandicap() as the single scoring course-handicap function (raw x allowance, rounded), used by buildScoringCtx, tripScoringCtx, and both league scoring paths. FIXES a real bug: Trip HC Adjustment % was cosmetic (tripScoringCtx used calcCourseHcp with no allowance and the scorer never re-applied it), so a 90% trip scored like 100%; it now applies. Works per-course, so multi-course Trips call it per round. League/outing unchanged (no allowance UI; 100% == calcCourseHcp). calcCourseHcp kept for team balancing/display. +9 tests (S119) with drift guards. NOTE: trips with a non-100% allowance will now score differently (correctly).
+// v0.90.46  2026-07-04  Render-output capture (#6): harness now runs fsRender synchronously and captures the produced HTML (captureRender), asserting no unrendered ${...} template and no [object Object] across 7 key screens (S118). Reaches the render layer smoke() could not — the class of bug that once showed standings as source text is now covered. Test-only; app code unchanged.
+// v0.90.45  2026-07-04  Admin tab: added per-user volume of use. Each user app publishes a counts-only usage summary (games / outings / leagues+sessions / trips+rounds) to its own admin registry node on sign-in (adminUsageSummary); the admin tab shows it per user via adminUsageLine, alongside the existing Last-seen, Suspend, and Delete. No user data contents are exposed (admin cannot read user golf data by design). +10 tests (S117).
+// v0.90.44  2026-07-04  Error surfacing (#7): fbWrite now toasts once on permanent sync failure ("working offline — changes saved on this device") and once on recovery ("back online — synced"), gated so it does not spam. (Sync status indicator + Log tab + retry-with-backoff already existed.) Tooling: bump.py refuses to bump onto an already-shipped version (lock-file collision guard, #4); git-pre-push-hook.sh added to make ship.py unskippable (#3).
+// v0.90.43  2026-07-04  Changelog collapsed (45 entries → 12) — recent versions terse, older folded into ranges. Consolidation pass; no behavior change.
+// v0.90.42  2026-07-04  Loose ends: create-modal weeknight removed; Partners copy-from-last-season. Rule 31 added.
+// v0.90.41  2026-07-04  League shotgun start + 9/18 season config; per-group shotgun hole picker.
+// v0.90.40  2026-07-04  League schedule (weeknight + tee times) moved onto the season; Seasons & Schedules screen replaces Tee Times.
+// v0.90.37-.39  2026-07-04  Nav A: shared workflowNav (prev / hub / next) across Trip, Outing, League.
+// v0.90.36  2026-07-02  Foursome 2-4 players; skins half-stroke fix (skinsNetOnHole, shared); Nassau plain-English summary.
+// v0.90.35  2026-07-02  Foursome: removed regular auto-preselection (kept self + section split).
+// v0.90.34  2026-07-02  Outing groups no longer vanish on navigation (rehydrate from planning.groups).
+// v0.90.33  2026-07-02  League standings honor per-session course + nineSide (leagueSessionCtx extracted).
+// v0.90.31-.32  2026-07-02  Standings escaped-template render fix; two changelog blocks consolidated; dead publishKey removed.
+// v0.90.29-.30  2026-07-02  Standings countback tie-break; Trip Publish (Text / Email / Both) ported from Golf Trip.
+// v0.90.1-.28   2026-06-26 to 06-29  Three-part versioning; Outing workflow (scoring-first picker, groups, Wolf); Nassau/DOC/skins; History tab.
+// v0.77-.90     2026-06-26  Initial build: team/partner scoring, Nassau match play, skins, course picker, consistent nav + save.
 -->
 <html lang="en">
 <head>
@@ -971,17 +949,6 @@ input:checked+.slider:before{transform:translateX(20px);}
   <div class="modal">
     <h2 id="leagueModal-title">New League</h2>
     <div class="field"><label>Name</label><input type="text" id="leagueModal-name" placeholder="e.g. Walden Wednesday Night" style="width:100%;"></div>
-    <div class="field"><label>Night</label>
-      <select id="leagueModal-dow" style="width:100%;">
-        <option value="0">Sunday</option>
-        <option value="1">Monday</option>
-        <option value="2">Tuesday</option>
-        <option value="3">Wednesday</option>
-        <option value="4">Thursday</option>
-        <option value="5">Friday</option>
-        <option value="6">Saturday</option>
-      </select>
-    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('leagueModal')">Cancel</button>
       <button class="btn btn-gold" onclick="leagueSaveModal()">Save</button>
@@ -1184,8 +1151,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.38';
-const BUILD_TIME = '2026-07-02 09:34 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.49';
+const BUILD_TIME = '2026-07-04 10:04 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1346,6 +1313,7 @@ function normalizeState(raw) {
         if (!ev.eventDate)   ev.eventDate   = null;
         if (!ev.status)      ev.status      = 'active'; // backwards compat
         if (!ev.teamSize)    ev.teamSize    = null;     // null=individual, 2|3|4=team scoring
+        if (ev.strokeAllowance == null) ev.strokeAllowance = 100;  // HC adjustment %
         if (!ev.teamAssign)  ev.teamAssign  = 'blind_ab'; // blind_ab|blind_random|manual
         if (!ev.teams)       ev.teams       = [];       // scoring teams, independent of groups
         if (!ev.pairMode)    ev.pairMode    = 'ab';     // ab|random for blind draw
@@ -1364,21 +1332,22 @@ function normalizeState(raw) {
           if (!sn.active)   sn.active   = false;
         });
         if (!ev.status)           ev.status           = 'active';
-        if (!ev.teeTimes)         ev.teeTimes         = ['5:20','5:30','5:40','5:50','6:00'];
         if (!ev.groupManagerIds)  ev.groupManagerIds  = [];
         if (!ev.pairMode)         ev.pairMode         = 'ab';
         if (!ev.groupMethod)      ev.groupMethod      = 'random';
         if (!ev.skins)            ev.skins            = {hcpAdj:100,halfStroke:false,strokeOffBest:false};
-        // Migrate old 'day' string field to numeric dayOfWeek
-        if (ev.dayOfWeek == null) {
-          const d = {'WED':3,'THU':4,'FRI':5,'SAT':6}[ev.day||''];
-          ev.dayOfWeek = d != null ? d : (new Date().getDay());
+        // Legacy: convert old 'day' string to numeric dayOfWeek (only if present)
+        if (ev.dayOfWeek == null && ev.day) {
+          const d = {'WED':3,'THU':4,'FRI':5,'SAT':6}[ev.day];
+          if (d != null) ev.dayOfWeek = d;
         }
+        // Schedule (dayOfWeek + teeTimes) now lives on the active season — migrate legacy fields
+        leagueMigrateSchedule(ev);
         ev.sessions.forEach(s => {
           if (!s.rsvp)        s.rsvp        = {};
           if (!s.groups)      s.groups      = [];
           if (!s.scores)      s.scores      = {};
-          if (!s.teeTimes)    s.teeTimes    = [...ev.teeTimes];
+          if (!s.teeTimes)    s.teeTimes    = [...leagueActiveSeason(ev).teeTimes];
           if (s.completed == null) s.completed = false;
           // Migrate old rsvp format: {pid:'in'} → {pid:{status:'in',earliest:''}}
           Object.entries(s.rsvp).forEach(([pid,v]) => {
@@ -1530,6 +1499,33 @@ function scheduleWrite() {
 const ADMIN_UID  = 'QTKjcW0ArKPae2Y0uGicSKhwjnr1';
 const ADMIN_BASE = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/admin';
 
+/** Volume-of-use summary for the admin registry — counts only, never data contents. */
+function adminUsageSummary(S) {
+  const ev = (S && S.events) || [];
+  const of = t => ev.filter(e => e && e.type === t);
+  const leagues = of('league'), trips = of('trip');
+  return {
+    foursome: of('foursome').length,
+    outings:  of('outing').length,
+    leagues:  leagues.length,
+    trips:    trips.length,
+    sessions: leagues.reduce((a,l) => a + ((l.sessions||[]).length), 0),
+    rounds:   trips.reduce((a,t) => a + ((t.rounds||[]).length), 0),
+  };
+}
+
+/** One-line volume summary for the admin tab (counts only). */
+function adminUsageLine(usage) {
+  if (!usage) return 'usage updates on next sign-in';
+  const plur = (n, w) => (n||0) + ' ' + w + ((n||0) !== 1 ? 's' : '');
+  return [
+    plur(usage.foursome, 'game'),
+    plur(usage.outings, 'outing'),
+    plur(usage.leagues, 'league') + (usage.sessions ? ' (' + usage.sessions + ' sess)' : ''),
+    plur(usage.trips, 'trip') + (usage.rounds ? ' (' + usage.rounds + ' rds)' : ''),
+  ].join(' · ');
+}
+
 async function adminSelfRegister(user) {
   try {
     const token = await getIdToken();
@@ -1543,6 +1539,7 @@ async function adminSelfRegister(user) {
       firstSeen: existing?.firstSeen || Date.now(),
       lastSeen:  Date.now(),
       disabled:  existing?.disabled || false,
+      usage:     adminUsageSummary(S),
     };
     await fetchWithTimeout(url, {
       method: 'PUT',
@@ -1588,10 +1585,10 @@ async function adminSetDisabled(uid, disabled) {
   }, 5000);
 }
 
-async function adminDeleteUserData(uid) {
+async function adminRemoveUser(uid) {
   const token = await getIdToken();
-  const stateUrl = `https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/${uid}/state.json?auth=${token}`;
-  await fetchWithTimeout(stateUrl, {method:'DELETE'}, 5000);
+  // Only the admin registry entry can be removed here — the hardened rules prevent admin
+  // from writing (or deleting) another user's golf data. Their data stays in their own account.
   const regUrl = `${ADMIN_BASE}/users/${uid}.json?auth=${token}`;
   await fetchWithTimeout(regUrl, {method:'DELETE'}, 5000);
 }
@@ -1635,8 +1632,8 @@ async function adminRenderTab() {
           ${dis ? '✓ Restore Access' : '⛔ Suspend'}
         </button>
         <button class="btn btn-sm btn-outline" style="font-size:11px;color:var(--red);border-color:var(--red);"
-          onclick="adminConfirmDelete('${u.uid}','${esc(u.name||u.email||u.uid)}')">
-          🗑 Delete Data
+          onclick="adminConfirmRemove('${u.uid}','${esc(u.name||u.email||u.uid)}')">
+          🗑 Remove
         </button>
       </div>` : '';
     return `<div style="padding:12px;border-bottom:1px solid var(--surf3);${dis?'opacity:0.55;':''}">
@@ -1647,6 +1644,9 @@ async function adminRenderTab() {
           <div style="font-size:11px;color:var(--muted);">${esc(u.email||'—')}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">
             Joined ${fmtDate(u.firstSeen)} · Last seen ${fmtTime(u.lastSeen)}
+          </div>
+          <div style="font-size:10px;color:var(--g800);font-weight:600;margin-top:2px;">
+            ${adminUsageLine(u.usage)}
           </div>
         </div>
       </div>
@@ -1672,14 +1672,14 @@ async function adminToggleDisabled(uid, disable) {
   } catch(e) { toast('Failed: ' + e.message); }
 }
 
-function adminConfirmDelete(uid, name) {
+function adminConfirmRemove(uid, name) {
   confirmDo(
-    'Delete User Data',
-    `Permanently delete all app data for ${name}? Their Google account is unaffected — they can sign back in but will start fresh.`,
+    'Remove User',
+    `Remove ${name} from the admin list? Their golf data stays in their own account — it can't be deleted from here. They'll reappear if they sign in again.`,
     async () => {
       try {
-        await adminDeleteUserData(uid);
-        toast('User data deleted');
+        await adminRemoveUser(uid);
+        toast('User removed');
         adminRenderTab();
       } catch(e) { toast('Failed: ' + e.message); }
     }
@@ -1725,6 +1725,7 @@ async function fbWrite(data, attempt = 0) {
     localStorage.removeItem(LS_KEY + '_dirty');
     setSyncStatus('synced', '#86efac');
     appLog('Firebase sync OK');
+    if (window._fbOffline) { window._fbOffline = false; toast('Back online — synced ✓'); }
   } catch(e) {
     if (attempt < 3) {
       setTimeout(() => fbWrite(data, attempt + 1), 2000 * Math.pow(2, attempt));
@@ -1732,6 +1733,7 @@ async function fbWrite(data, attempt = 0) {
     } else {
       setSyncStatus('offline', '#f87171');
       appLog('Firebase sync failed: ' + e.message);
+      if (!window._fbOffline) { window._fbOffline = true; toast('Sync failed — working offline. Changes are saved on this device.'); }
     }
   }
 }
@@ -2563,6 +2565,13 @@ function calcPlayingHcp(raw, adjPct) {
   if (raw < 0) return roundHalfAwayZero(roundHalfAwayZero(raw) * adj);
   return roundHalfAwayZero(raw * adj);
 }
+/** Playing course handicap = raw course handicap × allowance%, rounded. The SINGLE source for
+ *  course handicap (with HC-adjustment) across all modules. Takes course figures as arguments,
+ *  so single-course modules (league/outing/foursome) pass their one course and multi-course
+ *  Trips call it per round with that round's course. */
+function courseHandicap(hcpIdx, slope, rating, par, allowance, nineHole) {
+  return calcPlayingHcp(calcRawCourseHcp(hcpIdx, slope, rating, par, nineHole), allowance);
+}
 /** Stableford quota: 36 − courseHcp (18-hole) or 18 − courseHcp (9-hole). */
 function pointTarget(courseHcp, nineHole) {
   return (nineHole ? 18 : 36) - courseHcp;
@@ -2876,10 +2885,7 @@ function buildScoringCtx(players, course, nineMode, scores, groups, format, sett
   const strokeAllowance = (settings && settings.strokeAllowance) || 100;
   const withCH = (players || []).map(p => ({
     ...p,
-    courseHcp: calcPlayingHcp(
-      calcRawCourseHcp(p.hcp || 0, course.slope || 113, course.rating || 72, course.par || 72, is9),
-      strokeAllowance
-    )
+    courseHcp: courseHandicap(p.hcp || 0, course.slope || 113, course.rating || 72, course.par || 72, strokeAllowance, is9)
   }));
   return {
     players: withCH, course, activeHoles, hcpScale, is9, nineMode,
@@ -6779,6 +6785,10 @@ function outingRenderPlanFormat() {
         <button type="button" class="holes-toggle ${(!tsz&&k==='none')||(tsz===v)?'active':''}" style="flex:1;font-size:12px;padding:5px 0;"
           onclick="outingPlanSetTeamSize(${v===null?'null':v})">${l}</button>`).join('')}
     </div>
+    <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">HC ADJUSTMENT</div>
+    <select onchange="outingSetAllowance(this.value)" style="width:100%;font-size:13px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:7px 10px;margin-bottom:10px;">
+      ${[100,90,85,75,50].map(pct=>`<option value="${pct}" ${(o.strokeAllowance||100)===pct?'selected':''}>${pct}%</option>`).join('')}
+    </select>
     ${tsz ? `
     <div style="margin-bottom:10px;">
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">PARTNER ASSIGNMENT</div>
@@ -6872,6 +6882,11 @@ function outingRenderPlanFormat() {
   fsShowGameTab('🏆 Outing');
 }
 
+function outingSetAllowance(val) {
+  const o = outingCurrent(); if (!o) return;
+  o.strokeAllowance = parseInt(val) || 100;
+  scheduleWrite(); outingRenderPlanFormat();
+}
 function outingPlanSetTeamSize(sz) {
   const o = outingCurrent(); if (!o) return;
   o.teamSize = sz; // null=individual, 2|3|4
@@ -7955,8 +7970,9 @@ function _outingDoStart(rawPlayers, course, gameType) {
   const pids     = rawPlayers.map(p=>p.id);
   const nineSide = 'all'; // Outings always 18 holes
   const fullPar  = course.holes.reduce((a,h)=>a+h.par,0);
+  const allowance = (outingCurrent() && outingCurrent().strokeAllowance) || 100;
   const players  = rawPlayers.map(p=>{
-    const ch=calcCourseHcp(p.hcp||0,course.slope,course.rating,fullPar,false);
+    const ch=courseHandicap(p.hcp||0,course.slope,course.rating,fullPar,allowance,false);
     return {id:p.id,name:p.name,hcp:p.hcp||0,courseHcp:ch,isGuest:!!p.isGuest};
   });
   const method    = window._outingGroupMethod || 'random';
@@ -9896,6 +9912,9 @@ const WORKFLOW = {
   outing: { go:'outingGoStep', hub:'hub', linearNext:false, steps:[
     {id:'players',label:'PLAYERS'}, {id:'course',label:'COURSE'}, {id:'teetimes',label:'TEE TIMES'},
     {id:'format',label:'FORMAT'}, {id:'groups',label:'GROUPS'}, {id:'scoring',label:'SCORING'} ]},
+  league: { go:'leagueGoStep', hub:'hub', steps:[
+    {id:'course',label:'COURSE'}, {id:'seasons',label:'SEASONS & SCHEDULES'}, {id:'groupmethod',label:'GROUP METHOD'},
+    {id:'partners',label:'PARTNERS'}, {id:'sessions',label:'SESSIONS'}, {id:'standings',label:'STANDINGS'} ]},
 };
 /** Ordered prev/next steps for a workflow position. Pure — tested. */
 function workflowNeighbors(module, stepId) {
@@ -11079,10 +11098,12 @@ function tripScoringCtx(t,r){
   const pcts=sa.noHcp?[]:n>=4?(sa.p4||[25,20,15,10]):n===3?(sa.p3||[30,20,10]):(sa.p2||[35,15]);
   // Use locked HIs if set on the trip (locked at first round start)
   const locked = t.lockedHcps || {};
-  const players=allPlayers.map(p=>({...p,
-    hcp: locked[p.id]!=null ? locked[p.id] : p.hcp,
-    courseHcp:calcCourseHcp((locked[p.id]!=null?locked[p.id]:p.hcp)||0,c.slope||113,c.rating||72,c.par||72,is9)
-  }));
+  const strokeAllowance=(t.settings&&t.settings.strokeAllowance)||100;
+  const players=allPlayers.map(p=>{
+    const hi = locked[p.id]!=null ? locked[p.id] : p.hcp;
+    return {...p, hcp: hi,
+      courseHcp: courseHandicap(hi||0, c.slope||113, c.rating||72, c.par||72, strokeAllowance, is9)};
+  });
   return{players,course:c,activeHoles,hcpScale,is9,nineMode,scores:r.scores||{},groups:(r.groups||[]).map((gr,i)=>({playerIds:gr.playerIds||[],label:gr.teetime||('Group '+(i+1))})),format:r.format||'stroke',settings:{scramblePcts:pcts,strokeAllowance:(t.settings&&t.settings.strokeAllowance)||100,skins:(t.settings&&t.settings.skins)||{},sfCfg:S.config.games?.individual?.stableford||{},resultMethod:r.resultMethod||'best2',borrows:r.borrows||[]}};
 }
 
@@ -11454,6 +11475,37 @@ function leagueAll() {
 function leagueById(id) {
   return (S.events||[]).find(e=>e&&e.type==='league'&&e.id===id)||null;
 }
+/** Ensure a league has at least one season; return the active one (or the first). */
+function leagueActiveSeason(lg) {
+  if (!lg.seasons || !lg.seasons.length) {
+    lg.seasons = [{ id: uid(), name: 'Season 1', active: true, partners: [] }];
+  }
+  return lg.seasons.find(s => s.active) || lg.seasons[0];
+}
+
+/** One-time, idempotent migration: move legacy league-level dayOfWeek/teeTimes onto the active
+ *  season. After this, schedule lives on the season, not the league. Runs in normalizeState. */
+function leagueMigrateSchedule(lg) {
+  const season = leagueActiveSeason(lg);
+  if (lg.dayOfWeek != null && season.dayOfWeek == null) season.dayOfWeek = lg.dayOfWeek;
+  if (Array.isArray(lg.teeTimes) && season.teeTimes == null) season.teeTimes = lg.teeTimes;
+  delete lg.dayOfWeek;
+  delete lg.teeTimes;
+  if (season.teeTimes == null) season.teeTimes = ['5:20','5:30','5:40','5:50','6:00'];
+  if (season.startType == null) season.startType = 'teetimes';   // 'teetimes' | 'shotgun'
+  if (season.nineSide == null)  season.nineSide  = 'all';        // 'all' (18) | 'front' | 'back'
+  if (season.shotgunTime == null) season.shotgunTime = '';
+  if (season.strokeAllowance == null) season.strokeAllowance = 100;   // HC adjustment %
+  // season.dayOfWeek stays null until set in Seasons & Schedules (a league night can move)
+  return season;
+}
+
+/** HC-adjustment % for a session, from its season (defaults 100). */
+function leagueSessionAllowance(lg, s) {
+  const season = (lg.seasons||[]).find(x => x.id === s.seasonId) || leagueActiveSeason(lg);
+  return (season && season.strokeAllowance) || 100;
+}
+
 function leagueCurrent() {
   return S.activeLeagueId ? leagueById(S.activeLeagueId) : null;
 }
@@ -11461,7 +11513,9 @@ function leagueCurrentSession(){const lg=leagueCurrent();if(!lg||!_leagueSession
 function leagueSessionById(lg, sid) {
   return (lg&&lg.sessions||[]).find(s=>s.id===sid)||null;
 }
-function leagueActiveSession(lg) {
+/** First session not yet completed (the one to resume). Distinct from leagueCurrentSession,
+ *  which is the session the user currently has open (via _leagueSessionId). */
+function leagueFirstOpenSession(lg) {
   return (lg&&lg.sessions||[]).find(s=>!s.completed)||null;
 }
 function leagueCourse(lg) {
@@ -11498,7 +11552,7 @@ function leagueRenderListScreen() {
       const c = leagueCourse(lg);
       const nsess = (lg.sessions||[]).length;
       const nComp = (lg.sessions||[]).filter(s=>s.completed).length;
-      const dow = lg.dayOfWeek!=null ? _DOW[lg.dayOfWeek]+' Night' : '';
+      const dow = leagueActiveSeason(lg).dayOfWeek!=null ? _DOW[leagueActiveSeason(lg).dayOfWeek]+' Night' : '';
       const sub = [dow, c?c.name:'', nsess?nsess+' sessions ('+nComp+' done)':''].filter(Boolean).join(' · ');
       return `<div class="list-item" style="margin-bottom:8px;">
         <div style="flex:1;min-width:0;cursor:pointer;" onclick="S.activeLeagueId='${lg.id}';scheduleWrite();leagueRenderHub()">
@@ -11545,29 +11599,26 @@ function leagueOpenModal(id) {
   _leagueEditId = id||null;
   const ti  = document.getElementById('leagueModal-title');
   const nm  = document.getElementById('leagueModal-name');
-  const dow = document.getElementById('leagueModal-dow');
   const del = document.getElementById('leagueModal-delete');
   if (ti)  ti.textContent = lg ? 'Edit League' : 'New League';
   if (nm)  nm.value = lg ? (lg.name||'') : '';
-  if (dow) dow.value = lg && lg.dayOfWeek!=null ? String(lg.dayOfWeek) : String(new Date().getDay());
   if (del) del.style.display = lg ? '' : 'none';
   openModal('leagueModal');
 }
 function leagueSaveModal() {
   const name = (document.getElementById('leagueModal-name')||{}).value||'League';
-  const dow  = parseInt((document.getElementById('leagueModal-dow')||{}).value);
   if (_leagueEditId) {
     const lg = leagueById(_leagueEditId);
-    if (lg) { lg.name=name.trim(); lg.dayOfWeek=isNaN(dow)?5:dow; }
+    if (lg) { lg.name=name.trim(); }
     scheduleWrite(); closeModal('leagueModal'); leagueRenderHub(); toast('League updated ✓');
   } else {
     const id = uid();
     const lg = { id, type:'league', status:'active', name:name.trim(),
-      dayOfWeek: isNaN(dow)?5:dow, date:Date.now(),
-      courseId:null, teeTimes:['5:20','5:30','5:40','5:50','6:00'],
+      date:Date.now(), courseId:null,
       groupManagerIds:[], pairMode:'ab', groupMethod:'random',
       skins:{hcpAdj:100,halfStroke:false,strokeOffBest:false},
       sessions:[], seasons:[] };
+    leagueMigrateSchedule(lg);   // creates Season 1 with default schedule; weeknight set later in Seasons & Schedules
     if (!S.events) S.events=[];
     S.events.push(lg);
     S.activeLeagueId=id;
@@ -11593,10 +11644,7 @@ function leagueRenderPartnersScreen() {
 
   if (!activeSeason) {
     fsRender(`
-      <div class="fs-scr-hdr">
-        <button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button>
-        <span class="fs-scr-title">PARTNERS</span>
-      </div>
+      ${workflowNav('league','partners')}
       <div class="fs-scr-body" style="padding:20px 12px;">
         <div class="empty"><p>No active season. Create a season first.</p>
           <button class="btn btn-gold" onclick="leagueAddSeason()">+ Add Season</button>
@@ -11632,11 +11680,7 @@ function leagueRenderPartnersScreen() {
       onclick="leagueSetActiveSeason('${s.id}')">${esc(s.name||'Season')}</button>`).join('');
 
   fsRender(`
-    <div class="fs-scr-hdr">
-      <button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button>
-      <span class="fs-scr-title">PARTNERS</span>
-      <button class="btn btn-sm btn-outline" onclick="leagueAddSeason()">+ Season</button>
-    </div>
+    ${workflowNav('league','partners','PARTNERS','<button class="btn btn-sm btn-outline" onclick="leagueAddSeason()">+ Season</button>')}
     <div style="padding:6px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;display:flex;gap:5px;flex-wrap:wrap;">
       ${seasonTabs}
     </div>
@@ -11645,6 +11689,7 @@ function leagueRenderPartnersScreen() {
       ${partners.map((p,pi)=>pairBlock(p,pi)).join('')}
       ${unpaired.length?`<div style="font-size:11px;color:var(--muted);margin:8px 0;">Unpaired: ${unpaired.map(p=>esc(p.name.split(' ')[0])).join(', ')}</div>`:''}
       <button class="btn btn-outline btn-full" style="margin-top:8px;" onclick="leagueAddPartner('${activeSeason.id}')">+ Add Partner Pair</button>
+      ${leaguePrevSeason(lg) && (leaguePrevSeason(lg).partners||[]).length ? `<button class="btn btn-outline btn-full" style="margin-top:8px;" onclick="leagueCopyLastSeasonPartners()">⎘ Copy from ${esc(leaguePrevSeason(lg).name||'last season')}</button>` : ''}
     </div>
   `);
   fsShowGameTab('📋 League');
@@ -11663,6 +11708,24 @@ function leagueRemovePartner(seasonId, pi) {
   const season = (lg.seasons||[]).find(s=>s.id===seasonId); if (!season) return;
   season.partners.splice(pi,1); scheduleWrite(); leagueRenderPartnersScreen();
 }
+/** The season immediately before the active one — source for copy-from-last-season. */
+function leaguePrevSeason(lg) {
+  const seasons = lg.seasons||[];
+  const idx = seasons.findIndex(s=>s.active);
+  return idx > 0 ? seasons[idx-1] : null;
+}
+function leagueCopyLastSeasonPartners() {
+  const lg=leagueCurrent();if(!lg)return;
+  const active=(lg.seasons||[]).find(s=>s.active); if(!active)return;
+  const prev=leaguePrevSeason(lg);
+  if(!prev||!(prev.partners||[]).length){toast('No previous season with partners');return;}
+  confirmDo('Copy Partners',
+    `Copy ${prev.partners.length} pair${prev.partners.length!==1?'s':''} from ${esc(prev.name||'last season')}? Replaces this season's pairs.`,
+    ()=>{
+      active.partners = prev.partners.map(p=>({ playerIds:[...(p.playerIds||[])] }));
+      scheduleWrite(); leagueRenderPartnersScreen(); toast('Partners copied ✓');
+    });
+}
 function leagueAddPartner(seasonId) {
   const lg = leagueCurrent(); if (!lg) return;
   const season = (lg.seasons||[]).find(s=>s.id===seasonId); if (!season) return;
@@ -11670,14 +11733,21 @@ function leagueAddPartner(seasonId) {
   season.partners.push({ id: uid(), playerIds: [] });
   scheduleWrite(); leagueRenderPartnersScreen();
 }
-function leagueAddSeason() {
+function leagueAddSeason(back) {
   const lg = leagueCurrent(); if (!lg) return;
   if (!lg.seasons) lg.seasons = [];
+  const prev = leagueActiveSeason(lg);   // new season inherits the current schedule
   const name = 'Season ' + (lg.seasons.length+1);
-  // Deactivate all, activate new
   lg.seasons.forEach(s=>s.active=false);
-  lg.seasons.push({ id: uid(), name, active: true, partners: [] });
-  scheduleWrite(); leagueRenderPartnersScreen();
+  lg.seasons.push({ id: uid(), name, active: true, partners: [],
+    dayOfWeek: prev ? prev.dayOfWeek ?? null : null,
+    teeTimes: prev ? [...(prev.teeTimes||[])] : ['5:20','5:30','5:40','5:50','6:00'],
+    startType: prev ? prev.startType||'teetimes' : 'teetimes',
+    nineSide:  prev ? prev.nineSide||'all' : 'all',
+    shotgunTime: prev ? prev.shotgunTime||'' : '',
+    strokeAllowance: prev ? (prev.strokeAllowance ?? 100) : 100 });
+  scheduleWrite();
+  if (back === 'seasons') leagueRenderSeasonsScreen(); else leagueRenderPartnersScreen();
 }
 function leagueSetActiveSeason(seasonId) {
   const lg = leagueCurrent(); if (!lg) return;
@@ -11730,12 +11800,20 @@ function leagueBuildEstablishedTeams(lg, s) {
   return teams;
 }
 
+/** Router for league workflow nav (used by workflowNav). */
+function leagueGoStep(id) {
+  const m = { hub: leagueRenderHub, course: leagueRenderPlanCourse, seasons: leagueRenderSeasonsScreen,
+    groupmethod: leagueRenderGroupMethodScreen, partners: leagueRenderPartnersScreen,
+    sessions: leagueRenderSessions, standings: leagueRenderStandings };
+  (m[id] || leagueRenderHub)();
+}
+
 function leagueRenderHub() {
   const lg = leagueCurrent(); if (!lg) { leagueRenderListScreen(); return; }
   const c  = leagueCourse(lg);
   const sessions = lg.sessions||[];
   const nComp    = sessions.filter(s=>s.completed).length;
-  const activeSess = leagueActiveSession(lg);
+  const activeSess = leagueFirstOpenSession(lg);
 
   const hubCard = (icon,title,sub,onclick,highlight) =>
     `<div style="background:var(--surf);border-radius:8px;margin-bottom:8px;box-shadow:var(--shadow);overflow:hidden;cursor:pointer;${highlight?'border:2px solid var(--gold);':''}" onclick="${onclick}">
@@ -11762,7 +11840,10 @@ function leagueRenderHub() {
     </div>
   </div>`;
 
-  const ttSub = (lg.teeTimes||[]).length ? (lg.teeTimes||[]).slice(0,3).join(' · ')+(lg.teeTimes.length>3?'…':'') : 'None set';
+  const _ssSeason = leagueActiveSeason(lg);
+  const _ssDow = _ssSeason.dayOfWeek!=null ? _DOW[_ssSeason.dayOfWeek]+' Night' : 'night not set';
+  const _ssTts = (_ssSeason.teeTimes||[]).length ? (_ssSeason.teeTimes||[]).slice(0,3).join(' · ')+(_ssSeason.teeTimes.length>3?'…':'') : 'no tee times';
+  const ttSub = `${esc(_ssSeason.name||'Season')} · ${_ssDow} · ${_ssTts}`;
 
   // Collapsible section state
   if (window._leagueSetupCollapsed === undefined) window._leagueSetupCollapsed = true;
@@ -11778,7 +11859,7 @@ function leagueRenderHub() {
   const setupSection = sectionHdr('League Setup', 'Setup', setupCollapsed) +
     (setupCollapsed ? '' : `
     ${hubCard('⛳','Course',c?c.name:'Pick a course','leagueRenderPlanCourse()',!lg.courseId)}
-    ${hubCard('🕐','Tee Times',ttSub,'leagueRenderTeeTimesScreen()')}
+    ${hubCard('📅','Seasons & Schedules',ttSub,'leagueRenderSeasonsScreen()')}
     ${hubCard('🏌️','Group Method',(lg.groupMethod||'random')==='abcd'?'A/B/C/D balanced deal':'Random shuffle','leagueRenderGroupMethodScreen()')}
     ${hubCard('👫','Season Partners',leaguePartnersSub(lg),'leagueRenderPartnersScreen()')}
     `);
@@ -11798,7 +11879,7 @@ function leagueRenderHub() {
       <button class="btn btn-sm btn-outline" onclick="leagueOpenModal('${lg.id}')">Edit</button>
     </div>
     <div style="padding:6px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);text-align:center;">
-      ${lg.dayOfWeek!=null?_DOW[lg.dayOfWeek]+' Night':''}${c?' · '+c.name:''}${sessions.length?' · '+sessions.length+' sessions':''}
+      ${leagueActiveSeason(lg).dayOfWeek!=null?_DOW[leagueActiveSeason(lg).dayOfWeek]+' Night':''}${c?' · '+c.name:''}${sessions.length?' · '+sessions.length+' sessions':''}
     </div>
     <div class="fs-scr-body" style="padding:12px 12px 80px;">${html}</div>
   `);
@@ -11810,7 +11891,7 @@ function leagueRenderPlanCourse() {
   const lg = leagueCurrent(); if (!lg) { leagueRenderListScreen(); return; }
   const courses = (S.courses||[]).filter(c=>!c.tripCourse);
   if (!courses.length) {
-    fsRender(`<div class="fs-scr-hdr"><button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button><span class="fs-scr-title">COURSE</span></div><div class="fs-scr-body"><div class="empty"><p>No courses in library.</p><button class="btn btn-gold" onclick="fsClose();showTab('courses')">Go to Courses</button></div></div>`);
+    fsRender(`${workflowNav('league','course')}<div class="fs-scr-body"><div class="empty"><p>No courses in library.</p><button class="btn btn-gold" onclick="fsClose();showTab('courses')">Go to Courses</button></div></div>`);
     fsShowGameTab('📋 League'); return;
   }
   // Auto-select home course if none selected
@@ -11862,10 +11943,7 @@ function leagueRenderPlanCourse() {
 
   const selName = lg.courseId?(courses.find(cx=>cx.id===lg.courseId)?.name||'?'):'None';
   fsRender(`
-    <div class="fs-scr-hdr">
-      <button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button>
-      <span class="fs-scr-title">COURSE</span>
-    </div>
+    ${workflowNav('league','course')}
     <div style="padding:6px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);">Selected: ${esc(selName)}</div>
     <div class="fs-scr-body" style="padding:12px 12px 80px;">${rows}</div>
   `);
@@ -11877,45 +11955,131 @@ function leaguePlanSetCourse(id) {
 }
 
 // ── Tee Times screen ──────────────────────────────────────────
-function leagueRenderTeeTimesScreen() {
+function leagueRenderSeasonsScreen() {
   const lg = leagueCurrent(); if (!lg) return;
-  const tts = lg.teeTimes||[];
-  const rows = tts.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;border-bottom:1px solid var(--surf3);">
+  const seasons = lg.seasons || [];
+  const active  = leagueActiveSeason(lg);
+  const tts     = active.teeTimes || [];
+  const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const pills = seasons.map(s =>
+    `<button type="button" class="holes-toggle ${s.id===active.id?'active':''}" style="font-size:11px;padding:4px 12px;"
+       onclick="leagueSeasonActivate('${s.id}')">${esc(s.name||'Season')}</button>`).join('');
+  const dowOpts = `<option value="" ${active.dayOfWeek==null?'selected':''}>— not set —</option>` +
+    days.map((d,i)=>`<option value="${i}" ${active.dayOfWeek===i?'selected':''}>${d} Night</option>`).join('');
+  const ttRows = tts.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;border-bottom:1px solid var(--surf3);">
     <span style="font-size:14px;font-weight:600;">${esc(t)}</span>
     <button onclick="leagueRemoveTeeTime('${esc(t)}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#f87171;padding:2px 6px;">✕</button>
   </div>`).join('');
   fsRender(`
-    <div class="fs-scr-hdr">
-      <button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button>
-      <span class="fs-scr-title">TEE TIMES</span>
-    </div>
+    ${workflowNav('league','seasons')}
     <div class="fs-scr-body" style="padding:12px 12px 80px;">
-      <div style="margin-bottom:12px;">${rows||'<div class="empty"><p>No tee times yet.</p></div>'}</div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <input type="time" id="leagueTTInput" style="flex:1;font-size:14px;font-family:\'DM Sans\',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
-        <button class="btn btn-gold" onclick="leagueAddTeeTime()">Add</button>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">SEASONS</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
+        ${pills}
+        <button type="button" class="btn btn-sm btn-outline" style="font-size:11px;" onclick="leagueAddSeason('seasons')">+ Season</button>
       </div>
-      <p style="font-size:11px;color:var(--muted);">Tee times set here are the defaults for each session. You can select which apply when starting a session.</p>
+      <div style="font-weight:700;font-size:13px;margin-bottom:12px;">${esc(active.name||'Season')}</div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">LEAGUE NIGHT</div>
+      <select onchange="leagueSetSeasonDow('${active.id}',this.value)" style="width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;margin-bottom:16px;">${dowOpts}</select>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">HOLES</div>
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button type="button" class="holes-toggle ${(active.nineSide||'all')==='all'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('all')">18 Holes</button>
+        <button type="button" class="holes-toggle ${active.nineSide==='front'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('front')">Front 9</button>
+        <button type="button" class="holes-toggle ${active.nineSide==='back'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('back')">Back 9</button>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">HC ADJUSTMENT</div>
+      <select onchange="leagueSetSeasonAllowance(this.value)" style="width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;margin-bottom:16px;">
+        ${[100,90,85,75,50].map(pct=>`<option value="${pct}" ${(active.strokeAllowance||100)===pct?'selected':''}>${pct}%</option>`).join('')}
+      </select>
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">START</div>
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button type="button" class="holes-toggle ${(active.startType||'teetimes')==='teetimes'?'active':''}" style="flex:1;" onclick="leagueSetSeasonStart('teetimes')">Tee Times</button>
+        <button type="button" class="holes-toggle ${active.startType==='shotgun'?'active':''}" style="flex:1;" onclick="leagueSetSeasonStart('shotgun')">Shotgun</button>
+      </div>
+      ${active.startType==='shotgun' ? `
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">SHOTGUN START TIME</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+          <span style="flex:1;font-size:14px;font-weight:600;">${esc(active.shotgunTime||'not set')}</span>
+          <input type="time" id="leagueShotgunInput" style="font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
+          <button class="btn btn-gold" onclick="leagueSetSeasonShotgunTime()">Set</button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);">Shotgun: all groups start at once. Assign each group its starting hole when you set up the session's groups.</p>
+      ` : `
+        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">TEE TIMES</div>
+        <div style="margin-bottom:8px;">${ttRows||'<div class="empty"><p>No tee times yet.</p></div>'}</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <input type="time" id="leagueTTInput" style="flex:1;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
+          <button class="btn btn-gold" onclick="leagueAddTeeTime()">Add</button>
+        </div>
+        <p style="font-size:11px;color:var(--muted);">Weeknight, holes, and tee times belong to this season. Sessions default to these; you can override per session.</p>
+      `}
     </div>
   `);
   fsShowGameTab('📋 League');
 }
+function leagueSeasonActivate(seasonId) {
+  const lg=leagueCurrent();if(!lg)return;
+  (lg.seasons||[]).forEach(s=>s.active = s.id===seasonId);
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+function leagueSetSeasonDow(seasonId, val) {
+  const lg=leagueCurrent();if(!lg)return;
+  const s=(lg.seasons||[]).find(x=>x.id===seasonId);if(!s)return;
+  s.dayOfWeek = val==='' ? null : parseInt(val);
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+function leagueSetSeasonNine(mode) {
+  const lg=leagueCurrent();if(!lg)return;
+  leagueActiveSeason(lg).nineSide=mode;   // 'all' | 'front' | 'back'
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+function leagueSetSeasonAllowance(val) {
+  const lg=leagueCurrent();if(!lg)return;
+  leagueActiveSeason(lg).strokeAllowance=parseInt(val)||100;
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+function leagueSetSeasonStart(type) {
+  const lg=leagueCurrent();if(!lg)return;
+  leagueActiveSeason(lg).startType=type;  // 'teetimes' | 'shotgun'
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+function leagueSetSeasonShotgunTime() {
+  const lg=leagueCurrent();if(!lg)return;
+  const el=document.getElementById('leagueShotgunInput');if(!el||!el.value)return toast('Enter a time');
+  const [h,m]=el.value.split(':').map(Number);
+  const ampm=h<12?'AM':'PM';const h12=h===0?12:h>12?h-12:h;
+  leagueActiveSeason(lg).shotgunTime=`${h12}:${String(m).padStart(2,'0')} ${ampm}`;
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+/** Holes available for shotgun group assignment, given the season's nineSide. */
+function leagueShotgunHoles(nineSide) {
+  if (nineSide==='front') return [1,2,3,4,5,6,7,8,9];
+  if (nineSide==='back')  return [10,11,12,13,14,15,16,17,18];
+  return Array.from({length:18},(_,i)=>i+1);
+}
+function leagueSetGroupHole(gi, val) {
+  const lg=leagueCurrent();if(!lg)return;
+  const s=leagueSessionById(lg,_leagueSessionId);if(!s||!s.groups||!s.groups[gi])return;
+  s.groups[gi].startHole = val==='' ? null : parseInt(val);
+  scheduleWrite(); leagueRenderGroups();
+}
 function leagueAddTeeTime() {
   const lg=leagueCurrent();if(!lg)return;
   const el=document.getElementById('leagueTTInput');if(!el||!el.value)return toast('Enter a time');
-  // Convert HH:MM to H:MM AM/PM
   const [h,m]=el.value.split(':').map(Number);
   const ampm=h<12?'AM':'PM';const h12=h===0?12:h>12?h-12:h;
   const fmt=`${h12}:${String(m).padStart(2,'0')} ${ampm}`;
-  if(!lg.teeTimes)lg.teeTimes=[];
-  if(lg.teeTimes.includes(fmt))return toast('Already in list');
-  lg.teeTimes.push(fmt);
-  scheduleWrite();leagueRenderTeeTimesScreen();
+  const season=leagueActiveSeason(lg);
+  if(!season.teeTimes)season.teeTimes=[];
+  if(season.teeTimes.includes(fmt))return toast('Already in list');
+  season.teeTimes.push(fmt);
+  scheduleWrite();leagueRenderSeasonsScreen();
 }
 function leagueRemoveTeeTime(t) {
   const lg=leagueCurrent();if(!lg)return;
-  lg.teeTimes=(lg.teeTimes||[]).filter(x=>x!==t);
-  scheduleWrite();leagueRenderTeeTimesScreen();
+  const season=leagueActiveSeason(lg);
+  season.teeTimes=(season.teeTimes||[]).filter(x=>x!==t);
+  scheduleWrite();leagueRenderSeasonsScreen();
 }
 
 // ── Group Method screen ───────────────────────────────────────
@@ -11949,10 +12113,7 @@ function leagueRenderGroupMethodScreen() {
     </div>`;
   }).join('');
   fsRender(`
-    <div class="fs-scr-hdr">
-      <button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button>
-      <span class="fs-scr-title">GROUP METHOD</span>
-    </div>
+    ${workflowNav('league','groupmethod')}
     <div class="fs-scr-body" style="padding:12px 12px 80px;">
       <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">4-PLAYER GROUPS</div>
       ${rows}
@@ -11989,10 +12150,7 @@ function leagueRenderSessions() {
   const html=sessions.length?sessions.map(row).join('')+'<div style="height:24px;"></div>':
     '<div class="empty"><p>No sessions yet.</p></div>';
   fsRender(`
-    <div class="fs-scr-hdr">
-      <button class="btn-back" onclick="leagueRenderHub()">&#8592; Hub</button>
-      <span class="fs-scr-title">SESSIONS</span>
-    </div>
+    ${workflowNav('league','sessions')}
     <div class="fs-scr-body" style="padding:12px 12px 80px;">${html}</div>
   `);
   fsShowGameTab('📋 League');
@@ -12009,27 +12167,27 @@ window._leagueSessionId = null;
 function leagueSessionLaunch() {
   const lg=leagueCurrent();if(!lg)return;
   if(!lg.courseId)return toast('Set a course first');
-  if(!(lg.teeTimes||[]).length)return toast('Add tee times first');
-  const active=leagueActiveSession(lg);
+  if(!(leagueActiveSeason(lg).teeTimes||[]).length)return toast('Add tee times first');
+  const active=leagueFirstOpenSession(lg);
   if(active){
     _leagueSessionId=active.id;
     leagueRenderRSVP();return;
   }
   // New session — default date to next league day
-  const dow=lg.dayOfWeek??5;
+  const dow=leagueActiveSeason(lg).dayOfWeek??5;
   const today=new Date();
   const diff=(dow-today.getDay()+7)%7;
   const next=new Date(today);next.setDate(today.getDate()+diff);
   const date=next.toISOString().slice(0,10);
   // Default all regulars to 'in' with earliest tee time
-  const earliest=(lg.teeTimes||[])[0]||'';
+  const earliest=(leagueActiveSeason(lg).teeTimes||[])[0]||'';
   const rsvp={};
   (S.players||[]).filter(p=>p.regular).forEach(p=>{rsvp[p.id]={status:'in',earliest};});
   const c_=leagueCourse(lg);
   const activeSeason = (lg.seasons||[]).find(s=>s.active);
   const s={id:uid(),date,courseId:lg.courseId,
-    nineSide:c_&&c_.nineHole?'front':'all',
-    teeTimes:[...(lg.teeTimes||[])],
+    nineSide:leagueActiveSeason(lg).nineSide||'all',
+    teeTimes:[...(leagueActiveSeason(lg).teeTimes||[])],
     seasonId: activeSeason ? activeSeason.id : null,
     rsvp,groups:[],gameType:null,stablefordTeam:'individual',teamScoring:'bestball',
     resultMethod:'best2',scores:{},completed:false};
@@ -12166,9 +12324,9 @@ function _leagueSendSmsBatch() {
     setTimeout(() => {
       const next = _leagueSmsBatches[_leagueSmsBatchIdx];
       const nextName = next && next[0]?.name ? next[0].name.split(' ')[0] : 'next player';
-      openConfirm(
+      confirmDo(
         'Send next?',
-        `Message sent. Continue to ${esc(nextName)}?`,
+        `Message sent. Continue to ${nextName}?`,
         () => _leagueSendSmsBatch()
       );
     }, 1500);
@@ -12180,7 +12338,7 @@ function leagueRenderRSVP() {
   const lg=leagueCurrent();if(!lg)return;
   const s=leagueSessionById(lg,_leagueSessionId);if(!s)return;
   const rsvp=s.rsvp||{};
-  const tts=s.teeTimes||(lg.teeTimes||[]);
+  const tts=s.teeTimes||(leagueActiveSeason(lg).teeTimes||[]);
   const lc=leagueSessionCourse(lg,s);
   const byLast=(a,b)=>lastNameOf(a.name).localeCompare(lastNameOf(b.name));
   const regulars=[...(S.players||[])].filter(p=>p.regular).sort(byLast);
@@ -12335,6 +12493,9 @@ function leagueRenderGroups() {
   const s=leagueSessionById(lg,_leagueSessionId);if(!s)return;
   const pool=leagueBuildPool(lg,s);
   const groups=s.groups||[];
+  const _lgSeason=(lg.seasons||[]).find(x=>x.id===s.seasonId)||leagueActiveSeason(lg);
+  const _lgShotgun=_lgSeason.startType==='shotgun';
+  const _holeOpts=(sel)=>`<option value="">Hole…</option>`+leagueShotgunHoles(_lgSeason.nineSide).map(h=>`<option value="${h}" ${sel===h?'selected':''}>H${h}</option>`).join('');
   const method=lg.groupMethod||'random';
   const assignedIds=new Set(groups.flatMap(g=>g.playerIds||[]));
   const unassigned=pool.filter(p=>!assignedIds.has(p.id));
@@ -12358,7 +12519,7 @@ function leagueRenderGroups() {
   }
   groups.forEach((grp,gi)=>{
     const gp=(grp.playerIds||[]).map(id=>pool.find(p=>p.id===id)).filter(Boolean);
-    gHtml+=`<div class="card" style="margin-bottom:8px;"><div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--g800);letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;"><span>${grpLabel(gi)}</span><span style="font-size:11px;color:var(--muted);">${gp.length}/4</span></div>`;
+    gHtml+=`<div class="card" style="margin-bottom:8px;"><div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--g800);letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;"><span>${grpLabel(gi)}${_lgShotgun?` <select onchange="leagueSetGroupHole(${gi},this.value)" style="font-size:11px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:6px;padding:2px 4px;margin-left:6px;">${_holeOpts(grp.startHole)}</select>`:''}</span><span style="font-size:11px;color:var(--muted);">${gp.length}/4</span></div>`;
     if(!gp.length){gHtml+='<div style="font-size:12px;color:var(--muted);">Empty</div>';}
     else{gp.forEach(p=>{
       const tier=method==='abcd'&&window._leagueTierMap?window._leagueTierMap.get(p.id):'';
@@ -12399,7 +12560,7 @@ function leagueRenderGroups() {
 // Pool builder — In players + confirmed subs
 function leagueBuildPool(lg, s) {
   const rsvp=s.rsvp||{};
-  const tts=s.teeTimes||(lg.teeTimes||[]);
+  const tts=s.teeTimes||(leagueActiveSeason(lg).teeTimes||[]);
   const pool=[];
   (S.players||[]).filter(p=>p.regular).forEach(p=>{
     const pr=rsvp[p.id]||{};
@@ -12433,7 +12594,7 @@ function leagueAssignGroups() {
   const s=leagueSessionById(lg,_leagueSessionId);if(!s)return;
   const pool=leagueBuildPool(lg,s);
   if(!pool.length)return toast('No players marked In');
-  const tts=s.teeTimes||(lg.teeTimes||[]);
+  const tts=s.teeTimes||(leagueActiveSeason(lg).teeTimes||[]);
   const numGroups=Math.max(1,Math.ceil(pool.length/4));
   const activeTees=Array.from({length:numGroups},(_,i)=>tts[i]||null);
   s.groups=activeTees.map(t=>({teetime:t,playerIds:[]}));
@@ -12665,7 +12826,7 @@ function _leagueDoScoring(lg,s) {
   const gameType=s.gameType||'stableford';
   const pool=leagueBuildPool(lg,s);
   const par=c.holes.reduce((a,h)=>a+(h.par||0),0);
-  const pWithCH=pool.map(p=>({...p,courseHcp:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,par,false)}));
+  const pWithCH=pool.map(p=>({...p,courseHcp:courseHandicap(p.hcp||0,c.slope||113,c.rating||72,par,leagueSessionAllowance(lg,s),false)}));
   const activeHoles=getActiveHoles(c,s.nineSide||'all');
   const isTeam=isTeamFormat(gameType);
   if(!s.scores)s.scores={};
@@ -12780,7 +12941,7 @@ function leagueSessionCtx(lg, s){
   const nineMode = s.nineSide||'all';
   const par = course.holes.reduce((a,h)=>a+(h.par||0),0);
   const pool = leagueBuildPool(lg, s).map(p=>({...p,
-    courseHcp: calcCourseHcp(p.hcp||0, course.slope||113, course.rating||72, par, false)}));
+    courseHcp: courseHandicap(p.hcp||0, course.slope||113, course.rating||72, par, leagueSessionAllowance(lg,s), false)}));
   const skinsCfg = (lg.skins && s.skins!==false) ? lg.skins : {hcpAdj:100};
   const ctx = buildScoringCtx(pool, course, nineMode, s.scores||{},
     (s.groups||[]).map((g,i)=>({playerIds:g.playerIds||[], label:g.teetime||('Group '+(i+1))})),
@@ -12932,10 +13093,7 @@ function leagueRenderStandings(showSeason) {
     <div style="font-size:10px;color:var(--muted);margin-top:8px;">Points: 1st=3pts · 2nd=2pts · 3rd=1pt · 🥇=wins</div>
   `:(seasonToggle+'<div class="empty"><p>No completed sessions'+(useSeason?' this season':'')+' yet.</p></div>');
   fsRender(`
-    <div class="fs-scr-hdr">
-      <button class="btn-back" onclick="leagueRenderHub()">&#8592; League</button>
-      <span class="fs-scr-title">STANDINGS</span>
-    </div>
+    ${workflowNav('league','standings')}
     <div style="padding:6px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);">${completed.length} sessions completed</div>
     <div class="fs-scr-body" style="padding:12px 12px 80px;">${html}</div>
   `);
