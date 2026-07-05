@@ -7294,6 +7294,14 @@ smoke('leagueCurrentSession returns session', () => {
   expect('no raw .name.split in source', html.includes(".name.split(' ')[0]"), false);
 }
 
+// ── 134. Rejoin: game-type picker rebuilds players from active game ─
+{
+  // On rejoin the transient _fsPicked is gone; fsShowGameTypePicker must rebuild it from the
+  // active foursome game rather than bounce to "Select 2-4 players".
+  expect('rejoin: rebuilds _fsPicked from active game',
+    html.includes('const ag=fsActiveGame();') && html.includes('window._fsPicked=[...ag.playerIds]'), true);
+}
+
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.64  Build 2026-07-05 02:28 PM ET
+     Version : v0.90.65  Build 2026-07-05 02:39 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.65  2026-07-05  Fixed Foursome rejoin bug: after resuming a Nassau (or any foursome) round and tapping Back from the scorecard, the game-type picker showed a Select 2-4 players toast and went nowhere. Cause: fsShowGameTypePicker read the picked players only from the transient window._fsPicked, which is cleared on reload/rejoin. Fix: when _fsPicked is missing it now rebuilds from the active foursome game playerIds, so Back from a resumed scorecard returns to the game-type picker as intended. Pre-existing bug, unrelated to the scorecard consolidation. +1 guard test (S134).
 // v0.90.64  2026-07-05  Finished the firstName/name-split cleanup. Extracted firstWord(name) as the single .split() first-name atom and routed every remaining .name.split() site through it (22 call sites: object p.name, array players[n].name, a .find() lookup, and the two fsPlayerById lookups that kept their own || id / || ? fallback). firstName now uses firstWord too. Behavior-preserving - firstWord(name) equals name.split() for a real name and is null-safe - so no fallback changed (correcting the earlier note that this needed an undefined-to-? change; using firstWord avoids that). Zero raw .name.split() remain in the codebase. +8 tests (S133). Note: the server-side ship gate (.github/workflows) and ship.py/audit.py/madgolf-test.js are now committed to the repo, so the gate runs on every push.
 // v0.90.63  2026-07-05  Scorecard consolidation Stage 3 - Trip paging. The Trip scorecard rendered every group in one long scroll; it now pages one group at a time with tappable group pills and Prev/Next, matching Outing and League (per the paged-not-scroll preference). Added tripNavGroup(idx) and reset _tripSelectedGroup to 0 on round entry. Only the active group renders, so score entry and the auto-advance index are per-group like the other modules. +5 tests (S132). This completes the scorecard consolidation: header (scorecardHdr), score cell (scoreCell), and the whole foursome now share ONE engine (renderScorecardGroup), and all three multi-group modules page.
 // v0.90.62  2026-07-05  Scorecard consolidation Stage 2b - ONE engine. fsRenderScorecard now builds a ctx and delegates entirely to renderScorecardGroup; the foursome-only section()/footer code is gone. To make it work: renderScorecardGroup gained a chLabel option (foursome passes its rawCh . adjCh + tap-breakdown; group cards keep CH{n}) and an hcpRow option (foursome shows the per-hole HCP row; group cards unchanged), and playerRow/scramRow now emit distinct front (pfxA) vs back (pfxB) total ids - which also FIXES a latent bug where group back-section totals never live-updated (updateScoreTotals wrote to pfxB but the DOM only had pfxA). The foursome keeps its sc-tot-f/b/18 ids via those prefixes, so fsUpdateScoreTotals and live entry are unchanged. The foursome scorecard now uses the standard group-card look. +12 tests (S131). Remaining: Stage 3 - page the Trip scorecard (still long-scrolls all groups).
@@ -1132,8 +1133,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.64';
-const BUILD_TIME = '2026-07-05 02:28 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.65';
+const BUILD_TIME = '2026-07-05 02:39 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3612,6 +3613,12 @@ function fsAddGuest() {
 function fsShowGameTypePicker() {
   const from=[...document.querySelectorAll('#fs-player-list input:checked')].map(x=>x.value);
   if(from.length>=2&&from.length<=4) window._fsPicked=from;
+  // Rejoin/back: the transient _fsPicked is cleared on reload, so rebuild it from the active
+  // foursome game's players (otherwise "back" from a resumed scorecard bounces to Select players).
+  if(!window._fsPicked||window._fsPicked.length<2){
+    const ag=fsActiveGame();
+    if(ag&&ag.type==='foursome'&&(ag.playerIds||[]).length>=2) window._fsPicked=[...ag.playerIds];
+  }
   if(!window._fsPicked||window._fsPicked.length<2||window._fsPicked.length>4) return toast('Select 2–4 players');
   const players=window._fsPicked.map(id=>fsPlayerById(id)).filter(Boolean);
   if(players.length<2){window._fsPicked=null;return toast('Player not found — reselect');}
