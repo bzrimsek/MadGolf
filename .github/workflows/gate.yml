@@ -1,0 +1,38 @@
+# MadGolf ship gate — runs on GitHub's servers on every push and pull request.
+# A red ✗ appears on the commit if audit.py or the test suite fails. No terminal, nothing
+# to install on your computer, works even when you edit on github.com.
+#
+# INSTALL (one time):
+#   1. In your repo, create the folders  .github/workflows/  if they don't exist.
+#   2. Put THIS file there and name it  gate.yml   →  .github/workflows/gate.yml
+#   3. Make sure these four files are committed to the repo (same folder as index.html):
+#         index.html   sw.js   ship.py   audit.py   madgolf-test.js
+#      (index.html + sw.js you already commit; ship.py / audit.py / madgolf-test.js are the
+#       tooling I deliver each time — commit them too so the server can run the gate.)
+#   4. Commit and push. From then on, every push runs the gate automatically.
+
+name: Ship Gate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python (for audit + ship)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node (for the test suite)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run ship gate — audit + all tests
+        run: python3 ship.py index.html
