@@ -3701,7 +3701,7 @@ const ENG_C18 = {
 const ENG_C9 = {
   id:'c9', name:'Test Course 9', slope:120, rating:36, par:36, nineHole:true,
   holes: Array.from({length:9}, (_,i) => ({
-    num:i+1, par: i<1?3 : i<7?4 : 5, hcpRating: i*2+1
+    num:i+1, par: i<1?3 : i<8?4 : 5, hcpRating: i*2+1
   }))
 };
 // Players: Last,First format so scorecardName tests work
@@ -7107,6 +7107,93 @@ smoke('leagueCurrentSession returns session', () => {
   expect('smoke nassau game present', sN !== null, true);
   expect('gameSummary: nassau reads "vs ... Front:"', /vs[\s\S]*Front:/.test(sN||''), true);
   expect('gameSummary: nassau not cryptic M1[',        (sN||'').includes('M1['), false);
+}
+
+// ── 122. GAME CARD — single shared body, no raw g.summary in renders ──
+{
+  // Every saved-game render must go through fsGameSummary/fsGameCardBody so the Nassau
+  // regeneration applies everywhere. A raw ${esc(g.summary)} is the duplication that hid the bug.
+  expect('no raw g.summary in any render', html.includes('${esc(g.summary)}'), false);
+  // both list renders share the one card body
+  expect('fsGameCardBody defined', html.includes('function fsGameCardBody('), true);
+  const bodyUses = (html.match(/fsGameCardBody\(g\)/g) || []).length;
+  expect('fsGameCardBody used by both lists (>=2)', bodyUses >= 2, true);
+}
+
+// ── 123. SETTLEMENT HELPERS — exact HTML (money logic) ───────
+{
+  vmSetS('players', [{id:'p1',name:'Alice'},{id:'p2',name:'Bob'},{id:'p3',name:'Carol'}]);
+  const bal = {p1:20, p2:-10, p3:-10};
+  const table = vm.runInContext(`settleBalanceTable(['p1','p2','p3'], ${JSON.stringify(bal)})`, sandbox);
+  const expTable = '<table class="settle-table"><tbody>'
+    + '<tr><td>Alice</td><td class="settle-pos" style="text-align:right;">+$20</td></tr>'
+    + '<tr><td>Bob</td><td class="settle-neg" style="text-align:right;">-$10</td></tr>'
+    + '<tr><td>Carol</td><td class="settle-neg" style="text-align:right;">-$10</td></tr>'
+    + '</tbody></table>';
+  expect('settleBalanceTable exact HTML', table, expTable);
+  const lines = vm.runInContext(`settlePayLines(['p1','p2','p3'], ${JSON.stringify(bal)})`, sandbox);
+  const expLines = '<div style="margin-top:8px;">'
+    + '<div class="settle-txn"><span class="settle-neg">Bob</span> pays <span class="settle-pos">Alice</span> $10</div>'
+    + '<div class="settle-txn"><span class="settle-neg">Carol</span> pays <span class="settle-pos">Alice</span> $10</div>'
+    + '</div>';
+  expect('settlePayLines exact HTML (greedy, creditor re-read)', lines, expLines);
+  expect('settlePayLines all-even → empty', vm.runInContext(`settlePayLines(['p1'], {p1:0})`, sandbox), '');
+  expect('settlePayLines no creditors → empty', vm.runInContext(`settlePayLines(['p2'], {p2:-5})`, sandbox), '');
+}
+
+// ── 124. firstName helper ────────────────────────────────────
+{
+  vmSetS('players', [{id:'p1',name:'Alice Wong'},{id:'p2',name:'Bob'}]);
+  expect('firstName two-word', vm.runInContext(`firstName('p1')`, sandbox), 'Alice');
+  expect('firstName one-word', vm.runInContext(`firstName('p2')`, sandbox), 'Bob');
+  expect('firstName missing → ?', vm.runInContext(`firstName('zzz')`, sandbox), '?');
+  expect('firstName defined', html.includes('function firstName('), true);
+}
+
+// ── 125. coursePar (authoritative) + GHIN handicap case ──────
+{
+  const { coursePar, courseHandicap } = sandbox;
+  const holes72 = Array.from({length:18}, (_,i) => ({num:i+1, par:4}));           // 72
+  const holes71 = holes72.map((h,i) => i===0 ? {num:1, par:3} : h);               // 71
+  expect('coursePar 18x par4 = 72', coursePar({holes:holes72}), 72);
+  expect('coursePar with one par3 = 71', coursePar({holes:holes71}), 71);
+  expect('coursePar no holes → par field', coursePar({par:70}), 70);
+  expect('coursePar empty → 72', coursePar({}), 72);
+  // the reported case: 72.3/133, index 12 → 14 at par 72 (matches GHIN), 15 at par 71
+  expect('GHIN case: par 72 → 14', courseHandicap(12, 133, 72.3, coursePar({holes:holes72}), 100, false), 14);
+  expect('bug case: par 71 → 15',  courseHandicap(12, 133, 72.3, coursePar({holes:holes71}), 100, false), 15);
+}
+
+// ── 126. fsHcpBreakdown — surfaces the exact calc inputs ─────
+{
+  vmSetS('courses', [{id:'cX', slope:133, rating:72.3, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4}))}]);
+  vmSetS('players', [{id:'z', name:'Zrimsek', hcp:12}]);
+  vmSetS('events',  [{id:'gX', type:'foursome', courseId:'cX', rawChs:{z:14}}]);
+  const out = vm.runInContext(`fsHcpBreakdown('gX','z')`, sandbox);
+  expect('breakdown: HI 12',      out.includes('HI 12'), true);
+  expect('breakdown: slope 133',  out.includes('slope 133'), true);
+  expect('breakdown: rating 72.3',out.includes('rating 72.3'), true);
+  expect('breakdown: par 72',     out.includes('par 72'), true);
+  expect('breakdown: CH 14',      out.includes('CH 14'), true);
+  expect('breakdown: missing course', vm.runInContext(`fsHcpBreakdown('nope','z')`, sandbox).includes('missing'), true);
+}
+
+// ── 127. Handicap refresh on resume (foursome + outing) ──────
+{
+  vmSetS('courses', [{id:'cX', slope:133, rating:72.3, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4}))}]);
+  vmSetS('players', [{id:'z', name:'Z', hcp:12}]);
+  const fRes = vm.runInContext(`
+    const g = {type:'foursome', gameType:'nassau', courseId:'cX', playerIds:['z'], strokeMode:'field', chs:{z:15}, rawChs:{z:15}};
+    S.events=[g]; fsRefreshChs(g); g.rawChs.z;`, sandbox);
+  expect('fsRefreshChs: stale 15 → 14', fRes, 14);
+  const oRes = vm.runInContext(`
+    const g2 = {type:'outing', courseId:'cX', strokeAllowance:100, players:[{id:'z', hcp:12, courseHcp:15}]};
+    S.events=[g2]; outingRefreshChs(g2); g2.players[0].courseHcp;`, sandbox);
+  expect('outingRefreshChs: stale 15 → 14', oRes, 14);
+  const noop = vm.runInContext(`
+    const g3 = {type:'outing', courseId:'cX', strokeAllowance:100, players:[{id:'z', hcp:12, courseHcp:14}]};
+    S.events=[g3]; outingRefreshChs(g3); g3.players[0].courseHcp;`, sandbox);
+  expect('outingRefreshChs: already 14 stays 14', noop, 14);
 }
 
 const total = passed + failed;

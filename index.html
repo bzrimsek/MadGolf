@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.50  Build 2026-07-04 10:21 PM ET
+     Version : v0.90.58  Build 2026-07-05 12:40 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,14 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.58  2026-07-05  THE FIX: course handicaps now refresh from current data when a game is opened. Root cause of the 15-vs-14 report: Foursome and Outing snapshot each player course handicap at game creation (g.rawChs / g.players[].courseHcp) and never recomputed, so after the course was re-rated the game kept the old handicap. Added fsRefreshChs (foursome) and outingRefreshChs (outing), both called from fsRouteToGame when a game is opened; they recompute from the current course + player + allowance and only write when something changed (no-op otherwise). League and Trip already compute live each render (leagueSessionCtx / tripScoringCtx), so a re-rating already took effect there - no change needed. +4 tests (S127). Note: opening an affected in-progress game will update its handicaps (and strokes) to the corrected values.
+// v0.90.57  2026-07-05  Course-handicap diagnostic. Tapping a player course handicap (the raw number) on the foursome scorecard now shows fsHcpBreakdown: the exact inputs the calc used - HI, slope, rating, par, the raw value, and the resulting CH. The handicap formula is proven correct (calcCourseHcp 12/133/72.3/par72 = 14, verified against the running code); a CH of 15 for that case means one stored input differs from what the setup screen shows (index >= 12.06, or a slope/rating that is not 133/72.3). This breakdown makes the wrong input visible instead of guessing. +6 tests (S126).
+// v0.90.56  2026-07-05  Course handicap par-sourcing fix. The course handicap formula was correct, but par came from two places: Foursome, Trip, and the Outing scoring ctx used the stored course.par field (which can be stale on imported courses), while League and Outing-start summed the hole pars. On a course whose stored par disagreed with its holes, screens disagreed and could differ from GHIN. Added coursePar(course) = sum of hole pars (the SAME pars scoring uses), with fallback to the stored field then 72, and routed every handicap calc through it. Handicap can no longer disagree with scoring or between modules. +6 tests (S125) including the reported 72.3/133 index-12 case (par 72 -> 14, par 71 -> 15). Also corrected a self-contradictory 9-hole test fixture (par field 36 vs holes summing 37).
+// v0.90.55  2026-07-05  Audit remediation Tier 4. #8 done: added a MODULE MAP orientation comment (a table of contents for the interleaved single-file codebase) listing each module prefix and its key entry points, so where does this live is answerable without grep - no code reordered. #7 (scorecard-engine unification) assessed and deliberately NOT done: fsRenderScorecard (read-only single-game display) and renderScorecardGroup (interactive multi-group score entry with configurable handlers and team scoring) are different contracts, not duplicated code; merging them would need a mode-flag-heavy function that is more complex, not less (Occam), across core scoring UI. Comment-only change; no logic touched.
+// v0.90.54  2026-07-05  Audit remediation Tier 3 (firstName helper). Added firstName(pid) (first name, or ? if unknown) and replaced 31 inline fsPlayerById(id).name.split() ... || ? forms plus 17 identical local name-lambda definitions with it. 21 bare no-fallback occurrences were left untouched on purpose - replacing them would change an unknown player from undefined to ? (a behavior change), so they stay until touched opportunistically. +4 tests (S124).
+// v0.90.53  2026-07-05  Audit remediation Tier 2 (settlement consolidation). Extracted settleBalanceTable and settlePayLines as the single source for the per-player balance table and the who-pays-whom lines; DOC, Nassau, and Walk-off settlements now call them (4 copies of the table down to 1, 3 copies of the pay-line loop down to 1). Behavior preserved exactly, including the existing greedy match (creditor total re-read, not decremented) - proven byte-identical by S123 with independently computed expected HTML. Wolf keeps its own pairwise settlement (different shape). Match-banner extraction was assessed and deliberately NOT done: the three banners diverge (Nassau score uses inline Bebas 16px, not the mb-score class; Walk-off carries update ids the others lack) so a shared helper would be more complex and would change Nassau rendering - deferred pending a decision to normalize banner styling. +4 tests (S123).
+// v0.90.52  2026-07-05  Audit remediation Tier 1 (dead code). Removed 6 duplicate delete g._scoring lines in finalizeDOCGame (kept 1). Removed a fully duplicated App Admin settings card that also fixed a duplicate-element-ID bug (adminSwPolling / adminSwAutoActivate / league message textareas existed twice; getElementById only ever saw the first, so the second cards controls were dead). No behavior change beyond removing the dead second card.
+// v0.90.51  2026-07-05  Recent Games Nassau summary now readable everywhere (real fix for the reported bug). Root cause was duplication: three separate renders (History tab, Home recent-games, detail modal) each drew a game card with copy-pasted markup, and the v0.90.50 fix landed on only one of them. Introduced fsGameCardBody as the single card body (type / course / date / names / summary via fsGameSummary); History, Home, and the modal now all use it, so older Nassau games regenerate a plain-English summary in every list. Guard test S122 fails the build if any render reverts to raw g.summary. +3 tests.
 // v0.90.50  2026-07-04  Two reported bugs fixed. (1) Recent Games now shows a plain-English Nassau summary even for games finalized before that format shipped: fsGameSummary regenerates it from the game data (fsNassauSummary) at display time instead of showing the frozen old M1[...] string. (2) An open Outing no longer lights the Foursome IN PROGRESS badge on the home grid: the badge is now computed per module (foursome reflects a foursome game only; the Outing button correctly shows its own IN PROGRESS). +6 tests (S121).
 // v0.90.49  2026-07-04  Consolidation fixes. #4 Admin: relabeled Delete Data to Remove (removes the registry entry only; the hardened rules block admin from deleting another user golf data), honest confirm text, removed the dead state.json DELETE that always 403s. #5 Renamed leagueActiveSession to leagueFirstOpenSession (it is the first incomplete session, not the open one) to end the near-identical clash with leagueCurrentSession. #6 Converted the one plain-text openConfirm to confirmDo; the other openConfirm stays (renders an HTML preview confirmDo cannot).
 // v0.90.48  2026-07-04  League and Outing now have an HC Adjustment (allowance) %, completing the courseHandicap work. League: per-season strokeAllowance (picker in Seasons and Schedules; migration default 100; inherited by new seasons; scoring resolves it via leagueSessionAllowance from the session season). Outing: per-outing strokeAllowance (picker in the format screen; migration default 100; applied in _outingDoStart via courseHandicap). Both plug into the shared courseHandicap function. +7 tests (S120).
@@ -663,40 +671,6 @@ input:checked+.slider:before{transform:translateX(20px);}
           </div>
         </div>
       </div>
-      <!-- App Admin -->
-      <div class="card" style="margin-top:8px;">
-        <div class="card-title">⚙ App Admin</div>
-        <div style="display:flex;flex-direction:column;gap:8px;">
-          <button class="btn btn-outline btn-sm btn-full" onclick="adminRenderPlayers()">👥 Manage Players</button>
-          <button class="btn btn-outline btn-sm btn-full" onclick="adminBulkGhinRefresh()">⛳ Bulk GHIN Refresh</button>
-        </div>
-        <div style="margin-top:12px;">
-          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">SW AUTO-UPDATE</div>
-          <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;margin-bottom:6px;">
-            <input type="checkbox" id="adminSwPolling" onchange="adminSaveSwConfig()" style="accent-color:var(--gold);">
-            Periodic check every 30 min during long sessions
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
-            <input type="checkbox" id="adminSwAutoActivate" onchange="adminSaveSwConfig()" style="accent-color:var(--gold);">
-            Auto-activate when scoring ends (no manual reload)
-          </label>
-        </div>
-        <div style="margin-top:12px;">
-          <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">LEAGUE MESSAGES</div>
-          <div class="field">
-            <label style="font-size:11px;">RSVP Page Welcome</label>
-            <textarea id="leagueRsvpWelcome" rows="1" style="width:100%;font-size:12px;border:1px solid var(--surf3);border-radius:6px;padding:5px;resize:vertical;" onchange="saveLeagueMsg('rsvpWelcome',this.value)"></textarea>
-          </div>
-          <div class="field">
-            <label style="font-size:11px;">Invite SMS <span style="color:var(--muted);font-weight:400;">{league} {season} {date}</span></label>
-            <textarea id="leagueInviteMsg" rows="2" style="width:100%;font-size:12px;border:1px solid var(--surf3);border-radius:6px;padding:5px;resize:vertical;" onchange="saveLeagueMsg('invite',this.value)"></textarea>
-          </div>
-          <div class="field">
-            <label style="font-size:11px;">Nudge SMS</label>
-            <textarea id="leagueNudgeMsg" rows="2" style="width:100%;font-size:12px;border:1px solid var(--surf3);border-radius:6px;padding:5px;resize:vertical;" onchange="saveLeagueMsg('nudge',this.value)"></textarea>
-          </div>
-        </div>
-      </div>
       <div class="card" style="margin-top:8px;">
         <div class="card-title">Data</div>
         <div style="display:flex;flex-direction:column;gap:8px;">
@@ -1152,8 +1126,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.50';
-const BUILD_TIME = '2026-07-04 10:21 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.58';
+const BUILD_TIME = '2026-07-05 12:40 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1965,20 +1939,11 @@ function renderHistory() {
     return;
   }
 
-  el.innerHTML = games.map(g => {
-    const names = (g.playerNames||[]).map(n=>n.split(' ')[0]).join(', ');
-    const course = esc(g.courseName||'—');
-    const disp = fsGameSummary(g);
-    return `<div style="background:var(--surf);border-radius:10px;margin-bottom:8px;box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;" onclick="fsSViewHistory('${g.id}')">
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:700;font-size:14px;">${fsGameTypeLabel(g.gameType)} · ${course}</div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px;">${fsDate(g.date)} · ${esc(names)}</div>
-        ${disp ? `<div style="font-size:12px;color:var(--g600);font-weight:600;margin-top:3px;">${esc(disp)}</div>` : ''}
-      </div>
+  el.innerHTML = games.map(g => `<div style="background:var(--surf);border-radius:10px;margin-bottom:8px;box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;" onclick="fsSViewHistory('${g.id}')">
+      <div style="flex:1;min-width:0;">${fsGameCardBody(g)}</div>
       <button class="btn btn-sm btn-danger" style="flex-shrink:0;padding:4px 10px;font-size:11px;"
         onclick="event.stopPropagation();fsDeleteHistory('${g.id}')">✕</button>
-    </div>`;
-  }).join('') +
+    </div>`).join('') +
   `<div style="padding:8px 0 4px;">
     <button class="btn btn-outline btn-full" onclick="confirmClearHistory()">Clear All History</button>
   </div>`;
@@ -2002,6 +1967,41 @@ function renderAll() {
 // ═══════════════════════════════════════════════════════════════
 // HOME TAB
 // ═══════════════════════════════════════════════════════════════
+/* ============================================================================
+   MODULE MAP — where things live (functions are interleaved by history, so this
+   is the index; grep the entry points below). Prefixes: fs* Foursome · outing*
+   Outing · league* League · trip* Trip · admin* Admin · wolf* Wolf game type.
+
+   SHARED / CORE
+     State ......... normalizeState, scheduleWrite, S (canonical state object)
+     Firebase ...... fbWrite (sync + retry + offline toast), fbLoad, getIdToken
+     Scoring math .. calcRawCourseHcp, calcCourseHcp, calcPlayingHcp,
+                     courseHandicap (THE course-hcp-with-allowance fn), strokesOnHole
+     Scoring ctx ... buildScoringCtx (League/Outing/Foursome), tripScoringCtx,
+                     leagueSessionCtx  (all route hcp through courseHandicap)
+     Lookups ....... fsGetCourse, fsPlayerById, firstName
+     Settlement .... settleBalanceTable, settlePayLines (DOC/Nassau/Walk-off share)
+     Game cards .... fsGameSummary, fsGameCardBody (History + Home + modal share)
+
+   FOURSOME (fs*)  entry: renderFoursomeHome · scorecard: fsRenderScorecard (read-only)
+     game types: DOC, Nassau, Walk-off, Wolf (wolf*), BBB, Skins, Stableford, Low-Net
+     finalize*Game → fsEndGame; settlements via settleBalanceTable/settlePayLines
+
+   OUTING (outing*)  entry: outingRenderHub · ctx: outingScoringCtx
+     scorecard: renderScorecardGroup (interactive, multi-group, team scoring)
+     flow: player select → format (+HC allowance) → groups → scoring → results
+
+   LEAGUE (league*)  entry: leagueRenderHub · ctx: leagueSessionCtx
+     seasons (leagueActiveSeason, strokeAllowance per season), standings,
+     RSVP (rsvp.html + sms:), partners, leagueFirstOpenSession vs leagueCurrentSession
+
+   TRIP (trip*)  entry: tripRenderHub · ctx: tripScoringCtx
+     trip roster (independent of S.players), rounds (per-course), HC allowance,
+     publish (tripBuildPublishMsg)
+
+   ADMIN (admin*)  entry: adminRenderTab · adminSelfRegister (on sign-in)
+     adminUsageSummary/adminUsageLine (volume), Suspend, Remove (registry only)
+   ============================================================================ */
 const MODULE_DEFS = [
   { key:'foursome', icon:'⛳', label:'FOURSOME', sub:'Today\'s Game' },
   { key:'outing',   icon:'🏆', label:'OUTING',   sub:'Multi-group · Games · Results' },
@@ -2534,6 +2534,13 @@ function calcRawCourseHcp(hcpIdx, slope, rating, par, nineHole) {
 function calcCourseHcp(hcpIdx, slope, rating, par, nineHole) {
   return roundHalfAwayZero(calcRawCourseHcp(hcpIdx, slope, rating, par, nineHole));
 }
+/** Authoritative par for a course = sum of hole pars (the SAME pars scoring uses), so the
+ *  course handicap can never disagree with scoring. Falls back to the stored par field, then 72.
+ *  The stored course.par can be stale on imported courses; the holes are the source of truth. */
+function coursePar(course) {
+  if (course && course.holes && course.holes.length) return course.holes.reduce((a, h) => a + (h.par || 0), 0);
+  return (course && course.par) || 72;
+}
 function strokesOnHole(courseHcp, holeHcpRating, hcpScale) {
   const mod = hcpScale || 18;
   if (courseHcp >= 0) {
@@ -2543,6 +2550,19 @@ function strokesOnHole(courseHcp, holeHcpRating, hcpScale) {
     return -(Math.floor(a / mod) + (holeHcpRating > mod - a % mod ? 1 : 0));
   }
 }
+/** Course-handicap breakdown for a player in a game — surfaces the exact inputs the calc used
+ *  (index, slope, rating, par) so a wrong stored value is visible. Wired to the scorecard CH tap. */
+function fsHcpBreakdown(gid, pid) {
+  const g = (S.events||[]).find(e => e.id === gid);
+  const course = g && fsGetCourse(g.courseId);
+  const p = fsPlayerById(pid) || {name:pid};
+  if (!g || !course) return `${firstName(pid)}: course/game data missing`;
+  const slope = course.slope, rating = course.rating, par = coursePar(course);
+  const idx = p.hcp ?? 0;
+  const raw = calcRawCourseHcp(idx, slope, rating, par, false);
+  const ch  = g.rawChs?.[pid] ?? calcCourseHcp(idx, slope, rating, par, false);
+  return `${firstName(pid)}: HI ${idx} · slope ${slope} · rating ${rating} · par ${par}  →  ${raw.toFixed(2)} → CH ${ch}`;
+}
 function fsBuildChs(players, course, strokeOffLow) {
   const chs = {};
   if (!course || !course.holes || !course.holes.length) {
@@ -2550,7 +2570,7 @@ function fsBuildChs(players, course, strokeOffLow) {
   }
   const isNine = course.nineHole || course.holes.length === 9 ||
                  window._fsNineMode === 'front' || window._fsNineMode === 'back';
-  const par = course.holes.reduce((a, h) => a + h.par, 0);
+  const par = coursePar(course);
   players.forEach(p => { chs[p.id] = calcCourseHcp(p.hcp ?? 0, course.slope, course.rating, par, isNine); });
   const minCH = Math.min(...Object.values(chs));
   if (strokeOffLow) {
@@ -2708,7 +2728,7 @@ function updateScoreTotals(key, scores, ah, idPfxA, idPfxB, idPfxT, sfx) {
 function scrambleTeamCH(players, course, is9, pcts) {
   if (!players || !players.length || !pcts || !pcts.length) return 0;
   const ranked = [...players]
-    .map(p => calcCourseHcp(p.hcp || 0, course.slope || 113, course.rating || 72, course.par || 72, is9))
+    .map(p => calcCourseHcp(p.hcp || 0, course.slope || 113, course.rating || 72, coursePar(course), is9))
     .sort((a, b) => a - b);
   const raw = ranked.reduce((sum, ch, i) => sum + ch * (pcts[i] || 0) / 100, 0);
   return Math.round(raw);
@@ -2887,7 +2907,7 @@ function buildScoringCtx(players, course, nineMode, scores, groups, format, sett
   const strokeAllowance = (settings && settings.strokeAllowance) || 100;
   const withCH = (players || []).map(p => ({
     ...p,
-    courseHcp: courseHandicap(p.hcp || 0, course.slope || 113, course.rating || 72, course.par || 72, strokeAllowance, is9)
+    courseHcp: courseHandicap(p.hcp || 0, course.slope || 113, course.rating || 72, coursePar(course), strokeAllowance, is9)
   }));
   return {
     players: withCH, course, activeHoles, hcpScale, is9, nineMode,
@@ -3074,7 +3094,7 @@ function computeSkins(ctx) {
 
   // Individual
   const hcps  = players.map(p => calcPlayingHcp(
-    calcRawCourseHcp(p.hcp||0, ctx.course.slope||113, ctx.course.rating||72, ctx.course.par||72, is9), skAdj));
+    calcRawCourseHcp(p.hcp||0, ctx.course.slope||113, ctx.course.rating||72, coursePar(ctx.course), is9), skAdj));
   const lowCH = sob ? Math.min(...hcps) : null;
   const wins  = {}; players.forEach(p => { wins[p.id] = 0; });
   activeHoles.forEach(h => {
@@ -3301,6 +3321,12 @@ function fsPlayerById(id) {
   return S.players.find(p => p.id === id) || (window._fsGuests||[]).find(p => p.id === id) || null;
 }
 function fsGetCourse(id) { return (S.courses||[]).find(c => c.id === id) || null; }
+/** First name for a player id, '?' if unknown. Replaces the repeated
+ *  firstName(id) pattern (was duplicated 40+ times). */
+function firstName(pid) {
+  const n = fsPlayerById(pid)?.name;
+  return n ? n.split(' ')[0] : '?';
+}
 
 // ── Foursome session state (no persistence) ───────────────────
 window._fsGuests   = [];
@@ -3369,8 +3395,22 @@ function fsResumeGame() {
   fsShowRejoinChoice(active);
 }
 
+/** Recompute a foursome game's course handicaps from CURRENT course + player data. Course
+ *  handicaps are snapshotted at creation; this refreshes them when the game is opened so a course
+ *  re-rating or an index update takes effect. No-op (no write) when nothing changed. */
+function fsRefreshChs(g) {
+  if (!g || g.type === 'outing') return;
+  const course = fsGetCourse(g.courseId);
+  const players = (g.playerIds||[]).map(id => fsPlayerById(id)).filter(Boolean);
+  if (!course || !players.length) return;
+  const { chs, rawChs } = fsBuildChs(players, course, g.strokeMode === 'low');
+  if (JSON.stringify(g.rawChs) !== JSON.stringify(rawChs) || JSON.stringify(g.chs) !== JSON.stringify(chs)) {
+    g.chs = chs; g.rawChs = rawChs; fsSaveGame(g);
+  }
+}
 function fsRouteToGame(g) {
-  if (g.type === 'outing') { outingRender(g); return; }
+  if (g.type === 'outing') { outingRefreshChs(g); outingRender(g); return; }
+  fsRefreshChs(g);
   const routes = {
     bbb:renderBBBGame, doc:renderDOCGame, nassau:renderNassauGame,
     walkoff:renderWalkoffGame, wolf:renderWolfGame,
@@ -3986,7 +4026,7 @@ function fsRenderScorecard(g, players) {
       html += `<div style="${bt}"><div class="hole-grid" style="grid-template-columns:${cols};">
         <div class="hole-cell header" style="text-align:left;padding-left:4px;font-size:10px;font-weight:700;white-space:normal;overflow:visible;line-height:1.3;height:auto;">
           ${esc(scorecardName(p, players))}<br>
-          <span style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};">${rawCh}</span>
+          <span onclick="toast(fsHcpBreakdown('${g.id}','${p.id}'))" style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};cursor:pointer;">${rawCh}</span>
           <span style="font-size:9px;color:var(--muted);"> · </span>
           <span style="font-size:9px;font-weight:${offLow?700:400};color:${offLow?'var(--text)':'var(--muted)'};">${adjCh}</span>
         </div>
@@ -4157,7 +4197,7 @@ function fsUpdateStandingsInPlace(g) {
         if (sc)  { sc.textContent = st.score; sc.style.color = st.color; }
         if (lbl) lbl.textContent = st.label;
         if (sub) sub.textContent = m.closed
-          ? `Closed H${m.closedOnHole} — ${m.winner === 'tie' ? 'Halved' : `${(m.winner==='A'?(pair.teamA||[pair.A]):(pair.teamB||[pair.B])).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&')} wins`}`
+          ? `Closed H${m.closedOnHole} — ${m.winner === 'tie' ? 'Halved' : `${(m.winner==='A'?(pair.teamA||[pair.A]):(pair.teamB||[pair.B])).map(id=>firstName(id)).join('&')} wins`}`
           : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
       });
     });
@@ -4170,8 +4210,8 @@ function fsUpdateStandingsInPlace(g) {
     const varRed = '#c0392b';
     pairs.forEach((pair, pi) => {
       const fR = fsCalcNassauSeg(g,front,pair), bR = fsCalcNassauSeg(g,back,pair), tR = fsCalcNassauSeg(g,all,pair);
-      const pA = (pair.teamA||[pair.A]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&');
-      const pB = (pair.teamB||[pair.B]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&');
+      const pA = (pair.teamA||[pair.A]).map(id=>firstName(id)).join('&');
+      const pB = (pair.teamB||[pair.B]).map(id=>firstName(id)).join('&');
       [[fR,`${pi}-f`,g.costF],[bR,`${pi}-b`,g.costB],[tR,`${pi}-t`,g.costT]].forEach(([r,bid,cost]) => {
         const w = r.winner;
         const color = !w ? '#8a6700' : w==='tie' ? '#8a6700' : w==='A' ? '#166534' : varRed;
@@ -4270,8 +4310,8 @@ function fsHoleStatusPopup(g, hole) {
     pairs.forEach(pair => {
       [[fsCalcNassauSeg(g,front,pair),'Front'],[fsCalcNassauSeg(g,back,pair),'Back'],[fsCalcNassauSeg(g,all,pair),'Total']].forEach(([r,lbl]) => {
         if (r.played === 0) return;
-        const pA = (pair.teamA||[pair.A]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&');
-        const pB = (pair.teamB||[pair.B]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&');
+        const pA = (pair.teamA||[pair.A]).map(id=>firstName(id)).join('&');
+        const pB = (pair.teamB||[pair.B]).map(id=>firstName(id)).join('&');
         const color = !r.winner ? '#d4a012' : r.winner==='tie' ? '#d4a012' : r.winner==='A' ? '#86efac' : '#dc2626';
         const txt = !r.winner ? 'Pending' : r.winner==='tie' ? 'TIE'
           : r.winner==='A' ? `${pA} ${r.aT}–${r.bT}` : `${pB} ${r.bT}–${r.aT}`;
@@ -4290,7 +4330,7 @@ function fsHoleStatusPopup(g, hole) {
         .map(pid => fsCalcStablefordPlayer(g, pid, course))
         .filter(r => r.entered > 0)
         .sort((a,b) => b.vsQuota - a.vsQuota);
-      const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+      const name = firstName;
       results.forEach((r,i) => {
         const clr = r.vsQuota > 0 ? '#86efac' : r.vsQuota < 0 ? '#fca5a5' : 'rgba(255,255,255,.7)';
         rows += `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.1);">
@@ -4306,7 +4346,7 @@ function fsHoleStatusPopup(g, hole) {
         .map(pid => fsCalcLowNetPlayer(g, pid, course))
         .filter(r => r.entered > 0)
         .sort((a,b) => a.net - b.net);
-      const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+      const name = firstName;
       results.forEach((r,i) => {
         rows += `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.1);">
           <span style="font-size:12px;color:rgba(255,255,255,.7);">${i===0?'🥇':i+1}. ${esc(name(r.pid))}</span>
@@ -4319,7 +4359,7 @@ function fsHoleStatusPopup(g, hole) {
     if (course) {
       const h = course.holes.find(hh => hh.num === hole);
       const wh = g.wolfHoles?.[hole];
-      const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+      const name = firstName;
       if (wh && wh.winner != null && h) {
         const modeLabel = {partner:'2v2', lone:'Lone Wolf', blind:'Blind Wolf'}[wh.mode] || wh.mode;
         const wolfTeam  = wh.partnerPid
@@ -4486,6 +4526,35 @@ function renderDOCGame() {
     <div class="card"><div class="card-title">Settlement</div><div id="doc-settlement">${fsRenderDOCSettlement(g)}</div></div>`, () => { buildScoringIndex(document.getElementById('tab-game-content'), null, 'live'); fsShowGameTab('⛳ Foursome'); });
 }
 
+/** Per-player balance table for money games. bal: {pid -> net$} (+ = ahead). Names via fsPlayerById. */
+function settleBalanceTable(playerIds, bal) {
+  let html = '<table class="settle-table"><tbody>';
+  playerIds.forEach(id => {
+    const p = fsPlayerById(id) || {name:id};
+    const b = bal[id] || 0;
+    html += `<tr><td>${esc(p.name)}</td><td class="${b>0?'settle-pos':b<0?'settle-neg':''}" style="text-align:right;">${b>0?'+$'+b:b<0?'-$'+Math.abs(b):'Even'}</td></tr>`;
+  });
+  return html + '</tbody></table>';
+}
+/** "Who pays whom" settlement lines from a balance map. Greedy match, preserved exactly:
+ *  debtor remainder is decremented; creditor total is re-read each time (prior behavior). */
+function settlePayLines(playerIds, bal) {
+  const pos = playerIds.filter(id => (bal[id]||0) > 0);
+  const neg = playerIds.filter(id => (bal[id]||0) < 0);
+  if (!pos.length || !neg.length) return '';
+  let html = '<div style="margin-top:8px;">';
+  neg.forEach(d => {
+    let rem = Math.abs(bal[d]);
+    pos.forEach(c => {
+      if (rem <= 0) return;
+      const pay = Math.min(rem, bal[c]);
+      rem -= pay;
+      html += `<div class="settle-txn"><span class="settle-neg">${esc(fsPlayerById(d)?.name||d)}</span> pays <span class="settle-pos">${esc(fsPlayerById(c)?.name||c)}</span> $${pay}</div>`;
+    });
+  });
+  return html + '</div>';
+}
+
 function fsRenderDOCSettlement(g) {
   const defs = fsDocMatchDefs(g);
   const statuses = [0,1,2].map(i => fsCalcDOCMatch(g,i,defs));
@@ -4499,23 +4568,7 @@ function fsRenderDOCSettlement(g) {
     winners.forEach(id => { balances[id] += cost; });
     losers.forEach(id  => { balances[id] -= cost; });
   });
-  const players = g.playerIds.map(id => fsPlayerById(id) || {id, name:id});
-  let html = `<table class="settle-table"><tbody>${players.map(p => {
-    const b = balances[p.id] || 0;
-    return `<tr><td>${esc(p.name)}</td><td class="${b>0?'settle-pos':b<0?'settle-neg':''}" style="text-align:right;">${b>0?`+$${b}`:b<0?`-$${Math.abs(b)}`:'Even'}</td></tr>`;
-  }).join('')}</tbody></table>`;
-  const pos = players.filter(p => (balances[p.id]||0)>0);
-  const neg = players.filter(p => (balances[p.id]||0)<0);
-  if (pos.length && neg.length) {
-    html += '<div style="margin-top:8px;">';
-    neg.forEach(d => {
-      let rem = Math.abs(balances[d.id]);
-      pos.forEach(c => { if (rem<=0) return; const pay=Math.min(rem,balances[c.id]); rem-=pay;
-        html += `<div class="settle-txn"><span class="settle-neg">${esc(d.name)}</span> pays <span class="settle-pos">${esc(c.name)}</span> $${pay}</div>`; });
-    });
-    html += '</div>';
-  }
-  return html;
+  return settleBalanceTable(g.playerIds, balances) + settlePayLines(g.playerIds, balances);
 }
 
 function finalizeDOCGame() {
@@ -4527,12 +4580,6 @@ function finalizeDOCGame() {
   }).join(' | ');
   g.summary = summary;
   delete g.rawChs; // slim for archive
-  delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
-  delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
-  delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
-  delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
-  delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
-  delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
   delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
   fsEndGame(g);
   window._fsPicked = null; window._fsGuests = [];
@@ -4707,8 +4754,8 @@ function renderNassauGame() {
     const w = r.winner;
     const isMatch = r.mode === 'match';
     const pi  = pairs[Math.floor(bid.split('-')[0])] || pairs[0];
-    const pA  = pi ? (pi.teamA||[pi.A]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&') : 'A';
-    const pB  = pi ? (pi.teamB||[pi.B]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&') : 'B';
+    const pA  = pi ? (pi.teamA||[pi.A]).map(id=>firstName(id)).join('&') : 'A';
+    const pB  = pi ? (pi.teamB||[pi.B]).map(id=>firstName(id)).join('&') : 'B';
 
     let txt, cls, color;
     if (isMatch) {
@@ -4816,31 +4863,7 @@ function fsRenderNassauSettlement(g) {
     };
     apply(fR,g.costF); apply(bR,g.costB); apply(tR,g.costT);
   });
-  let html = '<table class="settle-table"><tbody>';
-  g.playerIds.forEach(id => {
-    const p = fsPlayerById(id)||{name:id};
-    const b = bal[id]||0;
-    html += `<tr><td>${esc(p.name)}</td><td class="${b>0?'settle-pos':b<0?'settle-neg':''}" style="text-align:right;">${b>0?'+$'+b:b<0?'-$'+Math.abs(b):'Even'}</td></tr>`;
-  });
-  html += '</tbody></table>';
-  // Pay lines
-  const pos = g.playerIds.filter(id => (bal[id]||0) > 0);
-  const neg = g.playerIds.filter(id => (bal[id]||0) < 0);
-  if (pos.length && neg.length) {
-    html += '<div style="margin-top:8px;">';
-    neg.forEach(d => {
-      let rem = Math.abs(bal[d]);
-      pos.forEach(c => {
-        if (rem <= 0) return;
-        const pay = Math.min(rem, bal[c]);
-        rem -= pay;
-        const dn = fsPlayerById(d)?.name||d, cn = fsPlayerById(c)?.name||c;
-        html += `<div class="settle-txn"><span class="settle-neg">${esc(dn)}</span> pays <span class="settle-pos">${esc(cn)}</span> $${pay}</div>`;
-      });
-    });
-    html += '</div>';
-  }
-  return html;
+  return settleBalanceTable(g.playerIds, bal) + settlePayLines(g.playerIds, bal);
 }
 
 /** Human label for one Nassau segment (Front/Back/Total): winner's names + amount, or tie/open. */
@@ -4876,6 +4899,17 @@ function fsGameSummary(g) {
     if (s) return s;
   }
   return (g && g.summary) || '';
+}
+
+/** Shared inner content for a saved-game card: type / course / date / names / summary.
+ *  Single source used by the History tab, the Home recent-games list, and the detail modal —
+ *  no copy to miss when the summary logic changes. */
+function fsGameCardBody(g) {
+  const names = (g.playerNames||[]).map(n=>n.split(' ')[0]).join(', ');
+  const disp  = fsGameSummary(g);
+  return `<div style="font-weight:700;font-size:14px;">${fsGameTypeLabel(g.gameType)} \u00b7 ${esc(g.courseName||'\u2014')}</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:2px;">${fsDate(g.date)} \u00b7 ${esc(names)}</div>
+    ${disp ? `<div style="font-size:12px;color:var(--g600);font-weight:600;margin-top:3px;">${esc(disp)}</div>` : ''}`;
 }
 
 function finalizeNassauGame() {
@@ -4998,8 +5032,8 @@ function fsCalcOneMatch(g, match, pair) {
   const isDormie  = !closedOnHole && absDiff > 0 && absDiff === remaining && remaining > 0;
   let winner = match.winner;
   if (!winner && closedOnHole) winner = diff>0?'A':diff<0?'B':'tie';
-  const nA = (pidsA.map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?')).join(' & ');
-  const nB = (pidsB.map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?')).join(' & ');
+  const nA = (pidsA.map(id=>firstName(id))).join(' & ');
+  const nB = (pidsB.map(id=>firstName(id))).join(' & ');
   let label, score, cls, color;
   if (diff === 0)      { label=isDormie?'Dormie':'All Square'; score='All Square'; cls='mb-tied'; color='#8a6700'; }
   else if (diff > 0)   { label=isDormie?`${nA} Dormie ${absDiff}`:`${nA} ${absDiff} UP`; score=`${nA} ${absDiff}↑`; cls='mb-up'; color='#166534'; }
@@ -5061,7 +5095,7 @@ function renderWalkoffGame() {
       const mNum = idx + 1;
       const costLabel = idx === 0 ? `M${mNum} · $${m.cost}` : `M${mNum} · $${m.cost}${idx>1?' (press)':''}`;
       const subLabel  = m.closed
-        ? `Closed H${m.closedOnHole} — ${m.winner==='tie'?'Halved':`${m.winner==='A'?(pair.teamA||[pair.A]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&'):(pair.teamB||[pair.B]).map(id=>fsPlayerById(id)?.name.split(' ')[0]||'?').join('&')} wins`}`
+        ? `Closed H${m.closedOnHole} — ${m.winner==='tie'?'Halved':`${m.winner==='A'?(pair.teamA||[pair.A]).map(id=>firstName(id)).join('&'):(pair.teamB||[pair.B]).map(id=>firstName(id)).join('&')} wins`}`
         : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
       matchBannersHtml += `
         <div class="section-label">${costLabel}</div>
@@ -5136,28 +5170,7 @@ function fsRenderWalkoffSettlement(g) {
     });
   });
   let html = `<div style="font-size:10px;color:var(--muted);margin-bottom:8px;">${lines.join(' · ')}</div>`;
-  html += '<table class="settle-table"><tbody>';
-  g.playerIds.forEach(id => {
-    const p = fsPlayerById(id)||{name:id};
-    const b = bal[id]||0;
-    html += `<tr><td>${esc(p.name)}</td><td class="${b>0?'settle-pos':b<0?'settle-neg':''}" style="text-align:right;">${b>0?'+$'+b:b<0?'-$'+Math.abs(b):'Even'}</td></tr>`;
-  });
-  html += '</tbody></table>';
-  const pos = g.playerIds.filter(id=>(bal[id]||0)>0);
-  const neg = g.playerIds.filter(id=>(bal[id]||0)<0);
-  if (pos.length && neg.length) {
-    html += '<div style="margin-top:8px;">';
-    neg.forEach(d => {
-      let rem = Math.abs(bal[d]);
-      pos.forEach(c => {
-        if (rem<=0) return;
-        const pay=Math.min(rem,bal[c]); rem-=pay;
-        html += `<div class="settle-txn"><span class="settle-neg">${esc(fsPlayerById(d)?.name||d)}</span> pays <span class="settle-pos">${esc(fsPlayerById(c)?.name||c)}</span> $${pay}</div>`;
-      });
-    });
-    html += '</div>';
-  }
-  return html;
+  return html + settleBalanceTable(g.playerIds, bal) + settlePayLines(g.playerIds, bal);
 }
 
 function finalizeWalkoffGame() {
@@ -5330,7 +5343,7 @@ function wolfSettlement(g) {
 function wolfRenderSettlement(g) {
   const pairs = wolfSettlement(g);
   const totals = wolfCalcTotals(g);
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   if (!pairs.length) return '<div style="font-size:12px;color:var(--muted);padding:6px 0;">All square — no money moves.</div>';
   return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
     <thead><tr style="border-bottom:1px solid var(--surf3);">
@@ -5389,7 +5402,7 @@ function renderWolfGame() {
   if (!g || g.gameType !== 'wolf') { fsShowGameTypePicker(); return; }
   const course = fsGetCourse(g.courseId); if (!course) return;
   const players = g.playerIds.map(id => fsPlayerById(id)).filter(Boolean);
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
 
   // ── Running totals banner ─────────────────────────────────
   const totals = wolfCalcTotals(g);
@@ -5491,7 +5504,7 @@ function wolfRenderHoleAction(g, course) {
   const teeOrd  = wolfTeeOrder(g, hNum);
   const base    = wolfHoleBase(g, hNum);
   const wh      = g.wolfHoles[hNum];
-  const name    = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name    = pid => firstName(pid);
 
   let carry = '';
   if (g.wolfCarry > 0) {
@@ -5623,7 +5636,7 @@ function wolfUpdateInPlace(g) {
 
   // Update running totals banner
   const totals = wolfCalcTotals(g);
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   g.wolfOrder.forEach(pid => {
     const el = document.getElementById(`wolf-tot-${pid}`);
     if (el) {
@@ -5641,7 +5654,7 @@ function wolfUpdateInPlace(g) {
   // Update hole results table rows in place
   const tbody = document.getElementById('wolf-hole-rows');
   if (tbody && course2) {
-    const name2 = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+    const name2 = pid => firstName(pid);
     tbody.innerHTML = course2.holes.map(h => {
       const capPid2 = wolfCaptainPid(g, h.num);
       const wh2 = g.wolfHoles[h.num];
@@ -5695,7 +5708,7 @@ function wolfHighlightCaptainCells(g) {
 function finalizeWolfGame() {
   const g = fsActiveGame(); if (!g || g.gameType !== 'wolf') return;
   const totals = wolfCalcTotals(g);
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   const pairs = wolfSettlement(g);
   g.summary = pairs.length
     ? pairs.map(p => `${name(p.payerPid)}→${name(p.payeePid)} $${p.dollars.toFixed(2)}`).join(' | ')
@@ -5769,7 +5782,7 @@ function fsRenderStablefordStandings(g, course) {
     .filter(r => r.entered > 0)
     .sort((a,b) => b.vsQuota - a.vsQuota);
   if (!results.length) return '<div style="font-size:12px;color:var(--muted);">No scores yet.</div>';
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
     <thead><tr style="border-bottom:2px solid var(--surf3);">
       <th style="text-align:left;padding:4px 6px;color:var(--muted);font-size:11px;">#</th>
@@ -5822,7 +5835,7 @@ function finalizeStablefordGame() {
     const results = g.playerIds
       .map(pid => fsCalcStablefordPlayer(g, pid, course))
       .sort((a,b) => b.vsQuota - a.vsQuota);
-    const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+    const name = firstName;
     if (results.length) {
       const w = results[0];
       g.summary = `${name(w.pid)} ${w.pts}pts (${w.vsQuota>=0?'+':''}${w.vsQuota} vs quota ${w.quota})`;
@@ -5873,7 +5886,7 @@ function fsRenderLowNetStandings(g, course) {
     .filter(r => r.entered > 0)
     .sort((a,b) => a.net - b.net);
   if (!results.length) return '<div style="font-size:12px;color:var(--muted);">No scores yet.</div>';
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   return `<table style="width:100%;border-collapse:collapse;font-size:12px;">
     <thead><tr style="border-bottom:2px solid var(--surf3);">
       <th style="text-align:left;padding:4px 6px;color:var(--muted);font-size:11px;">#</th>
@@ -5919,7 +5932,7 @@ function finalizeLowNetGame() {
       .map(pid => fsCalcLowNetPlayer(g, pid, course))
       .filter(r => r.entered > 0)
       .sort((a,b) => a.net - b.net);
-    const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+    const name = firstName;
     if (results.length) {
       const w = results[0];
       g.summary = `${name(w.pid)} net ${w.net} (gross ${w.gross} CH ${(g.chs&&g.chs[w.pid])??0})`;
@@ -5969,7 +5982,7 @@ function fsRenderTwoScrambleStandings(g, course) {
     { key:'grp_0', pids: g.teams.A, label:'Team A' },
     { key:'grp_1', pids: g.teams.B, label:'Team B' },
   ];
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   const rows = teams.map((t,i) => {
     const sc    = g.scores[t.key] || {};
     const gross = course.holes.reduce((a,h) => a + (parseInt(sc[h.num])||0), 0);
@@ -5999,7 +6012,7 @@ function renderTwoScrambleGame() {
   const g = fsActiveGame();
   if (!g || g.gameType !== 'twoscramble') { fsShowGameTypePicker(); return; }
   const course = fsGetCourse(g.courseId); if (!course) return;
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
 
   // Build two team scorecard rows (one per group, same pattern as outing scramble)
   const groupColors  = ['#e8f5e9','#e3f2fd'];
@@ -6108,7 +6121,7 @@ function finalizeTwoScrambleGame() {
       { key:'grp_0', pids:g.teams.A },
       { key:'grp_1', pids:g.teams.B },
     ];
-    const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+    const name = firstName;
     const results = teams.map(t => {
       const sc = g.scores[t.key]||{};
       const gross = course.holes.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
@@ -6166,7 +6179,7 @@ function fsRenderTwoShambleStandings(g, course) {
     { pids:g.teams.A, label:'Team A' },
     { pids:g.teams.B, label:'Team B' },
   ];
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   const rows = teams.map(t => {
     const hasAny = t.pids.some(pid => course.holes.some(h => g.scores[pid]?.[+h.num] != null));
     const net  = hasAny ? fsTwoShambleTeamNet(t.pids, g, course) : null;
@@ -6198,7 +6211,7 @@ function renderTwoShambleGame() {
   if (!g || g.gameType !== 'twoshamble') { fsShowGameTypePicker(); return; }
   const course = fsGetCourse(g.courseId); if (!course) return;
   const players = g.playerIds.map(id => fsPlayerById(id)).filter(Boolean);
-  const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+  const name = firstName;
   const groupColors  = ['#e8f5e9','#e3f2fd'];
   const borderColors = ['#27ae60','#2471a3'];
 
@@ -6239,7 +6252,7 @@ function finalizeTwoShambleGame() {
   const g = fsActiveGame(); if (!g || g.gameType !== 'twoshamble') return;
   const course = fsGetCourse(g.courseId);
   if (course) {
-    const name = pid => fsPlayerById(pid)?.name.split(' ')[0] || '?';
+    const name = firstName;
     const teams = [
       { pids:g.teams.A },
       { pids:g.teams.B },
@@ -6291,11 +6304,7 @@ function renderFoursomeHome(){
     .sort((a,b)=>b.completedDate-a.completedDate).slice(0,10);
   if(!games.length){histEl.innerHTML='';return;}
   histEl.innerHTML=`<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:4px 2px 8px;">RECENT GAMES</div>`+
-    games.map(g=>`<div class="card" style="margin-bottom:8px;cursor:pointer;" onclick="fsSViewHistory('${g.id}')">
-      <div style="font-weight:700;font-size:14px;">${fsGameTypeLabel(g.gameType)} · ${esc(g.courseName||'—')}</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:2px;">${fsDate(g.date)} · ${(g.playerNames||[]).map(n=>n.split(' ')[0]).join(', ')}</div>
-      ${g.summary?`<div style="font-size:12px;color:var(--g600);font-weight:600;margin-top:4px;">${esc(g.summary)}</div>`:''}
-    </div>`).join('');
+    games.map(g=>`<div class="card" style="margin-bottom:8px;cursor:pointer;" onclick="fsSViewHistory('${g.id}')">${fsGameCardBody(g)}</div>`).join('');
 }
 function fsSViewHistory(id){
   const g=(S.events||[]).find(x=>x.id===id); if(!g) return;
@@ -6303,7 +6312,7 @@ function fsSViewHistory(id){
   document.getElementById('historyModalBody').innerHTML=`
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${fsDate(g.date)} · ${esc(g.courseName||'—')}</div>
     <div style="font-size:14px;margin-bottom:8px;">${(g.playerNames||[]).join(', ')}</div>
-    ${g.summary?`<div style="font-size:14px;font-weight:600;">${esc(g.summary)}</div>`:''}
+    ${(()=>{const d=fsGameSummary(g);return d?`<div style="font-size:14px;font-weight:600;">${esc(d)}</div>`:'';})()}
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeModal('historyModal')">Close</button>
       <button class="btn btn-danger btn-sm" onclick="closeModal('historyModal');fsDeleteHistory('${id}')">Delete</button>
@@ -7979,10 +7988,26 @@ function outingStartGame() {
   ghinFetchForGame(rawPlayers, () => _outingDoStart(rawPlayers, course, gameType));
 }
 
+/** Recompute an outing's stored per-player course handicaps from CURRENT course + player data
+ *  (index / re-rating / allowance), mirroring the foursome refresh. No write when unchanged. */
+function outingRefreshChs(g) {
+  const course = g && fsGetCourse(g.courseId);
+  if (!course || !g.players || !g.players.length) return;
+  const allowance = g.strokeAllowance || 100;
+  const fullPar = coursePar(course);
+  let changed = false;
+  g.players.forEach(gp => {
+    const p = fsPlayerById(gp.id);
+    const hcp = p ? (p.hcp || 0) : (gp.hcp || 0);
+    const ch = courseHandicap(hcp, course.slope, course.rating, fullPar, allowance, false);
+    if (gp.courseHcp !== ch || gp.hcp !== hcp) { gp.hcp = hcp; gp.courseHcp = ch; changed = true; }
+  });
+  if (changed) fsSaveGame(g);
+}
 function _outingDoStart(rawPlayers, course, gameType) {
   const pids     = rawPlayers.map(p=>p.id);
   const nineSide = 'all'; // Outings always 18 holes
-  const fullPar  = course.holes.reduce((a,h)=>a+h.par,0);
+  const fullPar  = coursePar(course);
   const allowance = (outingCurrent() && outingCurrent().strokeAllowance) || 100;
   const players  = rawPlayers.map(p=>{
     const ch=courseHandicap(p.hcp||0,course.slope,course.rating,fullPar,allowance,false);
@@ -10928,11 +10953,11 @@ function tripGenerateGroups(){
   const ds=t.settings||{};
   if(r.championship){
     const board=tripLeaderboard();const rank={};board.forEach((e,i)=>rank[e.playerId]=i);
-    const sorted=[...players].map(p=>({...p,ch:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,c.par||72,is9)})).sort((a,b)=>(rank[a.id]??-1)-(rank[b.id]??-1));
+    const sorted=[...players].map(p=>({...p,ch:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,coursePar(c),is9)})).sort((a,b)=>(rank[a.id]??-1)-(rank[b.id]??-1));
     sorted.forEach((p,i)=>shells[i%count].playerIds.push(p.id));
   }else{
     const hist=tripGetPairHistory();
-    const withHcp=players.map(p=>({...p,ch:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,c.par||72,is9),isMgr:isTripManager(t,p.id)}));
+    const withHcp=players.map(p=>({...p,ch:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,coursePar(c),is9),isMgr:isTripManager(t,p.id)}));
     const managers=withHcp.filter(p=>p.isMgr);const others=withHcp.filter(p=>!p.isMgr);
     if(ds.managerBias&&managers.length){managers.forEach(p=>{const front=shells.slice(0,2).filter(s=>s.playerIds.length<s.cap);const tgt=(front.length?front:shells.filter(s=>s.playerIds.length<s.cap))[0]||shells[0];tgt.playerIds.push(p.id);});}
     const toAssign=ds.managerBias?others:[...managers,...others];
@@ -11115,7 +11140,7 @@ function tripScoringCtx(t,r){
   const players=allPlayers.map(p=>{
     const hi = locked[p.id]!=null ? locked[p.id] : p.hcp;
     return {...p, hcp: hi,
-      courseHcp: courseHandicap(hi||0, c.slope||113, c.rating||72, c.par||72, strokeAllowance, is9)};
+      courseHcp: courseHandicap(hi||0, c.slope||113, c.rating||72, coursePar(c), strokeAllowance, is9)};
   });
   return{players,course:c,activeHoles,hcpScale,is9,nineMode,scores:r.scores||{},groups:(r.groups||[]).map((gr,i)=>({playerIds:gr.playerIds||[],label:gr.teetime||('Group '+(i+1))})),format:r.format||'stroke',settings:{scramblePcts:pcts,strokeAllowance:(t.settings&&t.settings.strokeAllowance)||100,skins:(t.settings&&t.settings.skins)||{},sfCfg:S.config.games?.individual?.stableford||{},resultMethod:r.resultMethod||'best2',borrows:r.borrows||[]}};
 }
@@ -11179,7 +11204,7 @@ function tripLeaderboard() {
           const gross = ctx.activeHoles.reduce((a,h) => a+(parseInt((r.scores[p.id]||{})[h.num])||0), 0);
           if (!gross) return;
           const c = tripCourseById(t, r.courseId); if (!c) return;
-          const ch = calcCourseHcp(p.hcp||0, c.slope||113, c.rating||72, c.par||72, ctx.is9);
+          const ch = calcCourseHcp(p.hcp||0, c.slope||113, c.rating||72, coursePar(c), ctx.is9);
           net[p.id]  = (net[p.id]||0) + (gross - ch);
           rnds[p.id] = (rnds[p.id]||0) + 1;
         });
@@ -12838,7 +12863,7 @@ function _leagueDoScoring(lg,s) {
   const c=leagueSessionCourse(lg,s);if(!c||!c.holes)return toast('Course data missing');
   const gameType=s.gameType||'stableford';
   const pool=leagueBuildPool(lg,s);
-  const par=c.holes.reduce((a,h)=>a+(h.par||0),0);
+  const par=coursePar(c);
   const pWithCH=pool.map(p=>({...p,courseHcp:courseHandicap(p.hcp||0,c.slope||113,c.rating||72,par,leagueSessionAllowance(lg,s),false)}));
   const activeHoles=getActiveHoles(c,s.nineSide||'all');
   const isTeam=isTeamFormat(gameType);
