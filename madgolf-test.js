@@ -7105,7 +7105,7 @@ smoke('leagueCurrentSession returns session', () => {
   smokeSetup();
   const sN = vm.runInContext(`(function(){ const g = S.events.find(e=>e.gameType==='nassau'); return g ? fsGameSummary(g) : null; })()`, sandbox);
   expect('smoke nassau game present', sN !== null, true);
-  expect('gameSummary: nassau reads "vs ... Front:"', /vs[\s\S]*Front:/.test(sN||''), true);
+  expect('gameSummary: nassau results-only starts Front:', (sN||'').startsWith('Front:'), true);
   expect('gameSummary: nassau not cryptic M1[',        (sN||'').includes('M1['), false);
 }
 
@@ -7300,6 +7300,49 @@ smoke('leagueCurrentSession returns session', () => {
   // active foursome game rather than bounce to "Select 2-4 players".
   expect('rejoin: rebuilds _fsPicked from active game',
     html.includes('const ag=fsActiveGame();') && html.includes('window._fsPicked=[...ag.playerIds]'), true);
+}
+
+// ── 135. lastName + banner never Pending / guarded tallies ───
+{
+  vmSetS('players',[{id:'p1',name:'Kevrin Blood'},{id:'p2',name:'Schroeder, Bob'}]);
+  expect('lastName space form', vm.runInContext(`lastName('p1')`,sandbox), 'blood');
+  expect('lastName comma form', vm.runInContext(`lastName('p2')`,sandbox), 'schroeder');
+  expect('lastName missing', vm.runInContext(`lastName('zz')`,sandbox), '?');
+  expect('no Pending text anywhere', html.includes("'Pending'"), false);
+  expect('nassau tally undefined-guarded', html.includes('r.aT!=null?'), true);
+}
+
+// ── 136. fsPairOrderedIds — scorecard in team order ──────────
+{
+  const g={playerIds:['c','a','d','b']};                 // roster order != team order
+  const pairs=[{teamA:['a','b'],teamB:['c','d']}];
+  expect('team order T1,T1,T2,T2', vm.runInContext(`fsPairOrderedIds(${JSON.stringify(g)}, ${JSON.stringify(pairs)}).join(',')`,sandbox), 'a,b,c,d');
+  expect('no pairs → playerIds', vm.runInContext(`fsPairOrderedIds(${JSON.stringify(g)}, []).join(',')`,sandbox), 'c,a,d,b');
+  expect('legacy A/B order', vm.runInContext(`fsPairOrderedIds({playerIds:['y','x']}, [{A:'x',B:'y'}]).join(',')`,sandbox), 'x,y');
+}
+
+// ── 137. One active foursome game (normalizeState dedup) ─────
+{
+  const r2 = vm.runInContext(`(()=>{ const gg={id:'gg',type:'foursome',status:'active',_scoring:true,scores:{}}; S.events=[gg]; fsEndGame(gg); return [gg.status,gg._scoring].join(','); })()`, sandbox);
+  expect('fsEndGame completes + clears scoring', r2, 'complete,false');
+  // normalizeState (runs on load AND on every scheduleWrite) keeps only the newest active foursome
+  const r3 = vm.runInContext(`(()=>{ const n=normalizeState({events:[{id:'a',type:'foursome',status:'active',date:1},{id:'b',type:'foursome',status:'active',date:5}]}); return n.events.map(e=>e.id+':'+e.status).join(','); })()`, sandbox);
+  expect('normalizeState keeps newest active foursome', r3, 'a:abandoned,b:active');
+  const r4 = vm.runInContext(`(()=>{ const n=normalizeState({events:[{id:'x',type:'foursome',status:'active',date:9}]}); return n.events.find(e=>e.id==='x').status; })()`, sandbox);
+  expect('normalizeState leaves a lone active foursome alone', r4, 'active');
+}
+
+// ── 138. Recent-games card: last names + results-only summary ─
+{
+  const { fsLastNamesLine } = sandbox;
+  expect('last names line', fsLastNamesLine(['Kevrin Blood','Chris Davis','Scott Schroeder']), 'Blood, Davis, Schroeder');
+  expect('initial when shared surname', fsLastNamesLine(['Bob Smith','Jim Smith']), 'B. Smith, J. Smith');
+  expect('comma-form name', fsLastNamesLine(['Blood, Kevrin']), 'Blood');
+  vmSetS('courses',[{id:'cN',slope:113,rating:72,holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}))}]);
+  vmSetS('players',[{id:'a',name:'A A'},{id:'b',name:'B B'}]);
+  const sum = vm.runInContext(`fsNassauSummary({courseId:'cN',pairs:[{teamA:['a'],teamB:['b'],A:'a',B:'b'}],scores:{},costF:10,costB:10,costT:10,nassauMode:'match'})`, sandbox);
+  expect('summary is results-only (starts Front)', sum.startsWith('Front:'), true);
+  expect('summary drops the vs matchup', sum.includes(' vs '), false);
 }
 
 const total = passed + failed;

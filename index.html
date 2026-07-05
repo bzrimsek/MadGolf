@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.65  Build 2026-07-05 02:39 PM ET
+     Version : v0.90.67  Build 2026-07-05 06:24 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,8 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.67  2026-07-05  Home in-progress + Recent-Games fixes. (A) A completed game no longer shows IN PROGRESS. Root cause: nothing enforced one active foursome at a time, so an orphaned active game (started, never finished) kept the home banner/badge lit after a different game was completed. normalizeState now keeps only the newest active foursome and abandons the rest - it runs on load AND on every save (scheduleWrite calls it), so existing orphans clear on next load and new ones cannot accumulate. fsEndGame also clears _scoring on completion. (B) Recent Games is less wordy: the names line now shows last names (capitalized, with a first initial only when two players share a surname) via fsLastNamesLine, and the Nassau summary is results-only - dropped the redundant TeamA vs TeamB prefix so the line reads Front: ... Back: ... Total: .... +8 tests (S137-138). Note on the reported $10->$1 Total: the cost inputs have no maxlength cap and the label prints the stored value directly, so g.costT is stored as 1 for that game (data, not a display bug) - confirm the Total bet was set to 10.
+// v0.90.66  2026-07-05  Nassau/Walk-off match-banner + scorecard-order fixes. (1) Banners never say Pending - they show Even at the start and when tied, and update to the real state as holes complete. (2) The undefined-undefined tally is gone: the stroke line only appends (a-b) when both totals exist, so a decided match without stored tallies no longer prints undefined. (3) Team labels use last names (added lastName(pid), reusing lastNameOf like the summary) across the Nassau and Walk-off banners and the Closed-X-wins text. (4) Scorecard now lists two-man team games in team order T1P1,T1P2,T2P1,T2P2 via new fsPairOrderedIds(g,pairs) - applied to Nassau and Walk-off (DOC already uses cart order; removed a dead allPids). +8 tests (S135-136).
 // v0.90.65  2026-07-05  Fixed Foursome rejoin bug: after resuming a Nassau (or any foursome) round and tapping Back from the scorecard, the game-type picker showed a Select 2-4 players toast and went nowhere. Cause: fsShowGameTypePicker read the picked players only from the transient window._fsPicked, which is cleared on reload/rejoin. Fix: when _fsPicked is missing it now rebuilds from the active foursome game playerIds, so Back from a resumed scorecard returns to the game-type picker as intended. Pre-existing bug, unrelated to the scorecard consolidation. +1 guard test (S134).
 // v0.90.64  2026-07-05  Finished the firstName/name-split cleanup. Extracted firstWord(name) as the single .split() first-name atom and routed every remaining .name.split() site through it (22 call sites: object p.name, array players[n].name, a .find() lookup, and the two fsPlayerById lookups that kept their own || id / || ? fallback). firstName now uses firstWord too. Behavior-preserving - firstWord(name) equals name.split() for a real name and is null-safe - so no fallback changed (correcting the earlier note that this needed an undefined-to-? change; using firstWord avoids that). Zero raw .name.split() remain in the codebase. +8 tests (S133). Note: the server-side ship gate (.github/workflows) and ship.py/audit.py/madgolf-test.js are now committed to the repo, so the gate runs on every push.
 // v0.90.63  2026-07-05  Scorecard consolidation Stage 3 - Trip paging. The Trip scorecard rendered every group in one long scroll; it now pages one group at a time with tappable group pills and Prev/Next, matching Outing and League (per the paged-not-scroll preference). Added tripNavGroup(idx) and reset _tripSelectedGroup to 0 on round entry. Only the active group renders, so score entry and the auto-advance index are per-group like the other modules. +5 tests (S132). This completes the scorecard consolidation: header (scorecardHdr), score cell (scoreCell), and the whole foursome now share ONE engine (renderScorecardGroup), and all three multi-group modules page.
@@ -1133,8 +1135,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.65';
-const BUILD_TIME = '2026-07-05 02:39 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.67';
+const BUILD_TIME = '2026-07-05 06:24 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1239,6 +1241,15 @@ function normalizeState(raw) {
     raw.courses  = toArr(raw.courses);
     raw.courses.forEach(c => { if (c.tripCourse == null) c.tripCourse = false; });
     raw.events   = toArr(raw.events);
+    // One active foursome at a time: orphaned active foursome games (started, never finished)
+    // accumulate and keep the home banner lit. Keep the most recent; abandon the rest.
+    {
+      const activeFours = raw.events.filter(e => e.type==='foursome' && e.status==='active');
+      if (activeFours.length > 1) {
+        const keep = activeFours.reduce((a,b) => (b.date||0) > (a.date||0) ? b : a);
+        activeFours.forEach(e => { if (e.id !== keep.id) { e.status='abandoned'; e._scoring=false; } });
+      }
+    }
 
     // ── Trip events (type:'trip' in S.events[]) ─────────────────
     // t.players = [{id, manager}] — refs into S.players[], not full objects
@@ -3343,6 +3354,8 @@ function firstName(pid) {
   const n = fsPlayerById(pid)?.name;
   return n ? firstWord(n) : '?';
 }
+/** Last name for a player id (lowercase, empty-safe). Reuses lastNameOf; matches the summary. */
+function lastName(pid) { const n = fsPlayerById(pid)?.name; return n ? (lastNameOf(n) || n) : '?'; }
 
 // ── Foursome session state (no persistence) ───────────────────
 window._fsGuests   = [];
@@ -3363,9 +3376,9 @@ function fsSaveGame(g) {
   if (!S.events) S.events = [];
   const idx = S.events.findIndex(e => e.id === g.id);
   if (idx >= 0) S.events[idx] = g; else S.events.push(g);
-  scheduleWrite();
+  scheduleWrite();  // scheduleWrite → normalizeState enforces one active foursome at a time
 }
-function fsEndGame(g) { g.status='complete'; g.completedDate=Date.now(); fsSaveGame(g); }
+function fsEndGame(g) { g.status='complete'; g._scoring=false; g.completedDate=Date.now(); fsSaveGame(g); }
 
 // ── Game tab show/hide/render ─────────────────────────────────
 // fsShow/fsHide/fsRender kept as named aliases so all call sites need no changes.
@@ -4156,7 +4169,7 @@ function fsUpdateStandingsInPlace(g) {
         if (sc)  { sc.textContent = st.score; sc.style.color = st.color; }
         if (lbl) lbl.textContent = st.label;
         if (sub) sub.textContent = m.closed
-          ? `Closed H${m.closedOnHole} — ${m.winner === 'tie' ? 'Halved' : `${(m.winner==='A'?(pair.teamA||[pair.A]):(pair.teamB||[pair.B])).map(id=>firstName(id)).join('&')} wins`}`
+          ? `Closed H${m.closedOnHole} — ${m.winner === 'tie' ? 'Halved' : `${(m.winner==='A'?(pair.teamA||[pair.A]):(pair.teamB||[pair.B])).map(id=>lastName(id)).join('&')} wins`}`
           : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
       });
     });
@@ -4169,14 +4182,14 @@ function fsUpdateStandingsInPlace(g) {
     const varRed = '#c0392b';
     pairs.forEach((pair, pi) => {
       const fR = fsCalcNassauSeg(g,front,pair), bR = fsCalcNassauSeg(g,back,pair), tR = fsCalcNassauSeg(g,all,pair);
-      const pA = (pair.teamA||[pair.A]).map(id=>firstName(id)).join('&');
-      const pB = (pair.teamB||[pair.B]).map(id=>firstName(id)).join('&');
+      const pA = (pair.teamA||[pair.A]).map(id=>lastName(id)).join('&');
+      const pB = (pair.teamB||[pair.B]).map(id=>lastName(id)).join('&');
       [[fR,`${pi}-f`,g.costF],[bR,`${pi}-b`,g.costB],[tR,`${pi}-t`,g.costT]].forEach(([r,bid,cost]) => {
         const w = r.winner;
         const color = !w ? '#8a6700' : w==='tie' ? '#8a6700' : w==='A' ? '#166534' : varRed;
-        const txt = !w||r.played===0 ? 'Pending' : w==='tie' ? 'TIE'
-          : w==='A' ? `${pA} wins (${r.aT}–${r.bT})` : `${pB} wins (${r.bT}–${r.aT})`;
-        const cls = !w ? 'mb-pending' : w==='tie' ? 'mb-tied' : w==='A' ? 'mb-up' : 'mb-down';
+        const txt = !w||r.played===0 ? 'Even' : w==='tie' ? 'TIE'
+          : w==='A' ? `${pA} wins${r.aT!=null?` (${r.aT}–${r.bT})`:''}` : `${pB} wins${r.bT!=null?` (${r.bT}–${r.aT})`:''}`;
+        const cls = !w ? 'mb-tied' : w==='tie' ? 'mb-tied' : w==='A' ? 'mb-up' : 'mb-down';
         const bn = document.getElementById(`nassau-banner-${bid}`);
         const sc = document.getElementById(`nassau-banner-score-${bid}`);
         if (bn) bn.className = `match-banner ${cls}`;
@@ -4269,11 +4282,11 @@ function fsHoleStatusPopup(g, hole) {
     pairs.forEach(pair => {
       [[fsCalcNassauSeg(g,front,pair),'Front'],[fsCalcNassauSeg(g,back,pair),'Back'],[fsCalcNassauSeg(g,all,pair),'Total']].forEach(([r,lbl]) => {
         if (r.played === 0) return;
-        const pA = (pair.teamA||[pair.A]).map(id=>firstName(id)).join('&');
-        const pB = (pair.teamB||[pair.B]).map(id=>firstName(id)).join('&');
+        const pA = (pair.teamA||[pair.A]).map(id=>lastName(id)).join('&');
+        const pB = (pair.teamB||[pair.B]).map(id=>lastName(id)).join('&');
         const color = !r.winner ? '#d4a012' : r.winner==='tie' ? '#d4a012' : r.winner==='A' ? '#86efac' : '#dc2626';
-        const txt = !r.winner ? 'Pending' : r.winner==='tie' ? 'TIE'
-          : r.winner==='A' ? `${pA} ${r.aT}–${r.bT}` : `${pB} ${r.bT}–${r.aT}`;
+        const txt = !r.winner ? 'Even' : r.winner==='tie' ? 'TIE'
+          : r.winner==='A' ? `${pA}${r.aT!=null?` ${r.aT}–${r.bT}`:''}` : `${pB}${r.bT!=null?` ${r.bT}–${r.aT}`:''}`;
         const label = pairs.length > 1 ? `${pair.label||''} ${lbl}` : lbl;
         rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.1);">
           <span style="font-size:12px;color:rgba(255,255,255,.7);">${label}</span>
@@ -4701,6 +4714,18 @@ function fsCalcNassauSeg(g, holes, pair) {
 }
 
 /** Derive pairs from game — handles old games without g.pairs */
+/** Player ids in team order (teamA players then teamB) for the scorecard, so a two-man team
+ *  game lists T1P1, T1P2, T2P1, T2P2 rather than roster/alpha order. Falls back to playerIds. */
+function fsPairOrderedIds(g, pairs) {
+  if (!pairs || !pairs.length) return g.playerIds || [];
+  const ids = [];
+  pairs.forEach(p => {
+    (p.teamA || [p.A]).forEach(id => { if (id && !ids.includes(id)) ids.push(id); });
+    (p.teamB || [p.B]).forEach(id => { if (id && !ids.includes(id)) ids.push(id); });
+  });
+  (g.playerIds || []).forEach(id => { if (!ids.includes(id)) ids.push(id); });
+  return ids;
+}
 function fsGetNassauPairs(g) {
   if (g.pairs) return g.pairs;
   // legacy 4-player game stored g.teams
@@ -4714,8 +4739,7 @@ function renderNassauGame() {
   const course = fsGetCourse(g.courseId);
   if (!course) { fsRender('<div class="card" style="text-align:center;color:var(--red);padding:32px;">Course data missing.</div>'); return; }
   const pairs = fsGetNassauPairs(g);
-  const allPids = g.playerIds;
-  const players = allPids.map(id => fsPlayerById(id)||{id,name:id});
+  const players = fsPairOrderedIds(g, pairs).map(id => fsPlayerById(id)||{id,name:id});
   const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
   const varRed = '#c0392b';
 
@@ -4723,13 +4747,13 @@ function renderNassauGame() {
     const w = r.winner;
     const isMatch = r.mode === 'match';
     const pi  = pairs[Math.floor(bid.split('-')[0])] || pairs[0];
-    const pA  = pi ? (pi.teamA||[pi.A]).map(id=>firstName(id)).join('&') : 'A';
-    const pB  = pi ? (pi.teamB||[pi.B]).map(id=>firstName(id)).join('&') : 'B';
+    const pA  = pi ? (pi.teamA||[pi.A]).map(id=>lastName(id)).join('&') : 'A';
+    const pB  = pi ? (pi.teamB||[pi.B]).map(id=>lastName(id)).join('&') : 'B';
 
     let txt, cls, color;
     if (isMatch) {
       const thru = r.thru||0;
-      if (!thru) { txt='Pending'; cls='mb-pending'; color='#8a6700'; }
+      if (!thru) { txt='Even'; cls='mb-tied'; color='#8a6700'; }
       else if (r.isClosed) {
         const lead = r.diff>0?pA:pB, deficit = Math.abs(r.diff), rem = r.remaining||0;
         txt = `${lead} wins ${deficit}&${rem}`; // e.g. "Brian wins 2&1"
@@ -4753,11 +4777,11 @@ function renderNassauGame() {
       }
     } else {
       // Stroke play
-      cls   = !w ? 'mb-pending' : w==='tie' ? 'mb-tied' : w==='A' ? 'mb-up' : 'mb-down';
+      cls   = !w ? 'mb-tied' : w==='tie' ? 'mb-tied' : w==='A' ? 'mb-up' : 'mb-down';
       color = !w ? '#8a6700' : w==='tie' ? '#8a6700' : w==='A' ? '#166534' : varRed;
       const played = r.played||0;
-      txt = !w||played===0 ? 'Pending' : w==='tie' ? 'TIE'
-        : w==='A' ? `${pA} wins (${r.aT}–${r.bT})` : `${pB} wins (${r.bT}–${r.aT})`;
+      txt = !w||played===0 ? 'Even' : w==='tie' ? 'TIE'
+        : w==='A' ? `${pA} wins${r.aT!=null?` (${r.aT}–${r.bT})`:''}` : `${pB} wins${r.bT!=null?` (${r.bT}–${r.aT})`:''}`;
     }
 
     const sub = isMatch ? (r.thru?`${r.thru} holes`:'No scores yet')
@@ -4854,7 +4878,7 @@ function fsNassauSummary(g) {
     const aName = nm(pair.teamA || [pair.A]);
     const bName = nm(pair.teamB || [pair.B]);
     const fR = fsCalcNassauSeg(g,front,pair), bR = fsCalcNassauSeg(g,back,pair), tR = fsCalcNassauSeg(g,all,pair);
-    return `${aName} vs ${bName} — Front: ${fsNassauSegLabel(fR,aName,bName,g.costF)}`
+    return `Front: ${fsNassauSegLabel(fR,aName,bName,g.costF)}`
          + ` · Back: ${fsNassauSegLabel(bR,aName,bName,g.costB)}`
          + ` · Total: ${fsNassauSegLabel(tR,aName,bName,g.costT)}`;
   }).join('  |  ');
@@ -4874,8 +4898,21 @@ function fsGameSummary(g) {
 /** Shared inner content for a saved-game card: type / course / date / names / summary.
  *  Single source used by the History tab, the Home recent-games list, and the detail modal —
  *  no copy to miss when the summary logic changes. */
+/** Comma-separated last names for a saved game's players, capitalized, with a first initial
+ *  added only when two players share a last name (e.g. "Blood, K. Smith, J. Smith"). */
+function fsLastNamesLine(names) {
+  const arr = names || [];
+  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const counts = {};
+  arr.forEach(n => { const ln = lastNameOf(n) || n; counts[ln] = (counts[ln] || 0) + 1; });
+  return arr.map(n => {
+    const key = lastNameOf(n) || n;
+    const ln  = cap(key);
+    return counts[key] > 1 ? `${(firstWord(n)[0] || '').toUpperCase()}. ${ln}` : ln;
+  }).join(', ');
+}
 function fsGameCardBody(g) {
-  const names = (g.playerNames||[]).map(n=>n.split(' ')[0]).join(', ');
+  const names = fsLastNamesLine(g.playerNames);
   const disp  = fsGameSummary(g);
   return `<div style="font-weight:700;font-size:14px;">${fsGameTypeLabel(g.gameType)} \u00b7 ${esc(g.courseName||'\u2014')}</div>
     <div style="font-size:12px;color:var(--muted);margin-top:2px;">${fsDate(g.date)} \u00b7 ${esc(names)}</div>
@@ -5053,7 +5090,7 @@ function renderWalkoffGame() {
 
   const pairs = fsGetWalkoffPairs(g);
   const pairMatches = fsGetPairMatches(g);
-  const players = g.playerIds.map(id=>fsPlayerById(id)||{id,name:id});
+  const players = fsPairOrderedIds(g, pairs).map(id=>fsPlayerById(id)||{id,name:id});
   const pNames = players.map(p=>esc(firstWord(p.name))).join(' · ');
 
   let matchBannersHtml = '';
@@ -5065,7 +5102,7 @@ function renderWalkoffGame() {
       const mNum = idx + 1;
       const costLabel = idx === 0 ? `M${mNum} · $${m.cost}` : `M${mNum} · $${m.cost}${idx>1?' (press)':''}`;
       const subLabel  = m.closed
-        ? `Closed H${m.closedOnHole} — ${m.winner==='tie'?'Halved':`${m.winner==='A'?(pair.teamA||[pair.A]).map(id=>firstName(id)).join('&'):(pair.teamB||[pair.B]).map(id=>firstName(id)).join('&')} wins`}`
+        ? `Closed H${m.closedOnHole} — ${m.winner==='tie'?'Halved':`${m.winner==='A'?(pair.teamA||[pair.A]).map(id=>lastName(id)).join('&'):(pair.teamB||[pair.B]).map(id=>lastName(id)).join('&')} wins`}`
         : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
       matchBannersHtml += `
         <div class="section-label">${costLabel}</div>
