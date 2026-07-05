@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.49  Build 2026-07-04 10:04 PM ET
+     Version : v0.90.50  Build 2026-07-04 10:21 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.50  2026-07-04  Two reported bugs fixed. (1) Recent Games now shows a plain-English Nassau summary even for games finalized before that format shipped: fsGameSummary regenerates it from the game data (fsNassauSummary) at display time instead of showing the frozen old M1[...] string. (2) An open Outing no longer lights the Foursome IN PROGRESS badge on the home grid: the badge is now computed per module (foursome reflects a foursome game only; the Outing button correctly shows its own IN PROGRESS). +6 tests (S121).
 // v0.90.49  2026-07-04  Consolidation fixes. #4 Admin: relabeled Delete Data to Remove (removes the registry entry only; the hardened rules block admin from deleting another user golf data), honest confirm text, removed the dead state.json DELETE that always 403s. #5 Renamed leagueActiveSession to leagueFirstOpenSession (it is the first incomplete session, not the open one) to end the near-identical clash with leagueCurrentSession. #6 Converted the one plain-text openConfirm to confirmDo; the other openConfirm stays (renders an HTML preview confirmDo cannot).
 // v0.90.48  2026-07-04  League and Outing now have an HC Adjustment (allowance) %, completing the courseHandicap work. League: per-season strokeAllowance (picker in Seasons and Schedules; migration default 100; inherited by new seasons; scoring resolves it via leagueSessionAllowance from the session season). Outing: per-outing strokeAllowance (picker in the format screen; migration default 100; applied in _outingDoStart via courseHandicap). Both plug into the shared courseHandicap function. +7 tests (S120).
 // v0.90.47  2026-07-04  Scoring-context consolidation (#5) + Trip HC-adjustment fix. Added courseHandicap() as the single scoring course-handicap function (raw x allowance, rounded), used by buildScoringCtx, tripScoringCtx, and both league scoring paths. FIXES a real bug: Trip HC Adjustment % was cosmetic (tripScoringCtx used calcCourseHcp with no allowance and the scorer never re-applied it), so a 90% trip scored like 100%; it now applies. Works per-course, so multi-course Trips call it per round. League/outing unchanged (no allowance UI; 100% == calcCourseHcp). calcCourseHcp kept for team balancing/display. +9 tests (S119) with drift guards. NOTE: trips with a non-100% allowance will now score differently (correctly).
@@ -1151,8 +1152,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.49';
-const BUILD_TIME = '2026-07-04 10:04 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.50';
+const BUILD_TIME = '2026-07-04 10:21 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1967,11 +1968,12 @@ function renderHistory() {
   el.innerHTML = games.map(g => {
     const names = (g.playerNames||[]).map(n=>n.split(' ')[0]).join(', ');
     const course = esc(g.courseName||'—');
+    const disp = fsGameSummary(g);
     return `<div style="background:var(--surf);border-radius:10px;margin-bottom:8px;box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;" onclick="fsSViewHistory('${g.id}')">
       <div style="flex:1;min-width:0;">
         <div style="font-weight:700;font-size:14px;">${fsGameTypeLabel(g.gameType)} · ${course}</div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px;">${fsDate(g.date)} · ${esc(names)}</div>
-        ${g.summary ? `<div style="font-size:12px;color:var(--g600);font-weight:600;margin-top:3px;">${esc(g.summary)}</div>` : ''}
+        ${disp ? `<div style="font-size:12px;color:var(--g600);font-weight:600;margin-top:3px;">${esc(disp)}</div>` : ''}
       </div>
       <button class="btn btn-sm btn-danger" style="flex-shrink:0;padding:4px 10px;font-size:11px;"
         onclick="event.stopPropagation();fsDeleteHistory('${g.id}')">✕</button>
@@ -2025,12 +2027,12 @@ function renderHome() {
   // Render only enabled buttons
   const grid = document.getElementById('homeGrid');
   if (grid) {
-    const foursomeActive = fsActiveGame();
+    const foursomeActive = (S.events||[]).find(e => e.type==='foursome' && e.status==='active') || null;
+    const outingActive   = (S.events||[]).find(e => e.type==='outing'   && e.status==='active') || null;
+    const inProg = a => a ? `<span style="font-size:10px;color:var(--gold);font-weight:700;letter-spacing:.5px;">⛳ IN PROGRESS</span>` : '';
     const statusBadge = {
-      foursome: foursomeActive
-        ? `<span style="font-size:10px;color:var(--gold);font-weight:700;letter-spacing:.5px;">⛳ IN PROGRESS</span>`
-        : '',
-      outing:  '',
+      foursome: inProg(foursomeActive),
+      outing:   inProg(outingActive),
       trip:    '',
       league:  ''
     };
@@ -4863,6 +4865,17 @@ function fsNassauSummary(g) {
          + ` · Back: ${fsNassauSegLabel(bR,aName,bName,g.costB)}`
          + ` · Total: ${fsNassauSegLabel(tR,aName,bName,g.costT)}`;
   }).join('  |  ');
+}
+
+/** Display summary for a saved game. Regenerates the plain-English Nassau summary so games
+ *  finalized before that format (whose stored g.summary is the old M1[...] string) still read
+ *  clearly. Falls back to the stored summary for other game types (or if regeneration can't run). */
+function fsGameSummary(g) {
+  if (g && g.gameType === 'nassau') {
+    const s = fsNassauSummary(g);
+    if (s) return s;
+  }
+  return (g && g.summary) || '';
 }
 
 function finalizeNassauGame() {

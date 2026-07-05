@@ -7094,6 +7094,21 @@ smoke('leagueCurrentSession returns session', () => {
   expect('league season default allowance 100', migL.events[0].seasons[0].strokeAllowance, 100);
 }
 
+// ── 121. GAME SUMMARY — Nassau regenerated readable for old games ──
+{
+  const { fsGameSummary } = sandbox;
+  expect('gameSummary: non-nassau → stored', fsGameSummary({gameType:'stableford',summary:'Al net 72'}), 'Al net 72');
+  expect('gameSummary: null → empty',        fsGameSummary(null), '');
+  // nassau with no resolvable data → falls back to the stored (old) string
+  expect('gameSummary: nassau no data → fallback', fsGameSummary({gameType:'nassau',summary:'M1[F:A($10)]'}), 'M1[F:A($10)]');
+  // nassau WITH data (smoke fixture) → regenerated plain-English, never the cryptic M1[ format
+  smokeSetup();
+  const sN = vm.runInContext(`(function(){ const g = S.events.find(e=>e.gameType==='nassau'); return g ? fsGameSummary(g) : null; })()`, sandbox);
+  expect('smoke nassau game present', sN !== null, true);
+  expect('gameSummary: nassau reads "vs ... Front:"', /vs[\s\S]*Front:/.test(sN||''), true);
+  expect('gameSummary: nassau not cryptic M1[',        (sN||'').includes('M1['), false);
+}
+
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
