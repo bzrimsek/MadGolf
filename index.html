@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.58  Build 2026-07-05 12:40 PM ET
+     Version : v0.90.64  Build 2026-07-05 02:28 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,12 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.64  2026-07-05  Finished the firstName/name-split cleanup. Extracted firstWord(name) as the single .split() first-name atom and routed every remaining .name.split() site through it (22 call sites: object p.name, array players[n].name, a .find() lookup, and the two fsPlayerById lookups that kept their own || id / || ? fallback). firstName now uses firstWord too. Behavior-preserving - firstWord(name) equals name.split() for a real name and is null-safe - so no fallback changed (correcting the earlier note that this needed an undefined-to-? change; using firstWord avoids that). Zero raw .name.split() remain in the codebase. +8 tests (S133). Note: the server-side ship gate (.github/workflows) and ship.py/audit.py/madgolf-test.js are now committed to the repo, so the gate runs on every push.
+// v0.90.63  2026-07-05  Scorecard consolidation Stage 3 - Trip paging. The Trip scorecard rendered every group in one long scroll; it now pages one group at a time with tappable group pills and Prev/Next, matching Outing and League (per the paged-not-scroll preference). Added tripNavGroup(idx) and reset _tripSelectedGroup to 0 on round entry. Only the active group renders, so score entry and the auto-advance index are per-group like the other modules. +5 tests (S132). This completes the scorecard consolidation: header (scorecardHdr), score cell (scoreCell), and the whole foursome now share ONE engine (renderScorecardGroup), and all three multi-group modules page.
+// v0.90.62  2026-07-05  Scorecard consolidation Stage 2b - ONE engine. fsRenderScorecard now builds a ctx and delegates entirely to renderScorecardGroup; the foursome-only section()/footer code is gone. To make it work: renderScorecardGroup gained a chLabel option (foursome passes its rawCh . adjCh + tap-breakdown; group cards keep CH{n}) and an hcpRow option (foursome shows the per-hole HCP row; group cards unchanged), and playerRow/scramRow now emit distinct front (pfxA) vs back (pfxB) total ids - which also FIXES a latent bug where group back-section totals never live-updated (updateScoreTotals wrote to pfxB but the DOM only had pfxA). The foursome keeps its sc-tot-f/b/18 ids via those prefixes, so fsUpdateScoreTotals and live entry are unchanged. The foursome scorecard now uses the standard group-card look. +12 tests (S131). Remaining: Stage 3 - page the Trip scorecard (still long-scrolls all groups).
+// v0.90.61  2026-07-05  Scorecard consolidation Stage 2a (shared score cell). Extracted scoreCell (one input + stroke-dot cell) used by both the foursome scorecard and renderScorecardGroup. scoreCell matches the group cell exactly, so group/outing/league/trip cells are byte-unchanged; the foursome cells now adopt the same standard look (the .game-score-input underline and standard dot placement) instead of a one-off borderless inline style - per the standard look-and-feel decision. Handlers and attributes stay per-engine (foursome passes data-pid + fsUpdateGameScore; group passes its configurable attr + handler), so live entry is unchanged. +12 tests (S130). Header (S1) + cell (S2a) are now shared. Remaining: the player-row wrapper + the live-total-update id scheme (sc-tot vs pfx) for a full foursome->renderScorecardGroup delegation, then Trip paging (Stage 3).
+// v0.90.60  2026-07-05  Scorecard consolidation Stage 1 (header). The foursome scorecard duplicated the hole-number / Par / HCP header that renderScorecardGroup already builds via the shared scorecardHdr. Extended scorecardHdr with an optional HCP row (additive; existing group-card callers pass nothing and are unchanged) and repointed the foursome section() to it, removing the duplicated header block and an unused parTotal. Both engines now share one header. +8 tests (S129). Stage 2 (shared player-row + input cell + reconciling the live-total-update id scheme across foursome/outing/league/trip) is next and requires tracing each module score handler first. Note: the renderScorecardGroup default onInput (outingUpdateScore) is a dead default - no caller uses it and the function does not exist; left as a harmless fallback, flagged.
+// v0.90.59  2026-07-05  Match-banner consolidation (audit Tier 2, per decision to normalize). Extracted matchBanner as the single banner markup used by DOC, Nassau, and Walk-off (3 copies to 1). Normalized Nassau: its score now uses the standard mb-score class (Bebas 22px) instead of the one-off inline 16px, so all three banners share one look. Optional label/sub ids preserved for Walk-off live updates. +6 tests (S128). This closes the last open item from the duplication audit that had been deferred pending a look-and-feel decision.
 // v0.90.58  2026-07-05  THE FIX: course handicaps now refresh from current data when a game is opened. Root cause of the 15-vs-14 report: Foursome and Outing snapshot each player course handicap at game creation (g.rawChs / g.players[].courseHcp) and never recomputed, so after the course was re-rated the game kept the old handicap. Added fsRefreshChs (foursome) and outingRefreshChs (outing), both called from fsRouteToGame when a game is opened; they recompute from the current course + player + allowance and only write when something changed (no-op otherwise). League and Trip already compute live each render (leagueSessionCtx / tripScoringCtx), so a re-rating already took effect there - no change needed. +4 tests (S127). Note: opening an affected in-progress game will update its handicaps (and strokes) to the corrected values.
 // v0.90.57  2026-07-05  Course-handicap diagnostic. Tapping a player course handicap (the raw number) on the foursome scorecard now shows fsHcpBreakdown: the exact inputs the calc used - HI, slope, rating, par, the raw value, and the resulting CH. The handicap formula is proven correct (calcCourseHcp 12/133/72.3/par72 = 14, verified against the running code); a CH of 15 for that case means one stored input differs from what the setup screen shows (index >= 12.06, or a slope/rating that is not 133/72.3). This breakdown makes the wrong input visible instead of guessing. +6 tests (S126).
 // v0.90.56  2026-07-05  Course handicap par-sourcing fix. The course handicap formula was correct, but par came from two places: Foursome, Trip, and the Outing scoring ctx used the stored course.par field (which can be stale on imported courses), while League and Outing-start summed the hole pars. On a course whose stored par disagreed with its holes, screens disagreed and could differ from GHIN. Added coursePar(course) = sum of hole pars (the SAME pars scoring uses), with fallback to the stored field then 72, and routed every handicap calc through it. Handicap can no longer disagree with scoring or between modules. +6 tests (S125) including the reported 72.3/133 index-12 case (par 72 -> 14, par 71 -> 15). Also corrected a self-contradictory 9-hole test fixture (par field 36 vs holes summing 37).
@@ -1126,8 +1132,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.58';
-const BUILD_TIME = '2026-07-05 12:40 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.64';
+const BUILD_TIME = '2026-07-05 02:28 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -2673,12 +2679,22 @@ function stripValidScore(inp) {
  * Hole-number row + par row for a scorecard grid.
  * Replaces 5 identical local hdrRow/headerRow/hdrHtml definitions.
  */
-function scorecardHdr(holes, lbl, totLbl, nameColW, totColW) {
+/** One score-entry cell (input + stroke dot). Shared by the foursome and group scorecards. */
+function scoreCell(value, strokes, pidAttr, pid, holeNum, handler) {
+  const bg  = strokes > 0 ? 'background:#fde8e8;' : strokes < 0 ? 'background:#e8f4ec;' : '';
+  const dot = strokes > 0
+    ? `<span style="position:absolute;top:1px;right:2px;color:#c0392b;font-size:8px;">${'\u2022'.repeat(Math.min(strokes,3))}</span>`
+    : strokes < 0
+    ? `<span style="position:absolute;top:1px;right:2px;color:#27ae60;font-size:8px;">${'\u2022'.repeat(Math.min(Math.abs(strokes),3))}</span>`
+    : '';
+  return `<div class="hole-cell" style="position:relative;padding:0;${bg}"><input type="text" inputmode="numeric" maxlength="1" value="${value}" ${pidAttr}="${pid}" data-hole="${holeNum}" oninput="${handler}" class="game-score-input">${dot}</div>`;
+}
+function scorecardHdr(holes, lbl, totLbl, nameColW, totColW, hcpRow) {
   const nw   = nameColW || '80px';
   const tw   = totColW  || '36px';
   const cols = `${nw} repeat(${holes.length},1fr) ${tw}`;
   const parTot = holes.reduce((a, h) => a + h.par, 0);
-  return `
+  let out = `
     <div class="hole-grid" style="grid-template-columns:${cols};">
       <div class="hole-cell" style="background:var(--g800);color:rgba(255,255,255,.5);font-size:9px;font-weight:700;">${lbl}</div>
       ${holes.map(h => `<div class="hole-cell" style="background:var(--g800);color:var(--gold);font-size:10px;font-weight:700;">${h.num}</div>`).join('')}
@@ -2689,6 +2705,15 @@ function scorecardHdr(holes, lbl, totLbl, nameColW, totColW) {
       ${holes.map(h => `<div class="hole-cell par-cell">${h.par}</div>`).join('')}
       <div class="hole-cell total">${parTot}</div>
     </div>`;
+  if (hcpRow) {
+    out += `
+    <div class="hole-grid" style="grid-template-columns:${cols};">
+      <div class="hole-cell header" style="color:var(--muted);">HCP</div>
+      ${holes.map(h => `<div class="hole-cell" style="font-size:10px;color:var(--muted);">${h.hcp || ''}</div>`).join('')}
+      <div class="hole-cell"></div>
+    </div>`;
+  }
+  return out;
 }
 
 /** Display name for a player on a scorecard within a group.
@@ -3144,8 +3169,10 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
   const pfxA    = o.pfxA     || 'out_A_';
   const pfxB    = o.pfxB     || 'out_B_';
   const pfxT    = o.pfxT     || 'out_tot_';
+  const chLabelFn = o.chLabel || (pp => '<span style="color:var(--muted);font-weight:400;font-size:9px;">CH' + pp.courseHcp + '</span>');
+  const hcpRow  = o.hcpRow  || false;
 
-  function playerRow(p, holes) {
+  function playerRow(p, holes, secPfx) {
     const sc   = scores[p.id] || {};
     const tot  = holes.reduce((a, h) => a + (parseInt(sc[h.num]) || 0), 0);
     const cols = `80px repeat(${holes.length},1fr) 36px`;
@@ -3153,28 +3180,14 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
     return `<div class="hole-grid" style="grid-template-columns:${cols};">
       <div class="hole-cell header" style="text-align:left;padding-left:4px;line-height:1.2;white-space:normal;overflow:hidden;">
         ${esc(displayName)}
-        <br><span style="color:var(--muted);font-weight:400;font-size:9px;">CH${p.courseHcp}</span>
+        <br>${chLabelFn(p)}
       </div>
-      ${holes.map(h => {
-        const str = strokesOnHole(p.courseHcp, h.hcpRating||0, hcpScale);
-        const dot = str > 0
-          ? `<span style="position:absolute;top:1px;right:2px;color:#c0392b;font-size:8px;">${'\u2022'.repeat(Math.min(str,3))}</span>`
-          : str < 0
-          ? `<span style="position:absolute;top:1px;right:2px;color:#27ae60;font-size:8px;">${'\u2022'.repeat(Math.min(Math.abs(str),3))}</span>`
-          : '';
-        const bg  = str>0?'background:#fde8e8;':str<0?'background:#e8f4ec;':'';
-        const v   = sc[h.num] != null ? sc[h.num] : '';
-        return `<div class="hole-cell" style="position:relative;padding:0;${bg}">
-          <input type="text" inputmode="numeric" maxlength="1" value="${v}"
-            ${pidAttr}="${p.id}" data-hole="${h.num}" oninput="${onInput}"
-            class="game-score-input">${dot}
-        </div>`;
-      }).join('')}
-      <div class="hole-cell total" id="${pfxA}${p.id}">${tot||''}</div>
+      ${holes.map(h => scoreCell(sc[h.num] != null ? sc[h.num] : '', strokesOnHole(p.courseHcp, h.hcpRating||0, hcpScale), pidAttr, p.id, h.num, onInput)).join('')}
+      <div class="hole-cell total" id="${secPfx}${p.id}">${tot||''}</div>
     </div>`;
   }
 
-  function scramRow(key, holes) {
+  function scramRow(key, holes, secPfx) {
     const sc  = scores[key] || {};
     const tot = holes.reduce((a,h) => a+(parseInt(sc[h.num])||0), 0);
     const cols = `80px repeat(${holes.length},1fr) 36px`;
@@ -3190,7 +3203,7 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
             class="game-score-input">
         </div>`;
       }).join('')}
-      <div class="hole-cell total" id="${pfxA}${key}">${tot||''}</div>
+      <div class="hole-cell total" id="${secPfx}${key}">${tot||''}</div>
     </div>`;
   }
 
@@ -3200,8 +3213,8 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
     ? `<span style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:400;opacity:.7;margin-left:8px;">${o.extraInfo}</span>`
     : '';
 
-  const frontRows = isScram ? scramRow(key, rowA) : gp.map(p => playerRow(p, rowA)).join('');
-  const backRows  = rowB.length ? (isScram ? scramRow(key, rowB) : gp.map(p => playerRow(p, rowB)).join('')) : '';
+  const frontRows = isScram ? scramRow(key, rowA, pfxA) : gp.map(p => playerRow(p, rowA, pfxA)).join('');
+  const backRows  = rowB.length ? (isScram ? scramRow(key, rowB, pfxB) : gp.map(p => playerRow(p, rowB, pfxB)).join('')) : '';
 
   let totalsHtml;
   if (isScram) {
@@ -3230,10 +3243,10 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
       ${extraHtml}
     </div>
     <div style="border:1px solid var(--surf3);border-top:none;border-radius:0 0 8px 8px;overflow:hidden;padding:6px;">
-      ${scorecardHdr(rowA, rowB.length?'FRONT':'HOLES', rowB.length?'OUT':'TOT')}
+      ${scorecardHdr(rowA, rowB.length?'FRONT':'HOLES', rowB.length?'OUT':'TOT', null, null, hcpRow)}
       ${frontRows}
       ${rowB.length?`<div style="border-top:2px solid var(--surf3);padding-top:4px;margin-top:4px;">
-        ${scorecardHdr(rowB,'BACK','IN')}${backRows}
+        ${scorecardHdr(rowB,'BACK','IN', null, null, hcpRow)}${backRows}
       </div>`:''}
       <div style="border-top:2px solid var(--surf3);padding:6px 4px;margin-top:4px;">${totalsHtml}</div>
     </div>
@@ -3323,9 +3336,11 @@ function fsPlayerById(id) {
 function fsGetCourse(id) { return (S.courses||[]).find(c => c.id === id) || null; }
 /** First name for a player id, '?' if unknown. Replaces the repeated
  *  firstName(id) pattern (was duplicated 40+ times). */
+/** First word of a name (empty-safe). The single .split(' ')[0] atom. */
+function firstWord(name) { return (name || '').split(' ')[0]; }
 function firstName(pid) {
   const n = fsPlayerById(pid)?.name;
-  return n ? n.split(' ')[0] : '?';
+  return n ? firstWord(n) : '?';
 }
 
 // ── Foursome session state (no persistence) ───────────────────
@@ -3635,7 +3650,7 @@ function fsShowGameTypePicker() {
       <span style="flex:1;">GAME TYPE</span>
     </div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">
-      ${players.map(p=>esc(p.name.split(' ')[0])).join(' · ')} · ${fsGetCourse(window._fsCourseId)?.name||'—'}
+      ${players.map(p=>esc(firstWord(p.name))).join(' · ')} · ${fsGetCourse(window._fsCourseId)?.name||'—'}
     </div>
     ${cards}
   </div>`);
@@ -3657,7 +3672,7 @@ function teamAssignHTML() {
     const other=[['A',0],['A',1],['B',0],['B',1]].filter(([t,s])=>!(t===team&&s===slot));
     const taken=other.map(([t,s])=>(ts[t]||[])[s]).filter(Boolean);
     const avail=players.filter(p=>!taken.includes(p.id));
-    const opts=`<option value="">— P${slot+1} —</option>`+avail.map(p=>`<option value="${p.id}" ${p.id===cur?'selected':''}>${esc(p.name.split(' ')[0])}</option>`).join('');
+    const opts=`<option value="">— P${slot+1} —</option>`+avail.map(p=>`<option value="${p.id}" ${p.id===cur?'selected':''}>${esc(firstWord(p.name))}</option>`).join('');
     return `<div style="margin-bottom:6px;"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;">Player ${slot+1}</label>
       <select style="width:100%;padding:8px;border:1.5px solid ${cur?'var(--gold)':'var(--surf3)'};border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;background:${cur?'#fffcf0':'var(--surf)'};"
         onchange="fsDoTeamAssign(this.value,'${team}',${slot})">${opts}</select></div>`;
@@ -3692,7 +3707,7 @@ function cartAssignHTML(){
     const other=[['cart1','driver'],['cart1','passenger'],['cart2','driver'],['cart2','passenger']].filter(([c,r])=>!(c===cart&&r===role));
     const taken=other.map(([c,r])=>cs[c][r]).filter(Boolean);
     const avail=players.filter(p=>!taken.includes(p.id));
-    const opts=`<option value="">— ${lbl} —</option>`+avail.map(p=>`<option value="${p.id}" ${p.id===cur?'selected':''}>${esc(p.name.split(' ')[0])}</option>`).join('');
+    const opts=`<option value="">— ${lbl} —</option>`+avail.map(p=>`<option value="${p.id}" ${p.id===cur?'selected':''}>${esc(firstWord(p.name))}</option>`).join('');
     return `<div style="margin-bottom:6px;"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;">${lbl}</label>
       <select style="width:100%;padding:8px;border:1.5px solid ${cur?'var(--gold)':'var(--surf3)'};border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;background:${cur?'#fffcf0':'var(--surf)'};"
         onchange="fsDoCartAssign(this.value,'${cart}','${role}')">${opts}</select></div>`;
@@ -3799,7 +3814,7 @@ function renderBBBGame() {
   const h = holes.find(h => +h.num === +activeHole) || holes[0];
   const award = g.bbb[+h.num] || {};
 
-  const shortName = id => players.find(p=>p.id===id)?.name.split(' ')[0] || '?';
+  const shortName = id => firstWord(players.find(p=>p.id===id)?.name) || '?';
 
   const btnStyle = (cat, pid) => {
     const sel = award[cat] === pid;
@@ -3990,87 +4005,24 @@ function fsGetStrokesForSc(g, pid, hole) {
  */
 function fsRenderScorecard(g, players) {
   const course = fsGetCourse(g.courseId); if (!course) return '';
-  const sc = g.scores || {};
-  const allHoles = course.holes;
-  const front = allHoles.slice(0, 9);
-  const back   = allHoles.slice(9);
-
-  function section(holes, sectionLabel, totalLabel) {
-    const parTotal = holes.reduce((a, h) => a + h.par, 0);
-    const cols = `60px repeat(${holes.length},1fr) 36px`;
-    let html = `<div class="hole-grid" style="grid-template-columns:${cols};">
-      <div class="hole-cell" style="background:var(--g800);color:rgba(255,255,255,.5);font-size:9px;font-weight:700;">${sectionLabel}</div>
-      ${holes.map(h => `<div class="hole-cell" style="background:var(--g800);color:var(--gold);font-size:10px;font-weight:700;">${h.num}</div>`).join('')}
-      <div class="hole-cell" style="background:var(--g800);color:rgba(255,255,255,.5);font-size:9px;font-weight:700;">${totalLabel}</div>
-    </div>
-    <div class="hole-grid" style="grid-template-columns:${cols};">
-      <div class="hole-cell header">Par</div>
-      ${holes.map(h => `<div class="hole-cell par-cell">${h.par}</div>`).join('')}
-      <div class="hole-cell total">${parTotal}</div>
-    </div>
-    <div class="hole-grid" style="grid-template-columns:${cols};">
-      <div class="hole-cell header" style="color:var(--muted);">HCP</div>
-      ${holes.map(h => `<div class="hole-cell" style="font-size:10px;color:var(--muted);">${h.hcp || ''}</div>`).join('')}
-      <div class="hole-cell"></div>
-    </div>`;
-
-    players.forEach((p, pi) => {
-      const rowTotal = holes.reduce((a, h) => a + (sc[p.id]?.[+h.num] ?? 0), 0);
-      const hasAny   = holes.some(h => sc[p.id]?.[+h.num] != null);
-      const bt       = pi > 0 ? 'border-top:1px solid var(--surf3);' : '';
-      const isfront  = sectionLabel === 'FRONT' || sectionLabel === 'HOLES';
-      const totId    = isfront ? `sc-tot-f-${p.id}` : `sc-tot-b-${p.id}`;
-      const rawCh    = g.rawChs?.[p.id] ?? (g.chs && g.chs[p.id]) ?? '?';
-      const adjCh    = (g.chs && g.chs[p.id]) ?? '?';
-      const offLow   = g.strokeMode === 'low';
-      html += `<div style="${bt}"><div class="hole-grid" style="grid-template-columns:${cols};">
-        <div class="hole-cell header" style="text-align:left;padding-left:4px;font-size:10px;font-weight:700;white-space:normal;overflow:visible;line-height:1.3;height:auto;">
-          ${esc(scorecardName(p, players))}<br>
-          <span onclick="toast(fsHcpBreakdown('${g.id}','${p.id}'))" style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};cursor:pointer;">${rawCh}</span>
-          <span style="font-size:9px;color:var(--muted);"> · </span>
-          <span style="font-size:9px;font-weight:${offLow?700:400};color:${offLow?'var(--text)':'var(--muted)'};">${adjCh}</span>
-        </div>
-        ${holes.map(h => {
-          const strokes  = fsGetStrokesForSc(g, p.id, h);
-          const hasDot   = strokes > 0;
-          const givesBack = strokes < 0;
-          const cellBg   = hasDot ? 'background:#fde8e8;' : givesBack ? 'background:#e8f4ec;' : '';
-          const dot      = hasDot
-            ? `<span style="position:absolute;top:0;right:1px;color:#c0392b;font-size:7px;line-height:1;">${'\u2022'.repeat(Math.min(strokes,3))}</span>`
-            : givesBack
-            ? `<span style="position:absolute;top:0;right:1px;color:#27ae60;font-size:7px;line-height:1;">${'\u2022'.repeat(Math.min(Math.abs(strokes),3))}</span>`
-            : '';
-          const gross = sc[p.id]?.[+h.num];
-          return `<div class="hole-cell" style="position:relative;padding:0;${cellBg}">
-            <input type="text" inputmode="numeric" maxlength="1" value="${gross != null ? gross : ''}"
-              data-pid="${p.id}" data-hole="${h.num}"
-              oninput="fsUpdateGameScore(this)"
-              class="game-score-input"
-              style="width:100%;border:none;font-size:11px;text-align:center;padding:4px 0;background:transparent;font-family:'DM Sans',sans-serif;outline:none;">
-            ${dot}
-          </div>`;
-        }).join('')}
-        <div class="hole-cell total" id="${totId}" style="font-size:11px;">${hasAny ? rowTotal : ''}</div>
-      </div></div>`;
-    });
-    return html;
-  }
-
-  let html = section(front, back.length ? 'FRONT' : 'HOLES', back.length ? 'OUT' : 'TOT');
-  if (back.length) {
-    html += `<div style="border-top:2px solid var(--surf3);">${section(back, 'BACK', 'IN')}</div>`;
-    html += `<div style="border-top:2px solid var(--g800);background:var(--g800);border-radius:0 0 6px 6px;">`;
-    players.forEach(p => {
-      const tot    = allHoles.reduce((a, h) => a + (sc[p.id]?.[+h.num] ?? 0), 0);
-      const hasAny = allHoles.some(h => sc[p.id]?.[+h.num] != null);
-      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-top:1px solid var(--g600);">
-        <span style="font-size:11px;font-weight:600;color:rgba(255,255,255,.8);">${esc(scorecardName(p, players))}</span>
-        <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:var(--gold);" id="sc-tot-18-${p.id}">${hasAny ? tot : ''}</span>
-      </div>`;
-    });
-    html += '</div>';
-  }
-  return html;
+  const offLow = g.strokeMode === 'low';
+  const ctx = {
+    players: players.map(p => ({ ...p, courseHcp: (g.chs && g.chs[p.id]) ?? 0 })),
+    activeHoles: (course.holes || []).map(h => ({ ...h, hcpRating: h.hcp ?? 0 })),
+    hcpScale: g._totalHoles || 18,
+    scores: g.scores || {},
+    format: g.gameType,
+    course
+  };
+  const chLabel = (p) => {
+    const rawCh = g.rawChs?.[p.id] ?? (g.chs && g.chs[p.id]) ?? '?';
+    const adjCh = (g.chs && g.chs[p.id]) ?? '?';
+    return `<span onclick="toast(fsHcpBreakdown('${g.id}','${p.id}'))" style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};cursor:pointer;">${rawCh}</span><span style="font-size:9px;color:var(--muted);"> · </span><span style="font-size:9px;font-weight:${offLow?700:400};color:${offLow?'var(--text)':'var(--muted)'};">${adjCh}</span>`;
+  };
+  return renderScorecardGroup(ctx, 0,
+    { playerIds: players.map(p => p.id), label: fsGameTypeLabel(g.gameType) + ' · ' + (course.name || '') },
+    { onInput: 'fsUpdateGameScore(this)', pidAttr: 'data-pid', hcpRow: true,
+      pfxA: 'sc-tot-f-', pfxB: 'sc-tot-b-', pfxT: 'sc-tot-18-', chLabel });
 }
 
 /** Score entry handler — wired to oninput on every .game-score-input cell */
@@ -4502,14 +4454,12 @@ function renderDOCGame() {
   const players = [cart1.driver,cart1.passenger,cart2.driver,cart2.passenger].map(id=>fsPlayerById(id)||{id,name:id});
   const defs = fsDocMatchDefs(g);
   const statuses = [0,1,2].map(i => fsCalcDOCMatch(g,i,defs));
-  const banners = statuses.map((st,i) => `
-    <div class="match-banner ${st.cls}" id="doc-banner-${i}">
-      <div>
-        <div class="mb-lbl">${['Drivers v Pass.','Opposites','Cart Partners'][i]}</div>
-        <div class="mb-sub">Holes ${g.segs[i][0].num}–${g.segs[i][g.segs[i].length-1].num}</div>
-      </div>
-      <div class="mb-score" id="doc-banner-score-${i}" style="color:${st.color};">${st.display}</div>
-    </div>`).join('');
+  const banners = statuses.map((st,i) => matchBanner({
+    cls: st.cls, id: `doc-banner-${i}`,
+    label: ['Drivers v Pass.','Opposites','Cart Partners'][i],
+    sub: `Holes ${g.segs[i][0].num}–${g.segs[i][g.segs[i].length-1].num}`,
+    score: st.display, scoreId: `doc-banner-score-${i}`, color: st.color
+  })).join('');
   fsRender(`
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;gap:6px;">
@@ -4526,6 +4476,18 @@ function renderDOCGame() {
     <div class="card"><div class="card-title">Settlement</div><div id="doc-settlement">${fsRenderDOCSettlement(g)}</div></div>`, () => { buildScoringIndex(document.getElementById('tab-game-content'), null, 'live'); fsShowGameTab('⛳ Foursome'); });
 }
 
+/** Shared match-status banner (DOC / Nassau / Walk-off) — one markup source so all three match. */
+function matchBanner({ cls, id, label, sub, score, scoreId, color, lblId, subId }) {
+  const lblAttr = lblId ? ' id="' + lblId + '"' : '';
+  const subAttr = subId ? ' id="' + subId + '"' : '';
+  return `<div class="match-banner ${cls}" id="${id}">
+      <div>
+        <div class="mb-lbl"${lblAttr}>${label}</div>
+        <div class="mb-sub"${subAttr}>${sub}</div>
+      </div>
+      <div class="mb-score" id="${scoreId}" style="color:${color};">${score}</div>
+    </div>`;
+}
 /** Per-player balance table for money games. bal: {pid -> net$} (+ = ahead). Names via fsPlayerById. */
 function settleBalanceTable(playerIds, bal) {
   let html = '<table class="settle-table"><tbody>';
@@ -4641,11 +4603,11 @@ function showNassauSetup() {
 /** Build g.pairs from player count — [{A, B, label}] */
 function fsBuildNassauPairs(players, teamState) {
   const n = players.length;
-  if (n === 2) return [{ A:players[0].id, B:players[1].id, label:`${esc(players[0].name.split(' ')[0])} v ${esc(players[1].name.split(' ')[0])}` }];
+  if (n === 2) return [{ A:players[0].id, B:players[1].id, label:`${esc(firstWord(players[0].name))} v ${esc(firstWord(players[1].name))}` }];
   if (n === 3) return [
-    { A:players[0].id, B:players[1].id, label:`${esc(players[0].name.split(' ')[0])} v ${esc(players[1].name.split(' ')[0])}` },
-    { A:players[0].id, B:players[2].id, label:`${esc(players[0].name.split(' ')[0])} v ${esc(players[2].name.split(' ')[0])}` },
-    { A:players[1].id, B:players[2].id, label:`${esc(players[1].name.split(' ')[0])} v ${esc(players[2].name.split(' ')[0])}` },
+    { A:players[0].id, B:players[1].id, label:`${esc(firstWord(players[0].name))} v ${esc(firstWord(players[1].name))}` },
+    { A:players[0].id, B:players[2].id, label:`${esc(firstWord(players[0].name))} v ${esc(firstWord(players[2].name))}` },
+    { A:players[1].id, B:players[2].id, label:`${esc(firstWord(players[1].name))} v ${esc(firstWord(players[2].name))}` },
   ];
   // 4-player: derive from team assignment
   return [{ A:teamState.A[0], B:teamState.B[0], label:'Team A v Team B',
@@ -4793,10 +4755,11 @@ function renderNassauGame() {
 
     const sub = isMatch ? (r.thru?`${r.thru} holes`:'No scores yet')
                         : (r.played?`${r.played} holes`:'No scores yet');
-    return `<div class="match-banner ${cls}" id="nassau-banner-${bid}">
-      <div><div class="mb-lbl">${label} · $${cost}</div><div class="mb-sub">${sub}</div></div>
-      <div id="nassau-banner-score-${bid}" style="font-family:'Bebas Neue';font-size:16px;color:${color};">${txt}</div>
-    </div>`;
+    return matchBanner({
+      cls, id: `nassau-banner-${bid}`,
+      label: `${label} · $${cost}`, sub,
+      score: txt, scoreId: `nassau-banner-score-${bid}`, color
+    });
   };
 
   let matchBanners = '';
@@ -4825,7 +4788,7 @@ function renderNassauGame() {
     return `<div style="margin-bottom:8px;"><div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">${esc(pLabel)} · Front</div><div style="display:flex;gap:3px;flex-wrap:wrap;">${dots}</div></div>`;
   }).join('');
 
-  const pNames = players.map(p=>esc(p.name.split(' ')[0])).join(' · ');
+  const pNames = players.map(p=>esc(firstWord(p.name))).join(' · ');
   fsRender(`
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;gap:6px;">
@@ -5084,7 +5047,7 @@ function renderWalkoffGame() {
   const pairs = fsGetWalkoffPairs(g);
   const pairMatches = fsGetPairMatches(g);
   const players = g.playerIds.map(id=>fsPlayerById(id)||{id,name:id});
-  const pNames = players.map(p=>esc(p.name.split(' ')[0])).join(' · ');
+  const pNames = players.map(p=>esc(firstWord(p.name))).join(' · ');
 
   let matchBannersHtml = '';
   pairs.forEach((pair, pi) => {
@@ -5099,13 +5062,7 @@ function renderWalkoffGame() {
         : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
       matchBannersHtml += `
         <div class="section-label">${costLabel}</div>
-        <div class="match-banner ${st.cls}" id="wo-banner-${pi}-${idx}">
-          <div>
-            <div class="mb-lbl" id="wo-banner-lbl-${pi}-${idx}">${esc(st.label)}</div>
-            <div class="mb-sub" id="wo-banner-sub-${pi}-${idx}">${subLabel}</div>
-          </div>
-          <div class="mb-score" id="wo-banner-score-${pi}-${idx}" style="color:${st.color};">${st.score}</div>
-        </div>`;
+        ${matchBanner({ cls: st.cls, id: `wo-banner-${pi}-${idx}`, label: esc(st.label), sub: subLabel, score: st.score, scoreId: `wo-banner-score-${pi}-${idx}`, color: st.color, lblId: `wo-banner-lbl-${pi}-${idx}`, subId: `wo-banner-sub-${pi}-${idx}` })}`;
     });
   });
 
@@ -5155,8 +5112,8 @@ function fsRenderWalkoffSettlement(g) {
     matches.forEach((m, idx) => {
       const st = fsCalcOneMatch(g, m, pair); if (!st) return;
       const winner = m.closed ? m.winner : st.winner;
-      const nA = pidsA.map(id=>fsPlayerById(id)?.name.split(' ')[0]||id).join(' & ');
-      const nB = pidsB.map(id=>fsPlayerById(id)?.name.split(' ')[0]||id).join(' & ');
+      const nA = pidsA.map(id=>firstWord(fsPlayerById(id)?.name)||id).join(' & ');
+      const nB = pidsB.map(id=>firstWord(fsPlayerById(id)?.name)||id).join(' & ');
       if (!winner || winner === 'tie') {
         lines.push(`M${idx+1} $${m.cost} (${pair.label||'P'+(pi+1)}): Halved`);
       } else {
@@ -6293,7 +6250,7 @@ function renderFoursomeHome(){
           <div style="font-size:28px;">⛳</div>
           <div style="flex:1;">
             <div style="font-family:'Bebas Neue';font-size:16px;letter-spacing:1px;color:var(--gold);">${fsGameTypeLabel(active.gameType)} IN PROGRESS</div>
-            <div style="font-size:12px;color:rgba(255,255,255,.6);">${players.map(p=>esc(p.name.split(' ')[0])).join(' · ')}</div>
+            <div style="font-size:12px;color:rgba(255,255,255,.6);">${players.map(p=>esc(firstWord(p.name))).join(' · ')}</div>
           </div>
           <div style="font-family:'Bebas Neue';font-size:15px;color:var(--gold);">REJOIN →</div>
         </div></div>`;
@@ -8413,7 +8370,7 @@ function outingComputeResults(g) {
       let teamPts = 0, teamNet = 0, teamGross = 0;
       teamPlayers.forEach(p => { teamPts += p.totalPts||0; teamNet += p.totalNet||0; teamGross += p.totalGross||0; });
       const teamTarget = teamPlayers.reduce((a,p)=>a+(p.ptTarget||0),0);
-      const names = teamPlayers.map(p=>esc(p.name.split(' ')[0]||p.name)).join(' / ');
+      const names = teamPlayers.map(p=>esc(firstWord(p.name)||p.name)).join(' / ');
       return { id: team.id, playerIds: pids, teamPlayers, names, teamPts, teamNet, teamGross, teamTarget,
                isBorrow: team.isBorrow||false, borrowId: team.borrowId||null };
     }).filter(Boolean);
@@ -8465,7 +8422,7 @@ function outingRenderResults(g, r) {
           <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${vsColor};">${vsStr}</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          ${team.teamPlayers.map(p=>`<div style="font-size:11px;color:${isWinner?'rgba(255,255,255,.7)':'var(--muted)'};">${esc(p.name.split(' ')[0])} CH${p.courseHcp||0}${isLN?'':' · '+p.totalPts+'pts'}</div>`).join('')}
+          ${team.teamPlayers.map(p=>`<div style="font-size:11px;color:${isWinner?'rgba(255,255,255,.7)':'var(--muted)'};">${esc(firstWord(p.name))} CH${p.courseHcp||0}${isLN?'':' · '+p.totalPts+'pts'}</div>`).join('')}
         </div>
       </div>`;
     });
@@ -11244,6 +11201,7 @@ window._tripScoreInputs = window._tripScoreInputs || [];
 
 function tripResumeScoring(tid, dayIdx, rndIdx) {
   _tripScoringCtx = { tid, dayIdx, rndIdx };
+  window._tripSelectedGroup = 0;
   tripRenderScoringScreen();
 }
 
@@ -11277,7 +11235,20 @@ function tripRenderScoringScreen(){
   const ctx=tripScoringCtx(t,r);
   if(!ctx){fsRender(`<div class="fs-scr-hdr"><button class="btn-home" onclick="fsClose()">🏠 Home</button><span class="fs-scr-title">SCORING</span></div><div class="fs-scr-body"><div class="empty"><p>Course data missing \u2014 edit round.</p></div></div>`);fsShowGameTab('✈️ Trip');return;}
   const pcts=ctx.settings.scramblePcts||[];const isScram=ctx.format==='scramble';
-  const cardsHtml=ctx.groups.map((grp,gi)=>{const gp=grp.playerIds.map(id=>ctx.players.find(p=>p.id===id)).filter(Boolean);if(!gp.length)return'';const extra=isScram?`Team CH ${scrambleTeamCH(gp,ctx.course,ctx.is9,pcts)}`:'';return renderScorecardGroup(ctx,gi,grp,{pidAttr:'data-tpid',grpAttr:'data-tgrpkey',onInput:'tripOnScoreInput(this)',onTeam:'tripOnScoreInput(this)',pfxA:'rA_',pfxB:'rB_',pfxT:'tot_',extraInfo:extra});}).join('');
+  const validGroups=ctx.groups.map((grp,gi)=>({grp,gi,players:grp.playerIds.map(id=>ctx.players.find(p=>p.id===id)).filter(Boolean)})).filter(x=>x.players.length>0);
+  const totalGroups=validGroups.length;
+  const activeIdx=Math.min(window._tripSelectedGroup||0,Math.max(0,totalGroups-1));
+  const active=validGroups[activeIdx];
+  const groupPills=validGroups.map(({grp,gi,players},idx)=>{
+    const grpDone=players.every(p=>ctx.activeHoles.every(h=>(ctx.scores[p.id]||{})[h.num]!=null));
+    const isAct=idx===activeIdx;
+    return `<button type="button" onclick="tripNavGroup(${idx});" style="padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1.5px solid ${isAct?'var(--gold)':grpDone?'#27ae60':'var(--surf3)'};background:${isAct?'var(--gold)':grpDone?'#e8f8f0':'transparent'};color:${isAct?'#fff':grpDone?'#27ae60':'var(--muted)'};">${esc(grp.label||('G'+(gi+1)))}${grpDone?' ✓':''}</button>`;
+  }).join('');
+  const extra=active&&isScram?`Team CH ${scrambleTeamCH(active.players,ctx.course,ctx.is9,pcts)}`:'';
+  const cardsHtml=active?renderScorecardGroup(ctx,active.gi,active.grp,{pidAttr:'data-tpid',grpAttr:'data-tgrpkey',onInput:'tripOnScoreInput(this)',onTeam:'tripOnScoreInput(this)',pfxA:'rA_',pfxB:'rB_',pfxT:'tot_',extraInfo:extra}):'';
+  const prevBtn=activeIdx>0?`<button type="button" class="btn btn-sm btn-outline" style="padding:4px 10px;" onclick="tripNavGroup(${activeIdx-1});">← Prev</button>`:'';
+  const nextBtn=activeIdx<totalGroups-1?`<button type="button" class="btn btn-sm btn-gold" style="padding:4px 10px;" onclick="tripNavGroup(${activeIdx+1});">Next →</button>`:'';
+  const pillsRow=totalGroups>1?`<div style="padding:8px 12px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0;"><div style="display:flex;gap:6px;flex-wrap:wrap;flex:1;">${groupPills}</div><div style="display:flex;gap:4px;flex-shrink:0;">${prevBtn}${nextBtn}</div></div>`:'';
   const nine=nineLabel(r.nineMode);
   fsRender(`
     <div class="fs-scr-hdr">
@@ -11290,7 +11261,7 @@ function tripRenderScoringScreen(){
       <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 8px;" onclick="S.config.scoringAdvance='post';scheduleWrite();tripRenderScoringScreen();">By Player</button>
       <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 8px;" onclick="S.config.scoringAdvance='live';scheduleWrite();tripRenderScoringScreen();">By Hole</button>
     </div>
-    <div class="fs-scr-body" id="trip-scoring-body">${cardsHtml}<div style="height:40px;"></div></div>
+    <div class="fs-scr-body" id="trip-scoring-body">${pillsRow}${cardsHtml}<div style="height:40px;"></div></div>
   `, () => {
   fsShowGameTab('✈️ Trip');
   const scoringBody=document.getElementById('trip-scoring-body');
@@ -11302,6 +11273,11 @@ function tripRenderScoringScreen(){
 });
 }
 
+function tripNavGroup(idx){
+  scheduleWrite();
+  window._tripSelectedGroup=idx;
+  tripRenderScoringScreen();
+}
 function tripOnScoreInput(inp){
   const val=stripValidScore(inp);const key=inp.dataset.tpid||inp.dataset.tgrpkey;if(!key)return;
   const hole=parseInt(inp.dataset.hole||inp.dataset.thole);const sctx=_tripScoringCtx;if(!sctx)return;
@@ -11725,7 +11701,7 @@ function leagueRenderPartnersScreen() {
     <div class="fs-scr-body" style="padding:12px 12px 80px;">
       <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px;">${esc(activeSeason.name||'Season')} · ${partners.length} pairs</div>
       ${partners.map((p,pi)=>pairBlock(p,pi)).join('')}
-      ${unpaired.length?`<div style="font-size:11px;color:var(--muted);margin:8px 0;">Unpaired: ${unpaired.map(p=>esc(p.name.split(' ')[0])).join(', ')}</div>`:''}
+      ${unpaired.length?`<div style="font-size:11px;color:var(--muted);margin:8px 0;">Unpaired: ${unpaired.map(p=>esc(firstWord(p.name))).join(', ')}</div>`:''}
       <button class="btn btn-outline btn-full" style="margin-top:8px;" onclick="leagueAddPartner('${activeSeason.id}')">+ Add Partner Pair</button>
       ${leaguePrevSeason(lg) && (leaguePrevSeason(lg).partners||[]).length ? `<button class="btn btn-outline btn-full" style="margin-top:8px;" onclick="leagueCopyLastSeasonPartners()">⎘ Copy from ${esc(leaguePrevSeason(lg).name||'last season')}</button>` : ''}
     </div>
@@ -12361,7 +12337,7 @@ function _leagueSendSmsBatch() {
   if (remaining > 0 || _leagueSmsBatchIdx < _leagueSmsBatches.length) {
     setTimeout(() => {
       const next = _leagueSmsBatches[_leagueSmsBatchIdx];
-      const nextName = next && next[0]?.name ? next[0].name.split(' ')[0] : 'next player';
+      const nextName = next && next[0]?.name ? firstWord(next[0].name) : 'next player';
       confirmDo(
         'Send next?',
         `Message sent. Continue to ${nextName}?`,

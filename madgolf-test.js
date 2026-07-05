@@ -7196,6 +7196,104 @@ smoke('leagueCurrentSession returns session', () => {
   expect('outingRefreshChs: already 14 stays 14', noop, 14);
 }
 
+// ── 128. matchBanner — one shared banner, normalized ─────────
+{
+  const { matchBanner } = sandbox;
+  const doc = matchBanner({cls:'mb-up', id:'b1', label:'Opposites', sub:'Holes 1', score:'2 UP', scoreId:'s1', color:'#0a0'});
+  expect('matchBanner: banner class', doc.includes('class="match-banner mb-up" id="b1"'), true);
+  expect('matchBanner: normalized mb-score', doc.includes('<div class="mb-score" id="s1" style="color:#0a0;">2 UP</div>'), true);
+  expect('matchBanner: no lbl id when omitted', doc.includes('<div class="mb-lbl">Opposites</div>'), true);
+  const wo = matchBanner({cls:'mb-dn', id:'b2', label:'X', sub:'Y', score:'Z', scoreId:'s2', color:'#a00', lblId:'l2', subId:'su2'});
+  expect('matchBanner: lbl id when given', wo.includes('<div class="mb-lbl" id="l2">X</div>'), true);
+  expect('matchBanner: sub id when given', wo.includes('<div class="mb-sub" id="su2">Y</div>'), true);
+}
+
+// ── 129. scorecardHdr HCP row + foursome scorecard render ────
+{
+  const { scorecardHdr } = sandbox;
+  const holes = [{num:1,par:4,hcp:5},{num:2,par:3,hcp:9}];
+  const withHcp = scorecardHdr(holes, 'FRONT', 'OUT', '60px', '36px', true);
+  expect('scorecardHdr hcpRow adds HCP', withHcp.includes('>HCP<'), true);
+  expect('scorecardHdr default no HCP', scorecardHdr(holes,'FRONT','OUT').includes('>HCP<'), false);
+  expect('scorecardHdr hole nums', withHcp.includes('>1</div>') && withHcp.includes('>2</div>'), true);
+  expect('scorecardHdr par total 7', withHcp.includes('>7</div>'), true);
+  expect('scorecardHdr 60px col', withHcp.includes('grid-template-columns:60px'), true);
+  // foursome scorecard still renders through the shared header
+  vmSetS('courses', [{id:'cX', slope:113, rating:72, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}))}]);
+  vmSetS('players', [{id:'p1', name:'Alice', hcp:10}]);
+  const fc = vm.runInContext(`fsRenderScorecard({id:'g1',gameType:'stableford',courseId:'cX',playerIds:['p1'],scores:{},chs:{p1:10},rawChs:{p1:10},strokeMode:'field',_totalHoles:18},[{id:'p1',name:'Alice'}]);`, sandbox);
+  expect('foursome scorecard: inputs', fc.includes('game-score-input'), true);
+  expect('foursome scorecard: HCP row', fc.includes('>HCP<'), true);
+  expect('foursome scorecard: no raw template', /\$\{/.test(fc), false);
+}
+
+// ── 130. scoreCell — shared score-entry cell ─────────────────
+{
+  const { scoreCell } = sandbox;
+  const c = scoreCell('4', 1, 'data-pid', 'p1', 3, 'fsUpdateGameScore(this)');
+  expect('scoreCell: value', c.includes('value="4"'), true);
+  expect('scoreCell: attr+pid', c.includes('data-pid="p1"'), true);
+  expect('scoreCell: hole', c.includes('data-hole="3"'), true);
+  expect('scoreCell: handler', c.includes('oninput="fsUpdateGameScore(this)"'), true);
+  expect('scoreCell: class', c.includes('class="game-score-input"'), true);
+  expect('scoreCell: stroke dot red', c.includes('#c0392b'), true);
+  expect('scoreCell: no dot at 0', scoreCell('',0,'data-pid','p1',1,'h(this)').includes('c0392b'), false);
+  expect('scoreCell: gives-back green', scoreCell('',-1,'data-pid','p1',1,'h(this)').includes('#27ae60'), true);
+  expect('scoreCell: no raw template', /\$\{/.test(c), false);
+  // foursome cells still carry the foursome handler + attr after delegation
+  vmSetS('courses', [{id:'cX', slope:113, rating:72, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}))}]);
+  vmSetS('players', [{id:'p1', name:'Alice', hcp:10}]);
+  const fc = vm.runInContext(`fsRenderScorecard({id:'g1',gameType:'stableford',courseId:'cX',playerIds:['p1'],scores:{p1:{1:5}},chs:{p1:10},rawChs:{p1:10},strokeMode:'field',_totalHoles:18},[{id:'p1',name:'Alice'}]);`, sandbox);
+  expect('foursome cell: fsUpdateGameScore', fc.includes('oninput="fsUpdateGameScore(this)"'), true);
+  expect('foursome cell: data-pid', fc.includes('data-pid="p1"'), true);
+  expect('foursome cell: entered score shows', fc.includes('value="5"'), true);
+}
+
+// ── 131. Foursome scorecard delegated to renderScorecardGroup ─
+{
+  vmSetS('courses', [{id:'cX', slope:113, rating:72, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}))}]);
+  vmSetS('players', [{id:'p1', name:'Alice', hcp:10}]);
+  const fc = vm.runInContext(`fsRenderScorecard({id:'g1',gameType:'nassau',courseId:'cX',playerIds:['p1'],scores:{p1:{1:5,10:4}},chs:{p1:12},rawChs:{p1:14},strokeMode:'field',_totalHoles:18},[{id:'p1',name:'Alice'}]);`, sandbox);
+  // live-update id scheme fsUpdateScoreTotals targets must be preserved
+  expect('delegated: sc-tot-f id', fc.includes('id="sc-tot-f-p1"'), true);
+  expect('delegated: sc-tot-b id', fc.includes('id="sc-tot-b-p1"'), true);
+  expect('delegated: sc-tot-18 id', fc.includes('id="sc-tot-18-p1"'), true);
+  // live entry
+  expect('delegated: data-pid', fc.includes('data-pid="p1"'), true);
+  expect('delegated: handler', fc.includes('oninput="fsUpdateGameScore(this)"'), true);
+  // foursome CH label: raw 14 . adj 12 + breakdown tap
+  expect('delegated: rawCh 14', fc.includes('>14</span>'), true);
+  expect('delegated: adjCh 12', fc.includes('>12</span>'), true);
+  expect('delegated: breakdown', fc.includes('fsHcpBreakdown'), true);
+  // HCP row + entered score + clean template
+  expect('delegated: HCP row', fc.includes('>HCP<'), true);
+  expect('delegated: score shows', fc.includes('value="5"'), true);
+  expect('delegated: no raw template', /\$\{/.test(fc), false);
+}
+
+// ── 132. Trip scorecard pages (one group + nav), not long-scroll ─
+{
+  expect('trip: paged validGroups', html.includes('const validGroups=ctx.groups.map'), true);
+  expect('trip: nav fn', html.includes('function tripNavGroup'), true);
+  expect('trip: active group only', html.includes('active?renderScorecardGroup(ctx,active.gi,active.grp'), true);
+  expect('trip: group pills nav', html.includes('onclick="tripNavGroup('), true);
+  expect('trip: resets group on entry', html.includes('window._tripSelectedGroup = 0;'), true);
+}
+
+// ── 133. firstWord — the single .split(' ')[0] atom ──────────
+{
+  const { firstWord } = sandbox;
+  expect('firstWord two-word', firstWord('Alice Wong'), 'Alice');
+  expect('firstWord one-word', firstWord('Bob'), 'Bob');
+  expect('firstWord empty', firstWord(''), '');
+  expect('firstWord null-safe', firstWord(null), '');
+  expect('firstWord undefined-safe', firstWord(undefined), '');
+  vmSetS('players', [{id:'p1',name:'Alice Wong'}]);
+  expect('firstName via firstWord', vm.runInContext(`firstName('p1')`, sandbox), 'Alice');
+  expect('firstName missing still ?', vm.runInContext(`firstName('zzz')`, sandbox), '?');
+  expect('no raw .name.split in source', html.includes(".name.split(' ')[0]"), false);
+}
+
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
