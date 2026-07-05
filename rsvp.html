@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<!--
+  MadGolf League RSVP  ·  v3.0  2026-07-05
+  Re-architected for MadGolf's Firebase Auth model. This login-less page uses ANONYMOUS auth
+  and can touch only two narrow paths under the owner's node:
+    READ   bz-apps/golf/{uid}/rsvp-public/{sid}      (session info the app publishes)
+    WRITE  bz-apps/golf/{uid}/rsvp-inbox/{sid}/{pid} (this player's response only)
+  It never reads or writes the owner's state. The app merges rsvp-inbox into s.rsvp on load.
+  Link params: uid, sid, pid, r (r=in → quick-yes auto-submit), w (welcome), t.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>League RSVP</title>
+<style>
+  :root { --g800:#14311f; --gold:#d4a012; --green:#166534; --red:#b91c1c; --surf:#f4f6f4; --muted:#6b7280; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:'DM Sans',-apple-system,system-ui,sans-serif; background:var(--surf); color:#14311f; }
+  .wrap { max-width:440px; margin:0 auto; padding:18px 16px 40px; }
+  .hdr { background:var(--g800); color:#fff; border-radius:12px; padding:16px; text-align:center; }
+  .hdr h1 { margin:0; font-size:20px; letter-spacing:.5px; }
+  .hdr .sub { color:var(--gold); font-weight:700; margin-top:4px; font-size:15px; }
+  .hdr .date { color:rgba(255,255,255,.85); font-size:13px; margin-top:2px; }
+  .card { background:#fff; border-radius:12px; padding:18px; margin-top:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .hi { font-size:16px; font-weight:700; margin-bottom:12px; }
+  .welcome { font-size:13px; color:var(--muted); margin-bottom:14px; line-height:1.4; white-space:pre-wrap; }
+  .opts { display:flex; gap:8px; }
+  .opt { flex:1; padding:14px 0; border-radius:10px; border:2px solid #d1d5db; background:#fff; font-size:15px; font-weight:700;
+         cursor:pointer; transition:.12s; color:#374151; }
+  .opt.sel-in    { border-color:var(--green); background:#dcfce7; color:var(--green); }
+  .opt.sel-out   { border-color:var(--red);   background:#fee2e2; color:var(--red); }
+  .opt.sel-maybe { border-color:var(--gold);  background:#fef3c7; color:#92650a; }
+  .tee { margin-top:16px; }
+  .tee label { font-size:13px; font-weight:600; display:block; margin-bottom:6px; }
+  .tee select { width:100%; padding:11px; border-radius:9px; border:1.5px solid #d1d5db; font-size:15px; background:#fff; }
+  .save { width:100%; margin-top:18px; padding:14px; border-radius:10px; border:none; background:var(--gold); color:#fff;
+          font-size:16px; font-weight:700; cursor:pointer; }
+  .save:disabled { opacity:.5; cursor:default; }
+  .msg { text-align:center; margin-top:14px; font-size:14px; font-weight:600; }
+  .msg.ok  { color:var(--green); }
+  .msg.err { color:var(--red); }
+  .center { text-align:center; padding:40px 16px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>League RSVP</h1>
+    <div class="sub" id="lg-name">…</div>
+    <div class="date" id="lg-date"></div>
+  </div>
+  <div class="card" id="card"><div class="center">Loading…</div></div>
+</div>
+<script>
+// ── Config (public — protected by Firebase rules, not secrecy) ─────────────────
+const API_KEY = 'AIzaSyDk1_QEihU-02Fyzs5LUYRNjcpmBYsRnCM';
+const DB      = 'https://madgolf-c8789-default-rtdb.firebaseio.com';
+
+const params = new URLSearchParams(location.search);
+const uid = params.get('uid') || '';
+const sid = params.get('sid') || '';
+const pid = params.get('pid') || '';
+const quickYes = params.get('r') === 'in';
+
+let idToken = null, pub = null, chosen = null;
+
+function esc(s){ return String(s||'').replace(/[<>"'&]/g,'').slice(0,120); }
+function el(id){ return document.getElementById(id); }
+function fmtDate(d){
+  if(!d) return '';
+  try { return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'}); }
+  catch(e){ return d; }
+}
+function firstName(n){ n=(n||'').trim(); return n.includes(',') ? n.split(',')[1].trim().split(' ')[0] : n.split(' ')[0]; }
+
+async function anonToken(){
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
+    { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({returnSecureToken:true}) });
+  if(!r.ok) throw new Error('auth');
+  const j = await r.json();
+  return j.idToken;
+}
+async function loadPublic(){
+  const r = await fetch(`${DB}/bz-apps/golf/${uid}/rsvp-public/${sid}.json?auth=${idToken}`);
+  if(!r.ok) throw new Error('load');
+  return await r.json();
+}
+async function writeInbox(status, earliest){
+  const body = { status, earliest: earliest||'', ts: Date.now(), pid };
+  const r = await fetch(`${DB}/bz-apps/golf/${uid}/rsvp-inbox/${sid}/${pid}.json?auth=${idToken}`,
+    { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+  if(!r.ok) throw new Error('write '+r.status);
+}
+
+function fail(m){ el('card').innerHTML = `<div class="center">${esc(m)}</div>`; }
+
+function render(){
+  const me = (pub.players||{})[pid] || {};
+  const name = firstName(me.name) || 'there';
+  const tees = pub.teeTimes || [];
+  const teeHtml = tees.length ? `
+    <div class="tee">
+      <label>Earliest tee time you can make</label>
+      <select id="tee"><option value="">No preference</option>${tees.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>
+    </div>` : '';
+  el('card').innerHTML = `
+    <div class="hi">Hi ${esc(name)} — are you in?</div>
+    ${pub.welcome ? `<div class="welcome">${esc(pub.welcome)}</div>` : ''}
+    <div class="opts">
+      <button class="opt" id="o-in"    onclick="pick('in')">In</button>
+      <button class="opt" id="o-out"   onclick="pick('out')">Out</button>
+      <button class="opt" id="o-maybe" onclick="pick('maybe')">Maybe</button>
+    </div>
+    ${teeHtml}
+    <button class="save" id="save" onclick="submit()" disabled>Submit Response</button>
+    <div class="msg" id="msg"></div>`;
+}
+function pick(s){
+  chosen = s;
+  ['in','out','maybe'].forEach(x => {
+    const b = el('o-'+x); b.className = 'opt' + (x===s ? ' sel-'+x : '');
+  });
+  el('save').disabled = false;
+}
+async function submit(){
+  if(!chosen) return;
+  const btn = el('save'); btn.disabled = true; btn.textContent = 'Saving…';
+  const tee = el('tee'); const earliest = tee ? tee.value : '';
+  try {
+    await writeInbox(chosen, earliest);
+    el('msg').className = 'msg ok';
+    el('msg').textContent = chosen==='in' ? "You're in — see you there!" : chosen==='out' ? 'Got it — thanks for letting us know.' : 'Marked as maybe — thanks!';
+    btn.textContent = 'Response Saved ✓';
+  } catch(e){
+    el('msg').className = 'msg err';
+    el('msg').textContent = 'Could not save — please try again.';
+    btn.disabled = false; btn.textContent = 'Submit Response';
+  }
+}
+
+(async function init(){
+  if(!uid || !sid || !pid){ fail('This RSVP link is missing information. Please use the link from your text.'); return; }
+  try {
+    idToken = await anonToken();
+    pub = await loadPublic();
+    if(!pub){ fail('This RSVP is no longer available.'); return; }
+    el('lg-name').textContent = esc(pub.league || 'League') + (pub.season ? ' · ' + esc(pub.season) : '');
+    el('lg-date').textContent = fmtDate(pub.date);
+    render();
+    if(quickYes){ pick('in'); submit(); }   // quick-yes link auto-submits "in"
+  } catch(e){
+    fail('Could not load this RSVP. Please try again in a moment.');
+  }
+})();
+</script>
+</body>
+</html>

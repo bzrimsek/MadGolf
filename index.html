@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.67  Build 2026-07-05 06:24 PM ET
+     Version : v0.90.69  Build 2026-07-05 07:17 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,8 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.69  2026-07-05  Secure web RSVP via anonymous auth (replaces the broken v2.0 rsvp.html that targeted the wrong DB and could not write). New model: the login-less RSVP page uses Firebase ANONYMOUS auth and can touch only two narrow paths under the owner node - it READS bz-apps/golf/{uid}/rsvp-public/{sid} (session display info the app publishes) and WRITES only bz-apps/golf/{uid}/rsvp-inbox/{sid}/{pid} (its own validated response), never the owner state. App side (this file): rsvpBuildPublic/rsvpFindSession/rsvpMergeInbox pure helpers (+8 tests, S140); rsvpPublishSession publishes rsvp-public when invites are sent; rsvpProcessInbox runs after load, merges rsvp-inbox into the canonical s.rsvp (newest-ts-wins) and clears only the entries it merged via a single null-PATCH (an RSVP arriving mid-process is not lost); the RSVP link now carries uid. Ships with rewritten rsvp.html (v3.0, anon auth) and madgolf-firebase-rules-v2.json (rsvp-public anon-read, rsvp-inbox anon-write with status in in/out/maybe validation). DEPLOY ALL THREE: index.html+sw.js, rsvp.html, and the Firebase rules. Accepted limitation: like SMS RSVP, an anon client can submit for any pid (no per-player auth) - fine for a friends league.
+// v0.90.68  2026-07-05  Security + cleanup. (1) XSS sweep: user-controlled team/player names that were interpolated raw into HTML are now escaped - esc() applied to winner.names (4 outing result-summary branches) and t.names (team standings row), matching the individual-player branches that already escaped. esc() strips <>&'" so injected markup cannot survive. The one remaining ${p.name} is in a toast, which uses textContent and is not an HTML-injection surface - left as-is. +5 tests (S139). (2) Removed the dead renderScorecardGroup onInput default (outingUpdateScore(this)) - the function does not exist and every caller (foursome/outing/league/trip) passes its own handler, so the default was unreachable; replaced with empty and updated the doc comment (rule 6).
 // v0.90.67  2026-07-05  Home in-progress + Recent-Games fixes. (A) A completed game no longer shows IN PROGRESS. Root cause: nothing enforced one active foursome at a time, so an orphaned active game (started, never finished) kept the home banner/badge lit after a different game was completed. normalizeState now keeps only the newest active foursome and abandons the rest - it runs on load AND on every save (scheduleWrite calls it), so existing orphans clear on next load and new ones cannot accumulate. fsEndGame also clears _scoring on completion. (B) Recent Games is less wordy: the names line now shows last names (capitalized, with a first initial only when two players share a surname) via fsLastNamesLine, and the Nassau summary is results-only - dropped the redundant TeamA vs TeamB prefix so the line reads Front: ... Back: ... Total: .... +8 tests (S137-138). Note on the reported $10->$1 Total: the cost inputs have no maxlength cap and the label prints the stored value directly, so g.costT is stored as 1 for that game (data, not a display bug) - confirm the Total bet was set to 10.
 // v0.90.66  2026-07-05  Nassau/Walk-off match-banner + scorecard-order fixes. (1) Banners never say Pending - they show Even at the start and when tied, and update to the real state as holes complete. (2) The undefined-undefined tally is gone: the stroke line only appends (a-b) when both totals exist, so a decided match without stored tallies no longer prints undefined. (3) Team labels use last names (added lastName(pid), reusing lastNameOf like the summary) across the Nassau and Walk-off banners and the Closed-X-wins text. (4) Scorecard now lists two-man team games in team order T1P1,T1P2,T2P1,T2P2 via new fsPairOrderedIds(g,pairs) - applied to Nassau and Walk-off (DOC already uses cart order; removed a dead allPids). +8 tests (S135-136).
 // v0.90.65  2026-07-05  Fixed Foursome rejoin bug: after resuming a Nassau (or any foursome) round and tapping Back from the scorecard, the game-type picker showed a Select 2-4 players toast and went nowhere. Cause: fsShowGameTypePicker read the picked players only from the transient window._fsPicked, which is cleared on reload/rejoin. Fix: when _fsPicked is missing it now rebuilds from the active foursome game playerIds, so Back from a resumed scorecard returns to the game-type picker as intended. Pre-existing bug, unrelated to the scorecard consolidation. +1 guard test (S134).
@@ -1135,8 +1137,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.67';
-const BUILD_TIME = '2026-07-05 06:24 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.69';
+const BUILD_TIME = '2026-07-05 07:17 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1771,6 +1773,7 @@ async function fbLoad() {
     renderAll();
     setSyncStatus('ready', '#86efac');
     appLog('Firebase loaded');
+    rsvpProcessInbox();
     // Push local data up if first sign-in and we have local data
     if (!remote || (!remote.players?.length && !remote.events?.length)) {
       if (S.players.length || S.courses.length || S.events.length) fbWrite(S);
@@ -3158,7 +3161,7 @@ const GROUP_BORDERS = ['#27ae60','#2471a3','#c9a227','#e91e63','#9c27b0','#00bcd
  * opts: {
  *   pidAttr:  data-attribute name for player inputs  (default 'data-pid')
  *   grpAttr:  data-attribute name for team inputs    (default 'data-grpkey')
- *   onInput:  oninput handler string for player rows (default 'outingUpdateScore(this)')
+ *   onInput:  oninput handler string for player rows (required — every caller passes its own)
  *   onTeam:   oninput handler string for team rows   (default 'outingUpdateTeamScore(this)')
  *   pfxA/B/T: DOM id prefix for front/back/total     (default 'out_A_'/'out_B_'/'out_tot_')
  *   extraInfo: string shown in group header (e.g. 'Team CH 12')
@@ -3176,7 +3179,7 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
   const o       = opts || {};
   const pidAttr = o.pidAttr  || 'data-pid';
   const grpAttr = o.grpAttr  || 'data-grpkey';
-  const onInput = o.onInput  || 'outingUpdateScore(this)';
+  const onInput = o.onInput  || '';
   const onTeam  = o.onTeam   || 'outingUpdateTeamScore(this)';
   const pfxA    = o.pfxA     || 'out_A_';
   const pfxB    = o.pfxB     || 'out_B_';
@@ -8846,7 +8849,7 @@ function outingRenderPartnerStabResults(g, r) {
       <td style="padding:6px 8px;color:var(--muted);font-size:12px;">${i===0?'🥇':i+1}</td>
       <td style="padding:6px 4px;font-weight:${i===0?700:600};">
         <span style="display:inline-block;width:10px;height:10px;background:${border};border-radius:2px;vertical-align:middle;margin-right:4px;"></span>
-        ${t.names}
+        ${esc(t.names)}
       </td>
       <td style="padding:6px 4px;text-align:center;font-weight:700;color:var(--gold);font-size:15px;">${t.teamPts}</td>
     </tr>`;
@@ -8995,10 +8998,10 @@ function outingFinish() {
       const winner = r.teamResults[0];
       if (winner) {
         if (gt === 'scramble') {
-          summary = `${winner.names} net ${winner.teamNet}`;
+          summary = `${esc(winner.names)} net ${winner.teamNet}`;
         } else {
           const vs = winner.netVsPar;
-          summary = `${winner.names} ${vs>=0?'+':''}${vs} vs par`;
+          summary = `${esc(winner.names)} ${vs>=0?'+':''}${vs} vs par`;
         }
       }
     } else if (gt === 'stableford') {
@@ -9006,7 +9009,7 @@ function outingFinish() {
       if (sorted.length) summary = `${esc(sorted[0].name)} +${sorted[0].totalPts-sorted[0].ptTarget} pts`;
     } else if (gt === 'pstableford') {
       const winner = r.pairResults?.[0];
-      if (winner) summary = `${winner.names} ${winner.teamPts} pts`;
+      if (winner) summary = `${esc(winner.names)} ${winner.teamPts} pts`;
     } else if (gt === 'bbmatch') {
       if (r.mode === 'match') {
         const abs = Math.abs(r.matchStatus||0);
@@ -9014,7 +9017,7 @@ function outingFinish() {
           : `${r.matchStatus>0?r.names0:r.names1} ${abs} UP`;
       } else {
         const winner = r.groupResults?.[0];
-        if (winner) summary = `${winner.names} best net ${winner.totalBestNet}`;
+        if (winner) summary = `${esc(winner.names)} best net ${winner.totalBestNet}`;
       }
     } else if (gt === 'lownet') {
       const sorted = [...r.playerData].filter(p=>p.totalGross>0).sort((a,b)=>a.totalNet-b.totalNet);
@@ -12265,6 +12268,78 @@ let _leagueSmsBatches = [];
 let _leagueSmsBatchIdx = 0;
 let _leagueSmsMsg = '';
 
+/** Find a league session by id across all leagues. Pure. */
+function rsvpFindSession(state, sid) {
+  for (const lg of (state.leagues || [])) {
+    const s = (lg.sessions || []).find(x => x.id === sid);
+    if (s) return s;
+  }
+  return null;
+}
+/** Merge an anon rsvp-inbox ({sid:{pid:{status,earliest,ts}}}) into the owner's sessions'
+ *  canonical s.rsvp, newest-ts-wins. Returns {changed, processed:[sid/pid]}. Pure. */
+function rsvpMergeInbox(state, inbox) {
+  const out = { changed: false, processed: [] };
+  if (!inbox) return out;
+  Object.entries(inbox).forEach(([sid, byPid]) => {
+    const sess = rsvpFindSession(state, sid);
+    Object.entries(byPid || {}).forEach(([pid, resp]) => {
+      if (!sess) return;                         // unknown session — leave in inbox to retry
+      out.processed.push(sid + '/' + pid);       // found → safe to clear
+      if (!resp || !resp.status) return;
+      if (!sess.rsvp) sess.rsvp = {};
+      const cur = sess.rsvp[pid];
+      if (!cur || (resp.ts || 0) >= (cur.ts || 0)) {
+        sess.rsvp[pid] = { status: resp.status, earliest: resp.earliest || '', ts: resp.ts || Date.now() };
+        out.changed = true;
+      }
+    });
+  });
+  return out;
+}
+/** Build the anon-readable session-info payload published to rsvp-public/{sid}. Pure. */
+function rsvpBuildPublic(lg, s, players, welcome) {
+  const season = (lg.seasons || []).find(x => x.active) || {};
+  const pmap = {};
+  (players || []).forEach(p => { pmap[p.id] = { name: p.name || '', regular: !!p.regular }; });
+  return {
+    league:  lg.name || 'League',
+    season:  season.name || '',
+    date:    s.date || '',
+    welcome: welcome || '',
+    teeTimes: s.teeTimes || [],
+    players: pmap
+  };
+}
+/** Publish anon-readable session info to rsvp-public/{sid} so the login-less RSVP page can display it. */
+async function rsvpPublishSession(lg, s) {
+  if (!window._fbBase || !_fbLoaded || !lg || !s) return;
+  try {
+    const token = await getIdToken();
+    const pub = rsvpBuildPublic(lg, s, S.players, (S.config && S.config.rsvpWelcome) || '');
+    await fetchWithTimeout(window._fbBase + '/rsvp-public/' + encodeURIComponent(s.id) + '.json?auth=' + token,
+      { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(pub) }, 8000);
+  } catch (e) { if (typeof appLog === 'function') appLog('rsvp-public: ' + e.message); }
+}
+/** Read anon-written rsvp-inbox, merge into canonical s.rsvp, then clear only the entries we merged
+ *  (single PATCH of nulls — an RSVP arriving mid-process is not lost). Runs after load. */
+async function rsvpProcessInbox() {
+  if (!window._fbBase || !_fbLoaded) return;
+  try {
+    const token = await getIdToken();
+    const url = window._fbBase + '/rsvp-inbox.json?auth=' + token;
+    const r = await fetchWithTimeout(url, {}, 8000);
+    if (!r.ok) return;
+    const inbox = await r.json();
+    if (!inbox) return;
+    const res = rsvpMergeInbox(S, inbox);
+    if (res.changed) { scheduleWrite(); if (typeof renderAll === 'function') renderAll(); }
+    if (res.processed.length) {
+      const nulls = {}; res.processed.forEach(k => { nulls[k] = null; });
+      await fetchWithTimeout(url, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(nulls) }, 8000);
+    }
+  } catch (e) { if (typeof appLog === 'function') appLog('rsvp-inbox: ' + e.message); }
+}
 function leagueSendRsvpInvite(mode) {
   const lg = leagueCurrent(); if (!lg) return;
   const s  = leagueSessionById(lg, _leagueSessionId); if (!s) return;
@@ -12280,6 +12355,8 @@ function leagueSendRsvpInvite(mode) {
     return;
   }
 
+  rsvpPublishSession(lg, s);   // publish anon-readable session info for the RSVP page
+
   const baseUrl  = 'https://bzrimsek.github.io/MadGolf/rsvp.html';
   const dateStr  = s.date ? new Date(s.date + 'T12:00:00').toLocaleDateString('en-US',
     {weekday:'long', month:'short', day:'numeric'}) : 'upcoming';
@@ -12291,7 +12368,7 @@ function leagueSendRsvpInvite(mode) {
   const welcome    = encodeURIComponent(S.config.rsvpWelcome || '');
   const welcomePart = welcome ? '&w='+welcome : '';
   const makeLinks = (pid) => {
-    const base = `${baseUrl}?lid=${encodeURIComponent(lg.id)}&sid=${encodeURIComponent(s.id)}&pid=${encodeURIComponent(pid)}&t=${Date.now()}`;
+    const base = `${baseUrl}?lid=${encodeURIComponent(lg.id)}&sid=${encodeURIComponent(s.id)}&pid=${encodeURIComponent(pid)}&uid=${encodeURIComponent(window._accountId||'')}&t=${Date.now()}`;
     return {
       yes:  base + '&r=in' + welcomePart,
       full: base + welcomePart,

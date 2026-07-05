@@ -7345,6 +7345,39 @@ smoke('leagueCurrentSession returns session', () => {
   expect('summary drops the vs matchup', sum.includes(' vs '), false);
 }
 
+// ── 139. XSS: user names escaped before entering HTML ────────
+{
+  const { esc } = sandbox;
+  expect('esc strips angle brackets', esc('<img onerror=x>'), 'img onerror=x');
+  expect('esc strips quotes/amp', esc(`a"b'c&d`), 'abcd');
+  expect('no raw team .names in HTML', /\$\{[a-z]+\.names\}/.test(html), false);
+  expect('winner.names escaped', html.includes('${esc(winner.names)}'), true);
+  expect('t.names escaped', html.includes('${esc(t.names)}'), true);
+}
+
+// ── 140. RSVP anon-flow helpers ──────────────────────────────
+{
+  const { rsvpFindSession, rsvpMergeInbox, rsvpBuildPublic } = sandbox;
+  const state = { leagues:[{id:'L1', name:'Fri', sessions:[{id:'S1', date:'2026-07-10', rsvp:{}}]}] };
+  expect('findSession hit', rsvpFindSession(state,'S1').id, 'S1');
+  expect('findSession miss', rsvpFindSession(state,'zz'), null);
+  const m = rsvpMergeInbox(state, {S1:{p1:{status:'in',earliest:'8:00',ts:100}}});
+  expect('merge changed', m.changed, true);
+  expect('merge applied', state.leagues[0].sessions[0].rsvp.p1.status, 'in');
+  expect('merge processed key', m.processed[0], 'S1/p1');
+  rsvpMergeInbox(state, {S1:{p1:{status:'out',earliest:'',ts:50}}});
+  expect('older ts ignored', state.leagues[0].sessions[0].rsvp.p1.status, 'in');
+  rsvpMergeInbox(state, {S1:{p1:{status:'out',earliest:'',ts:200}}});
+  expect('newer ts wins', state.leagues[0].sessions[0].rsvp.p1.status, 'out');
+  const m2 = rsvpMergeInbox(state, {ZZ:{p9:{status:'in',ts:1}}});
+  expect('unknown session no change', m2.changed, false);
+  const pub = rsvpBuildPublic({name:'Fri',seasons:[{active:true,name:'Summer'}]}, {id:'S1',date:'2026-07-10',teeTimes:['8:00','8:10']}, [{id:'p1',name:'Al Blood',regular:true}], 'Welcome');
+  expect('public league', pub.league, 'Fri');
+  expect('public season', pub.season, 'Summer');
+  expect('public player name', pub.players.p1.name, 'Al Blood');
+  expect('public tee count', pub.teeTimes.length, 2);
+}
+
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
