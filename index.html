@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.79  Build 2026-07-06 09:33 AM ET
+     Version : v0.90.80  Build 2026-07-06 09:49 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.80  2026-07-06  League Setup redesign — checkpoint 3 of 3 (#8): round-robin partnership fixtures that DEFINE the playing groups. In a partner league you play in the same group as your weekly opponent, so the fixture IS the grouping. leagueRoundRobinRound(n,round) is the pure circle-method fixture (team 0 fixed, the rest rotate; odd n gets a phantom bye so one pair sits out each round) — over n-1 rounds every pair meets exactly once. leaguePartnerGroupsForRound(pairs,singles,round) turns a round into groups: each matchup (pair vs opponent pair) becomes a foursome, and a byed pair plus any unpaired players fill the remaining group. leagueSessionRoundIndex(lg,s) picks the round from the session's date-order within its season. leagueAssignGroups and leagueShuffleGroups (Partner League branch) now build s.groups from this fixture, replacing 0.90.79's keep-together helper (leagueAssignPartnerGroups removed — rule 6). §152 rewritten: fixtures hand-computed (rule 28) plus the full round-robin coverage property. Totals 2413 → 2420. This completes the League Setup redesign (checkpoints 1-3, v0.90.78-0.90.80). Still parked by request: flights/divisions by team handicap. Not addressed here (design follow-ups, not asked): showing an explicit "Pair A vs Pair B" opponent label on the groups screen.
 // v0.90.79  2026-07-06  League Setup redesign — checkpoint 2 of 3, and the #7 model correction I wrongly deferred in 0.90.78 (that left "Partners" sitting in the Group-Method choices, which was internally inconsistent). #7 MODEL: Partner League is now a top-level toggle (lg.partnerLeague), and "Partners" is removed from the Group-Method choices. ON → the partner editor is shown and partners are the grouping unit; OFF → pick a Group Method (Random / A-B-C-D) plus blind-draw Partner Pairing. Migration folds the legacy groupMethod==='partners' value into the new flag and resets the method to a real engine; new leagueSetPartnerLeague. PARTNERS-TOGETHER GROUPING (first step of #8): leagueAssignGroups and leagueShuffleGroups route through the new pure, deterministic leagueAssignPartnerGroups when Partner League is on — each partner pair present in the pool is placed whole into balanced groups and unpaired players fill in, so pairs are never split. Previously groupMethod==='partners' fell through to random, which is why pairs weren't kept together. +8 tests (§152). Round-robin opponent-of-the-week selection is the next step; flights/divisions by team handicap parked. PLAYERS PICKER: a PLAYERS section on the setup screen lists the master roster with In/Out toggles (leagueTogglePlayer sets the player's `regular` membership flag) — this is exactly what leagueBuildPool pools, so it fixes "only regulars get assigned to groups" by making league membership visible and editable inside the league flow. NAV ARROWS: the header prev/next arrows now name their destination (e.g. "‹ Setup", "Sessions ›") instead of bare glyphs, applied globally across outing/trip/league per the design guideline that a control always says where it leads. PARTNER EDITOR: season pills → dropdown. TEST INFRA note: the onchange-aware handler scanner (added 0.90.78) validated every new select/toggle handler this session. Totals 2403 → 2413.
 // v0.90.78  2026-07-06  League Setup redesign — checkpoint 1 of 3 (per BZ feedback). Information-architecture reorg of the league setup screen + hub + nav; no scoring-logic change. HUB (#1): the lone "Season Setup & Schedule" card under a collapsible "League Setup" header is now a single "League Setup" card — no collapsible wrapper for one tile; removed the now-dead sectionHdr helper + _leagueSetupCollapsed state. TITLE/NAV: the screen retitles to LEAGUE SETUP (the macro; Season is its first sub-section) and the standalone PARTNERS workflow step is dropped from the nav arrows — the partner editor is still reached from the Group-Method control and leagueGoStep's routing map, so nothing is orphaned; league nav tests updated (seasons→sessions). SEASON (#2): the season pills become a dropdown selector with New Season / Close Season beneath. COURSE (#3): because each tee is a separate course record, the options now read "Name — Tee · slope/rating" so same-named tees are distinguishable; HOLES moved directly beneath COURSE (#4). SCHEDULE (#5,#6): consolidated into one block with DAY first (renamed from "League Night" — a league can run any time of day), then Start/End + Generate Calendar, then Tee Times/Shotgun. DEFAULT GAME (#9): a new season-level default game type with HC Adjustment moved alongside it; sessions inherit both via leagueBuildSession (defaultGameType + defaultStablefordTeam) and still override per session — new leagueSetSeasonGameType mirrors the per-session key mapping. TEST INFRA: the defined-handler scanner now validates onchange handlers too (not just onclick), excluding method calls — +46 assertions, so a typo'd select handler anywhere in the app now fails the build; +6 inheritance tests (§151). Totals 2352 → 2403. Next: v0.90.79 Partner League toggle + Players picker (#7); v0.90.80 round-robin partnership fixtures (#8, flights/divisions parked).
 // v0.90.77  2026-07-06  Test-hardening: FINAL two missions (#5 lifecycle/staleness + #6 coverage) - the hardening arc is complete (all 6 sub-missions landed across 0.90.74-0.90.77). §150 LIFECYCLE/STALENESS (mission #5, bug 1 = the 15-vs-14 report): a game snapshots each player's course handicap at creation (g.chs / g.players[].courseHcp), so after a course is re-rated the stored value went stale and every unit test fed fresh data missed it. The suite now mutates the underlying data and asserts dependents refresh on open: foursome fsRefreshChs recomputes 12->16 and 8->11 after a slope/rating re-rate (strokes on the hcp-14 hole follow 0->1), picks up a player re-index (12->20 -> CH 25), and is a proven no-op when nothing changed (fsSaveGame spy shows zero writes); outing outingRefreshChs recomputes 12->16 and no-ops clean; League (leagueSessionCtx) and Trip (tripScoringCtx) recompute courseHcp live 12->16 with NO refresh call (no snapshot to go stale). +17 assertions -> 2352. COVERAGE (mission #6): opt-in function-level coverage baked into the harness - run `COVERAGE=1 node madgolf-test.js index.html`. It wraps every top-level function with a call counter (reassigning sandbox[name] is seen by the tests AND the app's own bare-name calls) and prints executed/total (254/567 = 44.8%) with the uncalled split into UI/render (expected - the harness can't invoke screens), handler/orchestration (DOM/Firebase integration), and PURE-LOGIC blind spots (the actionable list). Off by default so the ship gate is uninstrumented and unaffected (rule 7). It immediately surfaced a real gap: outingBestBallMatch (a scoring fn) is uncovered - tracked on the open board. No new production logic; test infra only. Also cleaned a stray changelog placeholder left from the 0.90.76 bump (rule 11).
@@ -1147,8 +1148,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.79';
-const BUILD_TIME = '2026-07-06 09:33 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.80';
+const BUILD_TIME = '2026-07-06 09:50 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -12861,8 +12862,13 @@ function leagueAssignGroups() {
   const method=lg.groupMethod||'random';
   if(lg.partnerLeague){
     const seas=(lg.seasons||[]).find(x=>x.id===s.seasonId)||leagueActiveSeason(lg);
-    const dealt=leagueAssignPartnerGroups(pool,(seas&&seas.partners)||[],numGroups);
-    s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
+    const poolIds=new Set(pool.map(p=>p.id));
+    const prs=((seas&&seas.partners)||[]).map(pr=>(pr.playerIds||[]).filter(id=>poolIds.has(id))).filter(ids=>ids.length===2);
+    const paired=new Set(prs.flat());
+    const singles=pool.map(p=>p.id).filter(id=>!paired.has(id));
+    const dealt=leaguePartnerGroupsForRound(prs,singles,leagueSessionRoundIndex(lg,s));
+    const tts2=s.teeTimes||(leagueActiveSeason(lg).teeTimes||[]);
+    s.groups=dealt.map((ids,i)=>({teetime:tts2[i]||null,playerIds:ids}));
   } else if(method==='abcd'){
     const dealt=leagueDealAbcd(pool,numGroups);
     s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
@@ -12882,8 +12888,13 @@ function leagueShuffleGroups() {
   s.groups.forEach(g=>{g.playerIds=[];});
   if(lg.partnerLeague){
     const seas=(lg.seasons||[]).find(x=>x.id===s.seasonId)||leagueActiveSeason(lg);
-    const dealt=leagueAssignPartnerGroups(pool,(seas&&seas.partners)||[],numGroups);
-    s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
+    const poolIds=new Set(pool.map(p=>p.id));
+    const prs=((seas&&seas.partners)||[]).map(pr=>(pr.playerIds||[]).filter(id=>poolIds.has(id))).filter(ids=>ids.length===2);
+    const paired=new Set(prs.flat());
+    const singles=pool.map(p=>p.id).filter(id=>!paired.has(id));
+    const dealt=leaguePartnerGroupsForRound(prs,singles,leagueSessionRoundIndex(lg,s));
+    const tts2=s.teeTimes||(leagueActiveSeason(lg).teeTimes||[]);
+    s.groups=dealt.map((ids,i)=>({teetime:tts2[i]||null,playerIds:ids}));
   } else if(method==='abcd'){
     const dealt=leagueDealAbcd(pool,numGroups);
     s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
@@ -12896,24 +12907,48 @@ function leagueShuffleGroups() {
 // Partner-league grouping — keep each partner PAIR in the same group (opponent-of-the-week
 // pairing across sessions is the next step). Pure + deterministic so the harness can pin it:
 // pairs present in the pool are placed whole into balanced groups, then unpaired players fill in.
-function leagueAssignPartnerGroups(pool, partners, numGroups) {
-  const poolIds = new Set(pool.map(p=>p.id));
-  const pairs = (partners||[])
-    .map(pr => (pr.playerIds||[]).filter(id=>poolIds.has(id)))
-    .filter(ids => ids.length === 2);
-  const pairedSet = new Set(pairs.flat());
-  const singles = pool.map(p=>p.id).filter(id=>!pairedSet.has(id));
-  const groups = Array.from({length:Math.max(1,numGroups)},()=>[]);
-  const smallest = () => groups.reduce((m,g,i,arr)=> g.length<arr[m].length?i:m, 0);
-  pairs.forEach(pair => {
-    // Prefer the smallest group that still has room for both; else the smallest group.
-    let best=-1, bestLen=Infinity;
-    for (let i=0;i<groups.length;i++){ if (groups[i].length+2<=4 && groups[i].length<bestLen){ best=i; bestLen=groups[i].length; } }
-    if (best===-1) best = smallest();
-    groups[best].push(pair[0], pair[1]);
+// Round-robin fixture for `n` teams at `round` (0-indexed) via the circle method: team 0 is fixed
+// and the rest rotate. Odd n gets a phantom "bye" slot so one team sits out each round. Returns the
+// round's matchups as [teamA, teamB] index pairs. Pure + deterministic — the fixture is fixed.
+function leagueRoundRobinRound(n, round) {
+  if (n < 2) return [];
+  const teams = [...Array(n).keys()];
+  if (teams.length % 2) teams.push(-1); // phantom = bye
+  const m = teams.length, rounds = m - 1;
+  const k = ((round % rounds) + rounds) % rounds;
+  const rest = teams.slice(1);
+  const arr = [teams[0], ...rest.slice(k), ...rest.slice(0, k)];
+  const pairs = [];
+  for (let i = 0; i < m / 2; i++) {
+    const a = arr[i], b = arr[m - 1 - i];
+    if (a === -1 || b === -1) continue; // that team byes this round
+    pairs.push([a, b]);
+  }
+  return pairs;
+}
+// Partner-league groups for one session's round: each round-robin matchup (pair vs pair) becomes a
+// foursome, so a pair plays in the same group as its weekly opponent. A byed pair plus any unpaired
+// players fill the remaining group(s). Pure.
+function leaguePartnerGroupsForRound(pairs, singles, round) {
+  const groups = [], used = new Set();
+  leagueRoundRobinRound(pairs.length, round).forEach(([i, j]) => {
+    groups.push([...pairs[i], ...pairs[j]]);
+    used.add(i); used.add(j);
   });
-  singles.forEach(id => groups[smallest()].push(id));
+  const leftover = [];
+  pairs.forEach((pr, idx) => { if (!used.has(idx)) leftover.push(...pr); });
+  leftover.push(...(singles||[]));
+  for (let i = 0; i < leftover.length; i += 4) groups.push(leftover.slice(i, i + 4));
   return groups;
+}
+// Which round-robin round a session is — its position among its season's sessions, ordered by date.
+function leagueSessionRoundIndex(lg, s) {
+  const seas = (lg.seasons||[]).find(x => x.id === s.seasonId) || leagueActiveSeason(lg);
+  const sid = seas && seas.id;
+  const sess = (lg.sessions||[]).filter(x => x.seasonId === sid)
+    .sort((a,b) => String(a.date||'').localeCompare(String(b.date||'')));
+  const i = sess.findIndex(x => x.id === s.id);
+  return i < 0 ? 0 : i;
 }
 function leagueDealAbcd(pool,numGroups) {
   const tm=window._leagueTierMap||new Map();

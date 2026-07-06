@@ -8019,35 +8019,48 @@ smoke('leagueCurrentSession returns session', () => {
   expect('no season default → individual team', b3.stablefordTeam, 'individual');
 }
 
-// ── 152. Partner-league grouping keeps pairs together (League setup #7/#8) ────
-// When Partner League is on, leagueAssignGroups routes through leagueAssignPartnerGroups instead of
-// the random/ABCD engines. Pairs present in the pool are placed whole; unpaired players fill in.
-// Deterministic (no RNG) so it's pinned exactly. (Round-robin opponent selection is the next step.)
+// ── 152. Partner-league ROUND-ROBIN grouping (League setup #7/#8) ─────────────
+// Partner League defines the groups: each week a pair plays a rotating opponent (round-robin,
+// circle method) and that matchup IS the foursome. leagueRoundRobinRound is the pure fixture;
+// leaguePartnerGroupsForRound turns a round into groups; leagueSessionRoundIndex picks the round.
 {
-  const { leagueAssignPartnerGroups } = sandbox;
-  const pool8 = ['p1','p2','p3','p4','p5','p6','p7','p8'].map(id=>({id}));
-  const partners3 = [{playerIds:['p1','p2']},{playerIds:['p3','p4']},{playerIds:['p5','p6']}];
-  const g = leagueAssignPartnerGroups(pool8, partners3, 2);
+  const { leagueRoundRobinRound, leaguePartnerGroupsForRound, leagueSessionRoundIndex } = sandbox;
+  const J = x => JSON.stringify(x);
 
-  const groupOf = id => g.findIndex(grp => grp.includes(id));
-  expect('partner grp: p1 & p2 together', groupOf('p1'), groupOf('p2'));
-  expect('partner grp: p3 & p4 together', groupOf('p3'), groupOf('p4'));
-  expect('partner grp: p5 & p6 together', groupOf('p5'), groupOf('p6'));
-  expect('partner grp: sizes 4 + 4', JSON.stringify(g.map(x=>x.length)), '[4,4]');
-  expect('partner grp: all 8 assigned', g.flat().sort().join(','), 'p1,p2,p3,p4,p5,p6,p7,p8');
-  // Deterministic — same inputs, same output.
-  expect('partner grp: deterministic',
-    JSON.stringify(leagueAssignPartnerGroups(pool8, partners3, 2)), JSON.stringify(g));
+  // Circle-method fixtures — hand-computed.
+  expect('rr 4 r0', J(leagueRoundRobinRound(4,0)), J([[0,3],[1,2]]));
+  expect('rr 4 r1', J(leagueRoundRobinRound(4,1)), J([[0,1],[2,3]]));
+  expect('rr 4 r2', J(leagueRoundRobinRound(4,2)), J([[0,2],[3,1]]));
+  expect('rr 4 r3 wraps to r0', J(leagueRoundRobinRound(4,3)), J(leagueRoundRobinRound(4,0)));
+  expect('rr 3 r0 (team0 byes)', J(leagueRoundRobinRound(3,0)), J([[1,2]]));
+  expect('rr 3 r1 (team2 byes)', J(leagueRoundRobinRound(3,1)), J([[0,1]]));
+  expect('rr 2 r0', J(leagueRoundRobinRound(2,0)), J([[0,1]]));
+  expect('rr 1 → empty', J(leagueRoundRobinRound(1,0)), J([]));
 
-  // A pair with one member absent from the pool degrades to singles (no crash, no ghost id).
-  const g2 = leagueAssignPartnerGroups([{id:'p1'},{id:'p3'}], [{playerIds:['p1','p2']}], 1);
-  expect('partner grp: half-pair → singles', g2[0].sort().join(','), 'p1,p3');
+  // Full round-robin property: over n-1 rounds every distinct pair meets exactly once (n even).
+  const n = 6, seen = {};
+  for (let r=0;r<n-1;r++) leagueRoundRobinRound(n,r).forEach(([a,b])=>{ const k=[a,b].sort((x,y)=>x-y).join('-'); seen[k]=(seen[k]||0)+1; });
+  const allPairs = []; for (let i=0;i<n;i++) for (let j=i+1;j<n;j++) allPairs.push(i+'-'+j);
+  expect('rr6: every pair meets exactly once', allPairs.every(k=>seen[k]===1) && Object.keys(seen).length===allPairs.length, true);
 
-  // No partners at all → everyone is a single, still fully assigned.
-  const g3 = leagueAssignPartnerGroups(['p1','p2','p3','p4'].map(id=>({id})), [], 1);
-  expect('partner grp: no pairs → all in', g3[0].length, 4);
-}
-const total = passed + failed;
+  // Groups for a round: each matchup (pair vs pair) is a foursome.
+  const P4 = [['a1','a2'],['b1','b2'],['c1','c2'],['d1','d2']];
+  expect('grp r0: A vs D, B vs C', J(leaguePartnerGroupsForRound(P4,[],0)), J([['a1','a2','d1','d2'],['b1','b2','c1','c2']]));
+  expect('grp r1: A vs B, C vs D', J(leaguePartnerGroupsForRound(P4,[],1)), J([['a1','a2','b1','b2'],['c1','c2','d1','d2']]));
+
+  // Odd pairs + a single: byed pair joins the leftover group with unpaired players.
+  const P3 = [['a1','a2'],['b1','b2'],['c1','c2']];
+  expect('grp odd+single', J(leaguePartnerGroupsForRound(P3,['s1'],0)), J([['b1','b2','c1','c2'],['a1','a2','s1']]));
+
+  // Session round index = position among the season's sessions by date (date-sorted, not array order).
+  const lg = { seasons:[{id:'sea1',active:true}], sessions:[
+    {id:'w3',seasonId:'sea1',date:'2026-05-15'},
+    {id:'w1',seasonId:'sea1',date:'2026-05-01'},
+    {id:'w2',seasonId:'sea1',date:'2026-05-08'} ]};
+  expect('round idx w1 = 0', leagueSessionRoundIndex(lg, lg.sessions.find(x=>x.id==='w1')), 0);
+  expect('round idx w2 = 1', leagueSessionRoundIndex(lg, lg.sessions.find(x=>x.id==='w2')), 1);
+  expect('round idx w3 = 2', leagueSessionRoundIndex(lg, lg.sessions.find(x=>x.id==='w3')), 2);
+}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
 console.log(`══════════════════════════════════════════`);
