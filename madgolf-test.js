@@ -8018,6 +8018,35 @@ smoke('leagueCurrentSession returns session', () => {
   expect('no season default → null gameType', b3.gameType, null);
   expect('no season default → individual team', b3.stablefordTeam, 'individual');
 }
+
+// ── 152. Partner-league grouping keeps pairs together (League setup #7/#8) ────
+// When Partner League is on, leagueAssignGroups routes through leagueAssignPartnerGroups instead of
+// the random/ABCD engines. Pairs present in the pool are placed whole; unpaired players fill in.
+// Deterministic (no RNG) so it's pinned exactly. (Round-robin opponent selection is the next step.)
+{
+  const { leagueAssignPartnerGroups } = sandbox;
+  const pool8 = ['p1','p2','p3','p4','p5','p6','p7','p8'].map(id=>({id}));
+  const partners3 = [{playerIds:['p1','p2']},{playerIds:['p3','p4']},{playerIds:['p5','p6']}];
+  const g = leagueAssignPartnerGroups(pool8, partners3, 2);
+
+  const groupOf = id => g.findIndex(grp => grp.includes(id));
+  expect('partner grp: p1 & p2 together', groupOf('p1'), groupOf('p2'));
+  expect('partner grp: p3 & p4 together', groupOf('p3'), groupOf('p4'));
+  expect('partner grp: p5 & p6 together', groupOf('p5'), groupOf('p6'));
+  expect('partner grp: sizes 4 + 4', JSON.stringify(g.map(x=>x.length)), '[4,4]');
+  expect('partner grp: all 8 assigned', g.flat().sort().join(','), 'p1,p2,p3,p4,p5,p6,p7,p8');
+  // Deterministic — same inputs, same output.
+  expect('partner grp: deterministic',
+    JSON.stringify(leagueAssignPartnerGroups(pool8, partners3, 2)), JSON.stringify(g));
+
+  // A pair with one member absent from the pool degrades to singles (no crash, no ghost id).
+  const g2 = leagueAssignPartnerGroups([{id:'p1'},{id:'p3'}], [{playerIds:['p1','p2']}], 1);
+  expect('partner grp: half-pair → singles', g2[0].sort().join(','), 'p1,p3');
+
+  // No partners at all → everyone is a single, still fully assigned.
+  const g3 = leagueAssignPartnerGroups(['p1','p2','p3','p4'].map(id=>({id})), [], 1);
+  expect('partner grp: no pairs → all in', g3[0].length, 4);
+}
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);

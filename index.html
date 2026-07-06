@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.78  Build 2026-07-06 08:55 AM ET
+     Version : v0.90.79  Build 2026-07-06 09:33 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.79  2026-07-06  League Setup redesign — checkpoint 2 of 3, and the #7 model correction I wrongly deferred in 0.90.78 (that left "Partners" sitting in the Group-Method choices, which was internally inconsistent). #7 MODEL: Partner League is now a top-level toggle (lg.partnerLeague), and "Partners" is removed from the Group-Method choices. ON → the partner editor is shown and partners are the grouping unit; OFF → pick a Group Method (Random / A-B-C-D) plus blind-draw Partner Pairing. Migration folds the legacy groupMethod==='partners' value into the new flag and resets the method to a real engine; new leagueSetPartnerLeague. PARTNERS-TOGETHER GROUPING (first step of #8): leagueAssignGroups and leagueShuffleGroups route through the new pure, deterministic leagueAssignPartnerGroups when Partner League is on — each partner pair present in the pool is placed whole into balanced groups and unpaired players fill in, so pairs are never split. Previously groupMethod==='partners' fell through to random, which is why pairs weren't kept together. +8 tests (§152). Round-robin opponent-of-the-week selection is the next step; flights/divisions by team handicap parked. PLAYERS PICKER: a PLAYERS section on the setup screen lists the master roster with In/Out toggles (leagueTogglePlayer sets the player's `regular` membership flag) — this is exactly what leagueBuildPool pools, so it fixes "only regulars get assigned to groups" by making league membership visible and editable inside the league flow. NAV ARROWS: the header prev/next arrows now name their destination (e.g. "‹ Setup", "Sessions ›") instead of bare glyphs, applied globally across outing/trip/league per the design guideline that a control always says where it leads. PARTNER EDITOR: season pills → dropdown. TEST INFRA note: the onchange-aware handler scanner (added 0.90.78) validated every new select/toggle handler this session. Totals 2403 → 2413.
 // v0.90.78  2026-07-06  League Setup redesign — checkpoint 1 of 3 (per BZ feedback). Information-architecture reorg of the league setup screen + hub + nav; no scoring-logic change. HUB (#1): the lone "Season Setup & Schedule" card under a collapsible "League Setup" header is now a single "League Setup" card — no collapsible wrapper for one tile; removed the now-dead sectionHdr helper + _leagueSetupCollapsed state. TITLE/NAV: the screen retitles to LEAGUE SETUP (the macro; Season is its first sub-section) and the standalone PARTNERS workflow step is dropped from the nav arrows — the partner editor is still reached from the Group-Method control and leagueGoStep's routing map, so nothing is orphaned; league nav tests updated (seasons→sessions). SEASON (#2): the season pills become a dropdown selector with New Season / Close Season beneath. COURSE (#3): because each tee is a separate course record, the options now read "Name — Tee · slope/rating" so same-named tees are distinguishable; HOLES moved directly beneath COURSE (#4). SCHEDULE (#5,#6): consolidated into one block with DAY first (renamed from "League Night" — a league can run any time of day), then Start/End + Generate Calendar, then Tee Times/Shotgun. DEFAULT GAME (#9): a new season-level default game type with HC Adjustment moved alongside it; sessions inherit both via leagueBuildSession (defaultGameType + defaultStablefordTeam) and still override per session — new leagueSetSeasonGameType mirrors the per-session key mapping. TEST INFRA: the defined-handler scanner now validates onchange handlers too (not just onclick), excluding method calls — +46 assertions, so a typo'd select handler anywhere in the app now fails the build; +6 inheritance tests (§151). Totals 2352 → 2403. Next: v0.90.79 Partner League toggle + Players picker (#7); v0.90.80 round-robin partnership fixtures (#8, flights/divisions parked).
 // v0.90.77  2026-07-06  Test-hardening: FINAL two missions (#5 lifecycle/staleness + #6 coverage) - the hardening arc is complete (all 6 sub-missions landed across 0.90.74-0.90.77). §150 LIFECYCLE/STALENESS (mission #5, bug 1 = the 15-vs-14 report): a game snapshots each player's course handicap at creation (g.chs / g.players[].courseHcp), so after a course is re-rated the stored value went stale and every unit test fed fresh data missed it. The suite now mutates the underlying data and asserts dependents refresh on open: foursome fsRefreshChs recomputes 12->16 and 8->11 after a slope/rating re-rate (strokes on the hcp-14 hole follow 0->1), picks up a player re-index (12->20 -> CH 25), and is a proven no-op when nothing changed (fsSaveGame spy shows zero writes); outing outingRefreshChs recomputes 12->16 and no-ops clean; League (leagueSessionCtx) and Trip (tripScoringCtx) recompute courseHcp live 12->16 with NO refresh call (no snapshot to go stale). +17 assertions -> 2352. COVERAGE (mission #6): opt-in function-level coverage baked into the harness - run `COVERAGE=1 node madgolf-test.js index.html`. It wraps every top-level function with a call counter (reassigning sandbox[name] is seen by the tests AND the app's own bare-name calls) and prints executed/total (254/567 = 44.8%) with the uncalled split into UI/render (expected - the harness can't invoke screens), handler/orchestration (DOM/Firebase integration), and PURE-LOGIC blind spots (the actionable list). Off by default so the ship gate is uninstrumented and unaffected (rule 7). It immediately surfaced a real gap: outingBestBallMatch (a scoring fn) is uncovered - tracked on the open board. No new production logic; test infra only. Also cleaned a stray changelog placeholder left from the 0.90.76 bump (rule 11).
 // v0.90.76  2026-07-06  Test-hardening: mission #1 (render-text extraction) COMPLETE + a real bug caught by it. Every status/banner/summary string still trapped in a render or completion body is now a pure, directly-tested helper (rule 30). §146 WALK-OFF: fsWalkoffCostLabel + fsWalkoffSubLabel out of the renderWalkoffGame closure, plus a walk-off render smoke (main banner already routed through the tested fsCalcOneMatch). §147 OUTING/DOC: outingResultSummary (all 7 finish formats) out of outingFinish, fsDOCSegLabel ("Holes X-Y") out of renderDOCGame. §148 IN-PLACE UPDATER: fsUpdateStandingsInPlace now delegates its Nassau/walk-off banners to the SAME helpers the first paint uses - which FIXED a live bug: its Nassau block held stroke-only logic (reads r.played/aT/bT), so a match-play Nassau (the default mode) painted correct match text once, then the next score entry overwrote it with wrong stroke text. Now routed through fsNassauBannerParts - stroke output byte-identical, match output correct - with a recording-DOM regression test pinning no-drift. §149: fsBBBResultSummary + fsDOCResultSummary (stored g.summary shown in recent-games), outingResultCellValue, and fsHolePopupNassauText (the compact hole-popup variant, kept distinct from the banner by design). Cleanups (rule 6): removed outingFinish's duplicate status/completedDate writes and an orphaned varRed. Rule 30 strengthened to name status/summary text and the in-place-updater no-drift principle. All extractions verbatim; §143 render matrix + every branch value hand-computed (rule 28). Totals 2277 to 2335.
@@ -1146,8 +1147,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.78';
-const BUILD_TIME = '2026-07-06 08:55 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.79';
+const BUILD_TIME = '2026-07-06 09:33 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1347,6 +1348,10 @@ function normalizeState(raw) {
         if (!ev.groupManagerIds)  ev.groupManagerIds  = [];
         if (!ev.pairMode)         ev.pairMode         = 'ab';
         if (!ev.groupMethod)      ev.groupMethod      = 'random';
+        // Partner League is its own top-level flag now; fold the legacy groupMethod==='partners'
+        // value into it and reset the method to a real grouping engine.
+        if (ev.partnerLeague === undefined) ev.partnerLeague = (ev.groupMethod === 'partners');
+        if (ev.groupMethod === 'partners') ev.groupMethod = 'random';
         if (!ev.skins)            ev.skins            = {hcpAdj:100,halfStroke:false,strokeOffBest:false};
         // Legacy: convert old 'day' string to numeric dayOfWeek (only if present)
         if (ev.dayOfWeek == null && ev.day) {
@@ -10037,14 +10042,15 @@ function workflowNav(module, stepId, titleOverride, extra, titleId) {
   const idAttr = titleId ? ` id="${titleId}"` : '';
   const autoNext = !w || w.linearNext !== false;   // false → screen keeps its own forward button
   const hubBtn = w ? `<button class="btn-back" onclick="${go}('${w.hub}')" title="Hub" style="padding:7px 11px;">Hub</button>` : '';
-  const arw = (t, glyph, lbl) => t
-    ? `<button class="btn-back" onclick="${go}('${t.id}')" title="${lbl}" style="padding:7px 12px;">${glyph}</button>`
+  // Arrows name their destination (never a bare glyph) — a person always sees where a tap leads.
+  const arw = (t, glyph, before) => t
+    ? `<button class="btn-back" onclick="${go}('${t.id}')" title="${before?'Back':'Next'}: ${t.label}" style="padding:7px 10px;font-size:12px;">${before ? glyph+' '+t.label : t.label+' '+glyph}</button>`
     : '';
   return `<div class="fs-scr-hdr">`
     + hubBtn
-    + arw(prev, '&#8249;', prev ? 'Back: ' + prev.label : '')
+    + arw(prev, '&#8249;', true)
     + `<span class="fs-scr-title"${idAttr}>${title}</span>`
-    + (autoNext ? arw(next, '&#8250;', next ? 'Next: ' + next.label : '') : '')
+    + (autoNext ? arw(next, '&#8250;', false) : '')
     + (extra || '')
     + `</div>`;
 }
@@ -11755,7 +11761,7 @@ function leagueSaveModal() {
     const id = uid();
     const lg = { id, type:'league', status:'active', name:name.trim(),
       date:Date.now(), courseId:null,
-      groupManagerIds:[], pairMode:'ab', groupMethod:'random',
+      groupManagerIds:[], pairMode:'ab', groupMethod:'random', partnerLeague:false,
       skins:{hcpAdj:100,halfStroke:false,strokeOffBest:false},
       sessions:[], seasons:[] };
     leagueMigrateSchedule(lg);   // creates Season 1 with default schedule; weeknight set later in Seasons & Schedules
@@ -11815,14 +11821,14 @@ function leagueRenderPartnersScreen() {
     </div>`;
   }
 
-  const seasonTabs = seasons.map(s=>`
-    <button type="button" class="holes-toggle ${s.id===activeSeason.id?'active':''}" style="font-size:11px;padding:3px 10px;"
-      onclick="leagueSetActiveSeason('${s.id}')">${esc(s.name||'Season')}</button>`).join('');
+  const seasonDropdown = `<select onchange="leagueSetActiveSeason(this.value)" style="width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;">
+    ${seasons.map(s=>`<option value="${esc(s.id)}" ${s.id===activeSeason.id?'selected':''}>${esc(s.name||'Season')}${s.closed?' (closed)':''}</option>`).join('')}
+  </select>`;
 
   fsRender(`
     ${workflowNav('league','partners','PARTNERS','<button class="btn btn-sm btn-outline" onclick="leagueAddSeason()">+ Season</button>')}
-    <div style="padding:6px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;display:flex;gap:5px;flex-wrap:wrap;">
-      ${seasonTabs}
+    <div style="padding:8px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;">
+      ${seasonDropdown}
     </div>
     <div class="fs-scr-body" style="padding:12px 12px 80px;">
       <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px;">${esc(activeSeason.name||'Season')} · ${partners.length} pairs</div>
@@ -12115,18 +12121,33 @@ function leagueRenderSeasonsScreen() {
       </select>
 
       ${lbl('TEAMS &amp; GROUPS')}
-      ${lbl('GROUP METHOD')}
-      <div style="display:flex;gap:6px;margin-bottom:${(lg.groupMethod||'random')==='partners'?'10px':'16px'};">
-        <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='random'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('random')">Random</button>
-        <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='abcd'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('abcd')">A/B/C/D</button>
-        <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='partners'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('partners')">Partners</button>
-      </div>
-      ${(lg.groupMethod||'random')==='partners' ? `<button type="button" class="btn btn-sm btn-outline" style="width:100%;margin-bottom:16px;text-align:left;" onclick="leagueRenderPartnersScreen()">👫 ${esc(leaguePartnersSub(lg))}</button>` : ''}
-      ${lbl('PARTNER PAIRING <span style="font-weight:400;text-transform:none;">(blind-draw games)</span>')}
+      ${lbl('PARTNER LEAGUE <span style="font-weight:400;text-transform:none;">(fixed pairs each week)</span>')}
       <div style="display:flex;gap:6px;margin-bottom:16px;">
-        <button type="button" class="holes-toggle ${(lg.pairMode||'ab')==='ab'?'active':''}" style="flex:1;" onclick="leagueSetPairModeStay('ab')">Balanced A/B</button>
-        <button type="button" class="holes-toggle ${(lg.pairMode||'ab')==='random'?'active':''}" style="flex:1;" onclick="leagueSetPairModeStay('random')">Random</button>
+        <button type="button" class="holes-toggle ${lg.partnerLeague?'active':''}" style="flex:1;" onclick="leagueSetPartnerLeague(true)">On</button>
+        <button type="button" class="holes-toggle ${!lg.partnerLeague?'active':''}" style="flex:1;" onclick="leagueSetPartnerLeague(false)">Off</button>
       </div>
+      ${lg.partnerLeague ? `
+        <button type="button" class="btn btn-sm btn-outline" style="width:100%;margin-bottom:16px;text-align:left;" onclick="leagueRenderPartnersScreen()">👫 ${esc(leaguePartnersSub(lg))}</button>
+      ` : `
+        ${lbl('GROUP METHOD')}
+        <div style="display:flex;gap:6px;margin-bottom:16px;">
+          <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='random'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('random')">Random</button>
+          <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='abcd'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('abcd')">A/B/C/D</button>
+        </div>
+        ${lbl('PARTNER PAIRING <span style="font-weight:400;text-transform:none;">(blind-draw games)</span>')}
+        <div style="display:flex;gap:6px;margin-bottom:16px;">
+          <button type="button" class="holes-toggle ${(lg.pairMode||'ab')==='ab'?'active':''}" style="flex:1;" onclick="leagueSetPairModeStay('ab')">Balanced A/B</button>
+          <button type="button" class="holes-toggle ${(lg.pairMode||'ab')==='random'?'active':''}" style="flex:1;" onclick="leagueSetPairModeStay('random')">Random</button>
+        </div>
+      `}
+
+      ${lbl('PLAYERS <span style="font-weight:400;text-transform:none;">(in the league)</span>')}
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px;">Include players from your master list. Only included players are pooled into sessions and groups.</p>
+      ${(S.players||[]).slice().sort((a,b)=>lastNameOf(a.name).localeCompare(lastNameOf(b.name))).map(p=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 4px;border-bottom:1px solid var(--surf3);">
+          <span style="font-size:14px;${p.regular?'font-weight:600;':'color:var(--muted);'}">${esc(p.name)} <span style="font-size:11px;color:var(--muted);">${fmtHcp(p.hcp)}</span></span>
+          <button type="button" class="holes-toggle ${p.regular?'active':''}" style="font-size:11px;padding:3px 14px;" onclick="leagueTogglePlayer('${p.id}')">${p.regular?'In':'Out'}</button>
+        </div>`).join('') || '<div class="empty"><p>No players in your master list yet.</p></div>'}
     </div>
   `);
   fsShowGameTab('📋 League');
@@ -12180,6 +12201,18 @@ function leagueGenerateCalendar() {
 function leagueSetGroupMethodStay(method) {
   const lg = leagueCurrent(); if (!lg) return;
   lg.groupMethod = method; scheduleWrite(); leagueRenderSeasonsScreen();
+}
+// Partner League is a top-level mode. ON: partners are the grouping unit (partner editor shown,
+// pairs kept together at assignment). OFF: pick a group method + blind-draw pairing.
+function leagueSetPartnerLeague(on) {
+  const lg = leagueCurrent(); if (!lg) return;
+  lg.partnerLeague = !!on; scheduleWrite(); leagueRenderSeasonsScreen();
+}
+// Include/exclude a master-list player from the league. Membership is the player's `regular` flag,
+// which is exactly what leagueBuildPool pools — so this is how a person controls who gets grouped.
+function leagueTogglePlayer(pid) {
+  const p = (S.players||[]).find(x => x.id === pid); if (!p) return;
+  p.regular = !p.regular; scheduleWrite(); leagueRenderSeasonsScreen();
 }
 function leagueSetPairModeStay(mode) {
   const lg = leagueCurrent(); if (!lg) return;
@@ -12826,7 +12859,11 @@ function leagueAssignGroups() {
   s.groups=activeTees.map(t=>({teetime:t,playerIds:[]}));
   leagueBuildTierMap(pool,numGroups);
   const method=lg.groupMethod||'random';
-  if(method==='abcd'){
+  if(lg.partnerLeague){
+    const seas=(lg.seasons||[]).find(x=>x.id===s.seasonId)||leagueActiveSeason(lg);
+    const dealt=leagueAssignPartnerGroups(pool,(seas&&seas.partners)||[],numGroups);
+    s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
+  } else if(method==='abcd'){
     const dealt=leagueDealAbcd(pool,numGroups);
     s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
   } else {
@@ -12843,7 +12880,11 @@ function leagueShuffleGroups() {
   leagueBuildTierMap(pool,numGroups);
   const method=lg.groupMethod||'random';
   s.groups.forEach(g=>{g.playerIds=[];});
-  if(method==='abcd'){
+  if(lg.partnerLeague){
+    const seas=(lg.seasons||[]).find(x=>x.id===s.seasonId)||leagueActiveSeason(lg);
+    const dealt=leagueAssignPartnerGroups(pool,(seas&&seas.partners)||[],numGroups);
+    s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
+  } else if(method==='abcd'){
     const dealt=leagueDealAbcd(pool,numGroups);
     s.groups.forEach((g,i)=>{g.playerIds=dealt[i]||[];});
   } else {
@@ -12851,6 +12892,28 @@ function leagueShuffleGroups() {
     ids.forEach((id,i)=>{s.groups[i%numGroups].playerIds.push(id);});
   }
   scheduleWrite();leagueRenderGroups();toast('Groups shuffled ✓');
+}
+// Partner-league grouping — keep each partner PAIR in the same group (opponent-of-the-week
+// pairing across sessions is the next step). Pure + deterministic so the harness can pin it:
+// pairs present in the pool are placed whole into balanced groups, then unpaired players fill in.
+function leagueAssignPartnerGroups(pool, partners, numGroups) {
+  const poolIds = new Set(pool.map(p=>p.id));
+  const pairs = (partners||[])
+    .map(pr => (pr.playerIds||[]).filter(id=>poolIds.has(id)))
+    .filter(ids => ids.length === 2);
+  const pairedSet = new Set(pairs.flat());
+  const singles = pool.map(p=>p.id).filter(id=>!pairedSet.has(id));
+  const groups = Array.from({length:Math.max(1,numGroups)},()=>[]);
+  const smallest = () => groups.reduce((m,g,i,arr)=> g.length<arr[m].length?i:m, 0);
+  pairs.forEach(pair => {
+    // Prefer the smallest group that still has room for both; else the smallest group.
+    let best=-1, bestLen=Infinity;
+    for (let i=0;i<groups.length;i++){ if (groups[i].length+2<=4 && groups[i].length<bestLen){ best=i; bestLen=groups[i].length; } }
+    if (best===-1) best = smallest();
+    groups[best].push(pair[0], pair[1]);
+  });
+  singles.forEach(id => groups[smallest()].push(id));
+  return groups;
 }
 function leagueDealAbcd(pool,numGroups) {
   const tm=window._leagueTierMap||new Map();
