@@ -4445,12 +4445,12 @@ function captureRender(callStr, setupStr) {
 
 // ── Smoke: defined-function check ────────────────────────────
 {
-  // Extract all onclick function calls from HTML
+  // Extract all onclick + onchange function calls from the source
   const onclickFns = new Set();
-  const onclickRe = /onclick="([^"]+)"/g;
+  const onclickRe = /on(?:click|change)="([^"]+)"/g;
   let om;
   while ((om = onclickRe.exec(html)) !== null) {
-    const calls = om[1].matchAll(/\b([a-z_][a-zA-Z0-9_]+)\s*\(/g);
+    const calls = om[1].matchAll(/(?<!\.)\b([a-z_][a-zA-Z0-9_]+)\s*\(/g);
     for (const c of calls) onclickFns.add(c[1]);
   }
   // Also scan template literals for function calls
@@ -4468,7 +4468,7 @@ function captureRender(callStr, setupStr) {
     if (fn[0] === fn[0].toUpperCase()) continue; // constructors
     if (fn.length < 3) continue;
     const isDefined = vm.runInContext(`typeof ${fn} === 'function'`, sandbox);
-    expect(`onclick function defined: ${fn}()`, isDefined, true);
+    expect(`handler defined: ${fn}()`, isDefined, true);
   }
 }
 
@@ -6952,16 +6952,16 @@ smoke('leagueCurrentSession returns session', () => {
   const navPid = workflowNav('outing','players','PLAYERS &mdash; 3 selected', '', 'outing-plan-player-hdr');
   expect('outing nav: title id kept', navPid.includes('id="outing-plan-player-hdr"'), true);
 
-  // League: place -> schedule -> roster flow, auto prev/next (no forward buttons on these screens)
+  // League: LEAGUE SETUP -> sessions -> standings (partners now reached via the setup screen, not a nav step)
   const ln1 = workflowNeighbors('league','seasons');
   expect('league seasons: no prev',     ln1.prev, null);
-  expect('league seasons: next partners',ln1.next && ln1.next.id, 'partners');
+  expect('league seasons: next sessions',ln1.next && ln1.next.id, 'sessions');
   const ln2 = workflowNeighbors('league','standings');
   expect('league standings: prev sessions', ln2.prev && ln2.prev.id, 'sessions');
   expect('league standings: no next',       ln2.next, null);
   const navLC = workflowNav('league','seasons');
   expect('league nav: hub',      navLC.includes("leagueGoStep('hub')"),      true);
-  expect('league nav: next→partners', navLC.includes("leagueGoStep('partners')"), true);
+  expect('league nav: next→sessions', navLC.includes("leagueGoStep('sessions')"), true);
   const navLS = workflowNav('league','standings');
   expect('league nav: prev→sessions', navLS.includes("leagueGoStep('sessions')"), true);
   expect('league nav: no next at end', navLS.includes('&#8250;'), false);
@@ -7993,6 +7993,30 @@ smoke('leagueCurrentSession returns session', () => {
   const tNew = tripScoringCtx(t, r);
   expect('stale D: trip live courseHcp re-rated 16 (no refresh call)',
     tNew.players.find(p=>p.id==='p1').courseHcp, 16);
+}
+
+// ── 151. Season DEFAULT GAME inheritance (League setup #9) ────────────────────
+// leagueBuildSession pre-fills each session from the season. A season default game type (and, for
+// stableford, the 2-man/individual variant) now flows into every generated session, still
+// overridable per session. Pins the inheritance so a missing default degrades to null, not a crash.
+{
+  const { leagueBuildSession } = sandbox;
+  const lg = { id:'lg', courseId:'c1', seasons:[] };
+
+  // Team format default → inherited; stableford team defaults to individual when unset.
+  const b1 = leagueBuildSession(lg, { id:'s1', defaultGameType:'best2' }, '2026-05-01');
+  expect('season default → session gameType', b1.gameType, 'best2');
+  expect('session stablefordTeam default individual', b1.stablefordTeam, 'individual');
+
+  // 2-man stableford default → both fields inherited.
+  const b2 = leagueBuildSession(lg, { id:'s2', defaultGameType:'stableford', defaultStablefordTeam:'2man' }, '2026-05-08');
+  expect('season 2-man stableford → gameType', b2.gameType, 'stableford');
+  expect('season 2-man stableford → team', b2.stablefordTeam, '2man');
+
+  // No default set → null game, individual team (degrade, never undefined).
+  const b3 = leagueBuildSession(lg, { id:'s3' }, '2026-05-15');
+  expect('no season default → null gameType', b3.gameType, null);
+  expect('no season default → individual team', b3.stablefordTeam, 'individual');
 }
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);

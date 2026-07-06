@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.77  Build 2026-07-06 07:58 AM ET
+     Version : v0.90.78  Build 2026-07-06 08:55 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.78  2026-07-06  League Setup redesign — checkpoint 1 of 3 (per BZ feedback). Information-architecture reorg of the league setup screen + hub + nav; no scoring-logic change. HUB (#1): the lone "Season Setup & Schedule" card under a collapsible "League Setup" header is now a single "League Setup" card — no collapsible wrapper for one tile; removed the now-dead sectionHdr helper + _leagueSetupCollapsed state. TITLE/NAV: the screen retitles to LEAGUE SETUP (the macro; Season is its first sub-section) and the standalone PARTNERS workflow step is dropped from the nav arrows — the partner editor is still reached from the Group-Method control and leagueGoStep's routing map, so nothing is orphaned; league nav tests updated (seasons→sessions). SEASON (#2): the season pills become a dropdown selector with New Season / Close Season beneath. COURSE (#3): because each tee is a separate course record, the options now read "Name — Tee · slope/rating" so same-named tees are distinguishable; HOLES moved directly beneath COURSE (#4). SCHEDULE (#5,#6): consolidated into one block with DAY first (renamed from "League Night" — a league can run any time of day), then Start/End + Generate Calendar, then Tee Times/Shotgun. DEFAULT GAME (#9): a new season-level default game type with HC Adjustment moved alongside it; sessions inherit both via leagueBuildSession (defaultGameType + defaultStablefordTeam) and still override per session — new leagueSetSeasonGameType mirrors the per-session key mapping. TEST INFRA: the defined-handler scanner now validates onchange handlers too (not just onclick), excluding method calls — +46 assertions, so a typo'd select handler anywhere in the app now fails the build; +6 inheritance tests (§151). Totals 2352 → 2403. Next: v0.90.79 Partner League toggle + Players picker (#7); v0.90.80 round-robin partnership fixtures (#8, flights/divisions parked).
 // v0.90.77  2026-07-06  Test-hardening: FINAL two missions (#5 lifecycle/staleness + #6 coverage) - the hardening arc is complete (all 6 sub-missions landed across 0.90.74-0.90.77). §150 LIFECYCLE/STALENESS (mission #5, bug 1 = the 15-vs-14 report): a game snapshots each player's course handicap at creation (g.chs / g.players[].courseHcp), so after a course is re-rated the stored value went stale and every unit test fed fresh data missed it. The suite now mutates the underlying data and asserts dependents refresh on open: foursome fsRefreshChs recomputes 12->16 and 8->11 after a slope/rating re-rate (strokes on the hcp-14 hole follow 0->1), picks up a player re-index (12->20 -> CH 25), and is a proven no-op when nothing changed (fsSaveGame spy shows zero writes); outing outingRefreshChs recomputes 12->16 and no-ops clean; League (leagueSessionCtx) and Trip (tripScoringCtx) recompute courseHcp live 12->16 with NO refresh call (no snapshot to go stale). +17 assertions -> 2352. COVERAGE (mission #6): opt-in function-level coverage baked into the harness - run `COVERAGE=1 node madgolf-test.js index.html`. It wraps every top-level function with a call counter (reassigning sandbox[name] is seen by the tests AND the app's own bare-name calls) and prints executed/total (254/567 = 44.8%) with the uncalled split into UI/render (expected - the harness can't invoke screens), handler/orchestration (DOM/Firebase integration), and PURE-LOGIC blind spots (the actionable list). Off by default so the ship gate is uninstrumented and unaffected (rule 7). It immediately surfaced a real gap: outingBestBallMatch (a scoring fn) is uncovered - tracked on the open board. No new production logic; test infra only. Also cleaned a stray changelog placeholder left from the 0.90.76 bump (rule 11).
 // v0.90.76  2026-07-06  Test-hardening: mission #1 (render-text extraction) COMPLETE + a real bug caught by it. Every status/banner/summary string still trapped in a render or completion body is now a pure, directly-tested helper (rule 30). §146 WALK-OFF: fsWalkoffCostLabel + fsWalkoffSubLabel out of the renderWalkoffGame closure, plus a walk-off render smoke (main banner already routed through the tested fsCalcOneMatch). §147 OUTING/DOC: outingResultSummary (all 7 finish formats) out of outingFinish, fsDOCSegLabel ("Holes X-Y") out of renderDOCGame. §148 IN-PLACE UPDATER: fsUpdateStandingsInPlace now delegates its Nassau/walk-off banners to the SAME helpers the first paint uses - which FIXED a live bug: its Nassau block held stroke-only logic (reads r.played/aT/bT), so a match-play Nassau (the default mode) painted correct match text once, then the next score entry overwrote it with wrong stroke text. Now routed through fsNassauBannerParts - stroke output byte-identical, match output correct - with a recording-DOM regression test pinning no-drift. §149: fsBBBResultSummary + fsDOCResultSummary (stored g.summary shown in recent-games), outingResultCellValue, and fsHolePopupNassauText (the compact hole-popup variant, kept distinct from the banner by design). Cleanups (rule 6): removed outingFinish's duplicate status/completedDate writes and an orphaned varRed. Rule 30 strengthened to name status/summary text and the in-place-updater no-drift principle. All extractions verbatim; §143 render matrix + every branch value hand-computed (rule 28). Totals 2277 to 2335.
 // v0.90.75  2026-07-05  Test-hardening cont. (missions #3 + #1-start). (A) STATE-INVARIANT SUITE (§144): asserts the structural invariants after each mutating op so impossible states fail the build, not the user - at most one active foursome, fsActiveGame never returns a non-active game, and no orphaned _scoring. normalizeState now ENFORCES the last one: it clears _scoring on any completed/abandoned foursome/outing (belt-and-suspenders; every _scoring read is gated behind status==='active', so this is regression-safe). Negative controls prove the checker catches multi-active + orphan states. +20 assertions. (B) NASSAU BANNER EXTRACTION (§145, rule 30): fsNassauBannerParts lifted out of the renderNassauGame closure - the exact bug-4 status string (Even/DORMIE/x UP/tally) the harness could never reach is now a pure, directly-tested helper. Behavior byte-preserved (extracted verbatim; §143 matrix confirms the render is unchanged). 25 branch-value assertions (hand-computed per rule 28) + a 14-state output scanner. +59 assertions. Note: walkoff/DOC banners already route their main text through the tested fsCalcOneMatch. Totals 2218 to 2277.
@@ -1145,8 +1146,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.77';
-const BUILD_TIME = '2026-07-06 07:59 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.78';
+const BUILD_TIME = '2026-07-06 08:55 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -10015,8 +10016,8 @@ const WORKFLOW = {
     {id:'players',label:'PLAYERS'}, {id:'course',label:'COURSE'}, {id:'teetimes',label:'TEE TIMES'},
     {id:'format',label:'FORMAT'}, {id:'groups',label:'GROUPS'}, {id:'scoring',label:'SCORING'} ]},
   league: { go:'leagueGoStep', hub:'hub', steps:[
-    {id:'seasons',label:'SEASONS & SCHEDULES'},
-    {id:'partners',label:'PARTNERS'}, {id:'sessions',label:'SESSIONS'}, {id:'standings',label:'STANDINGS'} ]},
+    {id:'seasons',label:'LEAGUE SETUP'},
+    {id:'sessions',label:'SESSIONS'}, {id:'standings',label:'STANDINGS'} ]},
 };
 /** Ordered prev/next steps for a workflow position. Pure — tested. */
 function workflowNeighbors(module, stepId) {
@@ -11985,21 +11986,9 @@ function leagueRenderHub() {
   const _ssTts = (_ssSeason.teeTimes||[]).length ? (_ssSeason.teeTimes||[]).slice(0,3).join(' · ')+(_ssSeason.teeTimes.length>3?'…':'') : 'no tee times';
   const ttSub = `${esc(_ssSeason.name||'Season')} · ${_ssDow} · ${_ssTts}`;
 
-  // Collapsible section state
-  if (window._leagueSetupCollapsed === undefined) window._leagueSetupCollapsed = true;
-
-  const sectionHdr = (title, key, collapsed) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px 6px;cursor:pointer;user-select:none;border-bottom:1.5px solid var(--gold);margin-bottom:6px;"
-      onclick="window._league${key}Collapsed=!window._league${key}Collapsed;leagueRenderHub();">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);">${title}</div>
-      <span style="font-size:11px;color:var(--gold);font-weight:700;">${collapsed?'▶':'▼'}</span>
-    </div>`;
-
-  const setupCollapsed = !!window._leagueSetupCollapsed;
-  const setupSection = sectionHdr('League Setup', 'Setup', setupCollapsed) +
-    (setupCollapsed ? '' : `
-    ${hubCard('⚙️','Season Setup & Schedule',ttSub,'leagueRenderSeasonsScreen()')}
-    `);
+  // League Setup is a single card (no collapsible wrapper for one tile) — it opens the setup screen
+  // where Season is the first sub-section.
+  const setupSection = hubCard('⚙️','League Setup',ttSub,'leagueRenderSeasonsScreen()');
 
   const html = `
     ${sessCard}
@@ -12029,83 +12018,115 @@ function leagueRenderSeasonsScreen() {
   const seasons = lg.seasons || [];
   const active  = leagueActiveSeason(lg);
   const tts     = active.teeTimes || [];
-  const courseOpts = (S.courses||[]).map(c=>`<option value="${esc(c.id)}" ${leagueSeasonCourseId(lg,active)===c.id?'selected':''}>${esc(c.name)}${c.homeCourse?' (home)':''}</option>`).join('');
   const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const pills = seasons.map(s =>
-    `<button type="button" class="holes-toggle ${s.id===active.id?'active':''}" style="font-size:11px;padding:4px 12px;"
-       onclick="leagueSeasonActivate('${s.id}')">${esc(s.name||'Season')}</button>`).join('');
+  const lbl  = t => `<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">${t}</div>`;
+  const selStyle = `width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;margin-bottom:16px;`;
+
+  // SEASON selector — a dropdown (cleaner than pills once there are several)
+  const seasonOpts = seasons.map(s =>
+    `<option value="${esc(s.id)}" ${s.id===active.id?'selected':''}>${esc(s.name||'Season')}${s.closed?' (closed)':''}</option>`).join('');
+
+  // COURSE — one record per tee, so show tee colour + slope/rating to tell the same-named tees apart
+  const courseOpts = (S.courses||[]).map(c => {
+    const sel = leagueSeasonCourseId(lg,active)===c.id ? 'selected' : '';
+    const tee = c.teeColor ? ` — ${esc(c.teeColor)}` : '';
+    const sr  = (c.slope||c.rating) ? ` · ${c.slope||'?'}/${c.rating||'?'}` : '';
+    return `<option value="${esc(c.id)}" ${sel}>${esc(c.name)}${tee}${sr}${c.homeCourse?' (home)':''}</option>`;
+  }).join('');
+
+  // SCHEDULE — DAY (not "night"; a league can run any time of day)
   const dowOpts = `<option value="" ${active.dayOfWeek==null?'selected':''}>— not set —</option>` +
-    days.map((d,i)=>`<option value="${i}" ${active.dayOfWeek===i?'selected':''}>${d} Night</option>`).join('');
+    days.map((d,i)=>`<option value="${i}" ${active.dayOfWeek===i?'selected':''}>${d}</option>`).join('');
   const ttRows = tts.map(t=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;border-bottom:1px solid var(--surf3);">
     <span style="font-size:14px;font-weight:600;">${esc(t)}</span>
     <button onclick="leagueRemoveTeeTime('${esc(t)}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#f87171;padding:2px 6px;">✕</button>
   </div>`).join('');
+
+  // DEFAULT GAME — season default, inherited by every session, overridable per session
+  const dgt = active.defaultGameType, dsf = active.defaultStablefordTeam||'individual';
+  const curGameKey = !dgt ? '' : dgt==='stableford' ? (dsf==='2man'?'stableford_2man':'stableford_ind') : dgt;
+  const gameGroups = [
+    ['Individual',    [['stableford_ind','Stableford (individual)'],['lownet','Low Net']]],
+    ['Partner games', [['stableford_2man','Stableford (2-man)'],['matchplay','Match Play'],['strokeplay_2man','Stroke Play (2-man)'],['scramble2man','Scramble (2-man)']]],
+    ['4-man team',    [['scramble','Scramble'],['shamble','Shamble'],['best2','2 Best Balls'],['321','3-2-1']]],
+  ];
+  const gameOpts = `<option value="" ${!curGameKey?'selected':''}>— not set —</option>` +
+    gameGroups.map(([g,items])=>`<optgroup label="${g}">`+
+      items.map(([v,l])=>`<option value="${v}" ${curGameKey===v?'selected':''}>${l}</option>`).join('')+`</optgroup>`).join('');
+
   fsRender(`
     ${workflowNav('league','seasons')}
     <div class="fs-scr-body" style="padding:12px 12px 80px;">
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">SEASONS</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:16px;">
-        ${pills}
-        <button type="button" class="btn btn-sm btn-outline" style="font-size:11px;" onclick="leagueAddSeason('seasons')">+ Season</button>
+
+      ${lbl('SEASON')}
+      <select onchange="leagueSeasonActivate(this.value)" style="${selStyle.replace('margin-bottom:16px;','margin-bottom:8px;')}">${seasonOpts}</select>
+      <div style="display:flex;gap:8px;margin-bottom:18px;">
+        <button type="button" class="btn btn-sm btn-outline" style="flex:1;font-size:11px;" onclick="leagueAddSeason('seasons')">+ New Season</button>
+        ${active.closed
+          ? `<button type="button" class="btn btn-sm btn-gold" style="flex:1;font-size:11px;" onclick="leagueAddSeason('seasons')">▶ Start New Season</button>`
+          : `<button type="button" class="btn btn-sm btn-outline" style="flex:1;font-size:11px;color:var(--red);border-color:var(--red);" onclick="leagueConfirmCloseSeason()">Close Season</button>`}
       </div>
-      <div style="font-weight:700;font-size:13px;margin-bottom:12px;">${esc(active.name||'Season')}</div>
-      ${active.closed ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;">This season is closed. <button type="button" class="btn btn-sm btn-gold" style="font-size:11px;margin-left:6px;" onclick="leagueAddSeason('seasons')">▶ Start New Season</button></div>` : `<button type="button" class="btn btn-sm btn-outline" style="font-size:11px;color:var(--red);border-color:var(--red);margin-bottom:12px;" onclick="leagueConfirmCloseSeason()">Close Season</button>`}
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">COURSE</div>
-      <select onchange="leagueSetSeasonCourse('${active.id}',this.value)" style="width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;margin-bottom:16px;">${courseOpts}</select>
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">SCHEDULE</div>
+
+      ${lbl('COURSE')}
+      <select onchange="leagueSetSeasonCourse('${active.id}',this.value)" style="${selStyle}">${courseOpts}</select>
+      ${lbl('HOLES')}
+      <div style="display:flex;gap:6px;margin-bottom:18px;">
+        <button type="button" class="holes-toggle ${(active.nineSide||'all')==='all'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('all')">18 Holes</button>
+        <button type="button" class="holes-toggle ${active.nineSide==='front'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('front')">Front 9</button>
+        <button type="button" class="holes-toggle ${active.nineSide==='back'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('back')">Back 9</button>
+      </div>
+
+      ${lbl('SCHEDULE')}
+      ${lbl('DAY')}
+      <select onchange="leagueSetSeasonDow('${active.id}',this.value)" style="${selStyle}">${dowOpts}</select>
       <div style="display:flex;gap:8px;margin-bottom:10px;">
         <div style="flex:1;"><label style="font-size:10px;color:var(--muted);">Start</label>
           <input type="date" value="${active.startDate||''}" onchange="leagueSetSeasonDate('startDate',this.value)" style="width:100%;font-size:14px;border:1px solid var(--surf3);border-radius:8px;padding:8px;"></div>
         <div style="flex:1;"><label style="font-size:10px;color:var(--muted);">End</label>
           <input type="date" value="${active.endDate||''}" onchange="leagueSetSeasonDate('endDate',this.value)" style="width:100%;font-size:14px;border:1px solid var(--surf3);border-radius:8px;padding:8px;"></div>
       </div>
-      <button type="button" class="btn btn-sm btn-gold" style="width:100%;margin-bottom:16px;" onclick="leagueGenerateCalendar()">📅 Generate Calendar</button>
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">GROUP METHOD</div>
+      <button type="button" class="btn btn-sm btn-gold" style="width:100%;margin-bottom:12px;" onclick="leagueGenerateCalendar()">📅 Generate Calendar</button>
+      ${lbl('START')}
+      <div style="display:flex;gap:6px;margin-bottom:${active.startType==='shotgun'?'10px':'16px'};">
+        <button type="button" class="holes-toggle ${(active.startType||'teetimes')==='teetimes'?'active':''}" style="flex:1;" onclick="leagueSetSeasonStart('teetimes')">Tee Times</button>
+        <button type="button" class="holes-toggle ${active.startType==='shotgun'?'active':''}" style="flex:1;" onclick="leagueSetSeasonStart('shotgun')">Shotgun</button>
+      </div>
+      ${active.startType==='shotgun' ? `
+        ${lbl('SHOTGUN START TIME')}
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;">
+          <span style="flex:1;font-size:14px;font-weight:600;">${esc(active.shotgunTime||'not set')}</span>
+          <input type="time" id="leagueShotgunInput" style="font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
+          <button class="btn btn-gold" onclick="leagueSetSeasonShotgunTime()">Set</button>
+        </div>
+      ` : `
+        ${lbl('TEE TIMES')}
+        <div style="margin-bottom:8px;">${ttRows||'<div class="empty"><p>No tee times yet.</p></div>'}</div>
+        <div style="display:flex;gap:8px;margin-bottom:18px;">
+          <input type="time" id="leagueTTInput" style="flex:1;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
+          <button class="btn btn-gold" onclick="leagueAddTeeTime()">Add</button>
+        </div>
+      `}
+
+      ${lbl('DEFAULT GAME')}
+      <select onchange="leagueSetSeasonGameType(this.value)" style="${selStyle}">${gameOpts}</select>
+      ${lbl('HC ADJUSTMENT')}
+      <select onchange="leagueSetSeasonAllowance(this.value)" style="${selStyle}">
+        ${[100,90,85,75,50].map(pct=>`<option value="${pct}" ${(active.strokeAllowance||100)===pct?'selected':''}>${pct}%</option>`).join('')}
+      </select>
+
+      ${lbl('TEAMS &amp; GROUPS')}
+      ${lbl('GROUP METHOD')}
       <div style="display:flex;gap:6px;margin-bottom:${(lg.groupMethod||'random')==='partners'?'10px':'16px'};">
         <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='random'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('random')">Random</button>
         <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='abcd'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('abcd')">A/B/C/D</button>
         <button type="button" class="holes-toggle ${(lg.groupMethod||'random')==='partners'?'active':''}" style="flex:1;" onclick="leagueSetGroupMethodStay('partners')">Partners</button>
       </div>
       ${(lg.groupMethod||'random')==='partners' ? `<button type="button" class="btn btn-sm btn-outline" style="width:100%;margin-bottom:16px;text-align:left;" onclick="leagueRenderPartnersScreen()">👫 ${esc(leaguePartnersSub(lg))}</button>` : ''}
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">PARTNER PAIRING <span style="font-weight:400;text-transform:none;">(blind-draw games)</span></div>
+      ${lbl('PARTNER PAIRING <span style="font-weight:400;text-transform:none;">(blind-draw games)</span>')}
       <div style="display:flex;gap:6px;margin-bottom:16px;">
         <button type="button" class="holes-toggle ${(lg.pairMode||'ab')==='ab'?'active':''}" style="flex:1;" onclick="leagueSetPairModeStay('ab')">Balanced A/B</button>
         <button type="button" class="holes-toggle ${(lg.pairMode||'ab')==='random'?'active':''}" style="flex:1;" onclick="leagueSetPairModeStay('random')">Random</button>
       </div>
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">LEAGUE NIGHT</div>
-      <select onchange="leagueSetSeasonDow('${active.id}',this.value)" style="width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;margin-bottom:16px;">${dowOpts}</select>
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">HOLES</div>
-      <div style="display:flex;gap:6px;margin-bottom:16px;">
-        <button type="button" class="holes-toggle ${(active.nineSide||'all')==='all'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('all')">18 Holes</button>
-        <button type="button" class="holes-toggle ${active.nineSide==='front'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('front')">Front 9</button>
-        <button type="button" class="holes-toggle ${active.nineSide==='back'?'active':''}" style="flex:1;" onclick="leagueSetSeasonNine('back')">Back 9</button>
-      </div>
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">HC ADJUSTMENT</div>
-      <select onchange="leagueSetSeasonAllowance(this.value)" style="width:100%;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:8px 10px;margin-bottom:16px;">
-        ${[100,90,85,75,50].map(pct=>`<option value="${pct}" ${(active.strokeAllowance||100)===pct?'selected':''}>${pct}%</option>`).join('')}
-      </select>
-      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">START</div>
-      <div style="display:flex;gap:6px;margin-bottom:16px;">
-        <button type="button" class="holes-toggle ${(active.startType||'teetimes')==='teetimes'?'active':''}" style="flex:1;" onclick="leagueSetSeasonStart('teetimes')">Tee Times</button>
-        <button type="button" class="holes-toggle ${active.startType==='shotgun'?'active':''}" style="flex:1;" onclick="leagueSetSeasonStart('shotgun')">Shotgun</button>
-      </div>
-      ${active.startType==='shotgun' ? `
-        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">SHOTGUN START TIME</div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-          <span style="flex:1;font-size:14px;font-weight:600;">${esc(active.shotgunTime||'not set')}</span>
-          <input type="time" id="leagueShotgunInput" style="font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
-          <button class="btn btn-gold" onclick="leagueSetSeasonShotgunTime()">Set</button>
-        </div>
-        <p style="font-size:11px;color:var(--muted);">Shotgun: all groups start at once. Assign each group its starting hole when you set up the session's groups.</p>
-      ` : `
-        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">TEE TIMES</div>
-        <div style="margin-bottom:8px;">${ttRows||'<div class="empty"><p>No tee times yet.</p></div>'}</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <input type="time" id="leagueTTInput" style="flex:1;font-size:14px;font-family:'DM Sans',sans-serif;border:1px solid var(--surf3);border-radius:8px;padding:6px 10px;">
-          <button class="btn btn-gold" onclick="leagueAddTeeTime()">Add</button>
-        </div>
-        <p style="font-size:11px;color:var(--muted);">Weeknight, holes, and tee times belong to this season. Sessions default to these; you can override per session.</p>
-      `}
     </div>
   `);
   fsShowGameTab('📋 League');
@@ -12133,7 +12154,7 @@ function leagueBuildSession(lg, season, date) {
     nineSide: season.nineSide || 'all',
     teeTimes: [...(season.teeTimes || [])],
     rsvp: {}, groups: [], gameType: season.defaultGameType || null,
-    stablefordTeam: 'individual', teamScoring: 'bestball',
+    stablefordTeam: season.defaultStablefordTeam || 'individual', teamScoring: 'bestball',
     resultMethod: 'best2', scores: {}, completed: false };
 }
 /** Build a full season's sessions from its schedule (start/end/dayOfWeek). Pure. */
@@ -12195,6 +12216,18 @@ function leagueSetSeasonNine(mode) {
 function leagueSetSeasonAllowance(val) {
   const lg=leagueCurrent();if(!lg)return;
   leagueActiveSeason(lg).strokeAllowance=parseInt(val)||100;
+  scheduleWrite(); leagueRenderSeasonsScreen();
+}
+// Season DEFAULT GAME — sessions inherit via leagueBuildSession (defaultGameType/defaultStablefordTeam),
+// still overridable per session in leagueRenderGameType. Synthetic stableford keys map like the
+// per-session leagueSetGameType so the two stay consistent.
+function leagueSetSeasonGameType(val) {
+  const lg=leagueCurrent();if(!lg)return;
+  const s=leagueActiveSeason(lg);if(!s)return;
+  if(val===''){ s.defaultGameType=null; s.defaultStablefordTeam=null; }
+  else if(val==='stableford_ind'){ s.defaultGameType='stableford'; s.defaultStablefordTeam='individual'; }
+  else if(val==='stableford_2man'){ s.defaultGameType='stableford'; s.defaultStablefordTeam='2man'; }
+  else { s.defaultGameType=val; s.defaultStablefordTeam='individual'; }
   scheduleWrite(); leagueRenderSeasonsScreen();
 }
 function leagueSetSeasonStart(type) {
