@@ -8148,6 +8148,42 @@ smoke('leagueCurrentSession returns session', () => {
   const b4 = leagueBuildSession(plg, { id:'s4', defaultGameType:'strokeplay_2man' }, '2026-05-22');
   expect('partner league explicit game honoured', b4.gameType, 'strokeplay_2man');
 }
+
+// ── 155. Coverage clean-up: pin the genuinely-pure outing/cart/trip helpers ───
+// The coverage tool flagged these as untested. outingBestBallMatch turned out to be a game-type
+// SELECTOR (the real BB-match scoring, outingComputeBestBallMatch, is already covered in §-bbmatch),
+// but fsCartsComplete, outingTeamsSub and tripGetPublishMsg are real pure helpers — now pinned.
+{
+  const { fsCartsComplete, outingTeamsSub, tripGetPublishMsg } = sandbox;
+
+  // fsCartsComplete — all four cart seats filled?
+  const setCarts = o => vm.runInContext(`window._cartState = ${JSON.stringify(o)}`, sandbox);
+  setCarts({cart1:{driver:'a',passenger:'b'}, cart2:{driver:'c',passenger:'d'}});
+  expect('carts complete: all filled', !!fsCartsComplete(), true);
+  setCarts({cart1:{driver:'a',passenger:''}, cart2:{driver:'c',passenger:'d'}});
+  expect('carts complete: missing a passenger', !!fsCartsComplete(), false);
+  setCarts({cart1:{driver:'a',passenger:'b'}, cart2:{driver:'', passenger:'d'}});
+  expect('carts complete: missing a driver', !!fsCartsComplete(), false);
+
+  // outingTeamsSub — label for the teams sub-line.
+  expect('teamsSub: none',   outingTeamsSub({teams:[]}), 'Assign scoring partners');
+  expect('teamsSub: 2 of 2', outingTeamsSub({teams:[{},{}], teamSize:2}), '2 teams of 2');
+  expect('teamsSub: borrow', outingTeamsSub({teams:[{isBorrow:true},{}], teamSize:2}), '2 teams of 2 · 1 borrow');
+
+  // tripGetPublishMsg — reads the saved publish message.
+  vmSetS('config', { tripPublishMsg:'See you Saturday' });
+  expect('tripGetPublishMsg set',   tripGetPublishMsg(), 'See you Saturday');
+  vmSetS('config', {});
+  expect('tripGetPublishMsg empty', tripGetPublishMsg(), '');
+
+  // outingBestBallMatch is a game-type selector (not scoring) — smoke that it sets the mode.
+  const realGA = sandbox.outingGroupAssign;
+  sandbox.outingGroupAssign = function(){};
+  vm.runInContext(`window._outingGameType='stableford'; window._outingGroups=[1];`, sandbox);
+  vm.runInContext(`outingBestBallMatch();`, sandbox);
+  expect('outingBestBallMatch sets bbmatch mode', vm.runInContext(`window._outingGameType`, sandbox), 'bbmatch');
+  sandbox.outingGroupAssign = realGA;
+}
 }}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
@@ -8167,15 +8203,31 @@ if (COVERAGE) {
   // Three buckets. UI/render: screens the harness can't invoke (expected). Handler/orchestration:
   // event handlers + state mutators that read the DOM or write Firebase (integration, not unit-
   // testable in isolation). Pure logic: calc/build/compute/get with no DOM/FB — the real blind spots.
-  const uiRe      = /(render|show|screen|modal|popup|launch|picker|confirm|toast|setup|breakdown|nav|tab|hub|plan|preview)/i;
-  // Strip the module prefix, then test the verb — so leagueSetX / outingAddY / fsSwapZ classify as
-  // handlers even though the verb isn't at the string start.
+  // Classify by what a function DOES (its body), not just its name — the name-only heuristic
+  // mislabels verbless handlers (outingBestBallMatch) and DOM getters as "pure logic". UI/render:
+  // builds markup or calls a render. Handler/orchestration: touches the DOM, writes Firebase, mutates
+  // window state, or delegates to a render. Pure logic: none of the above — the real blind spots.
+  const uiRe      = /(render|show|screen|modal|popup|launch|picker|confirm|toast|setup|breakdown|nav|tab|hub|plan|preview|html)/i;
   const stripPre  = n => n.replace(/^_?(fs|outing|league|trip|wolf|bbb|doc|twoScramble|twoShamble|nassau|walkoff|stableford|lownet)/i, '');
   const handlerRe = /^(on|set|save|start|finish|finalize|add|remove|delete|move|toggle|select|assign|shuffle|go|open|close|pick|copy|send|do|update|rejoin|resume|abandon|clear|deal|generate|swap|unassign|activate|edit|import|admin|roster|sign|init|switch|advance|check|load|declare|force|lock|refresh|view|rebuild|highlight|group)/i;
   const isHandler = n => handlerRe.test(n) || handlerRe.test(stripPre(n));
-  const uiOut      = uncalled.filter(n => uiRe.test(n));
-  const handlerOut = uncalled.filter(n => !uiRe.test(n) && isHandler(n));
-  const logicOut   = uncalled.filter(n => !uiRe.test(n) && !isHandler(n));
+  const fnBody = (name) => {
+    const at = rawJS.indexOf('\nfunction ' + name + '(');
+    if (at < 0) return '';
+    const nxt = rawJS.indexOf('\nfunction ', at + 1);
+    return rawJS.slice(at, nxt < 0 ? at + 4000 : nxt);
+  };
+  const RENDER = /fsRender\(|\.innerHTML|render[A-Z]\w*\(|Render\(|fsShowGameTab|show[A-Z]\w*\(/;
+  const IO     = /document\.|querySelector|getElementById|addEventListener|scheduleWrite\(|fsSaveGame\(|localStorage|toast\(|signInWith|fbWrite|window\.\_\w+\s*=|GroupAssign\(|\.value\b/;
+  const bucketOf = (n) => {
+    const b = fnBody(n);
+    if (uiRe.test(n) || RENDER.test(b)) return 'ui';
+    if (IO.test(b) || isHandler(n))     return 'handler';
+    return 'logic';
+  };
+  const uiOut      = uncalled.filter(n => bucketOf(n) === 'ui');
+  const handlerOut = uncalled.filter(n => bucketOf(n) === 'handler');
+  const logicOut   = uncalled.filter(n => bucketOf(n) === 'logic');
   console.log(`\n────────────── FUNCTION COVERAGE ──────────────`);
   console.log(`  ${called.length}/${inst.length} top-level functions executed (${pct.toFixed(1)}%)`);
   console.log(`  uncalled: ${uiOut.length} UI/render (expected) · ${handlerOut.length} handler/orchestration (integration) · ${logicOut.length} pure logic`);
