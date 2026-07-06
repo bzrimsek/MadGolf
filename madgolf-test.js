@@ -4512,9 +4512,7 @@ smoke('tripRenderResultsScreen without crash',    () => { tripRenderResultsScree
 smoke('leagueLaunch renders without crash',        () => { leagueLaunch(); });
 smoke('leagueRenderListScreen without crash',      () => { leagueRenderListScreen(); });
 smoke('leagueRenderHub without crash',             () => { S.activeLeagueId='l1'; leagueRenderHub(); });
-smoke('leagueRenderPlanCourse without crash',      () => { leagueRenderPlanCourse(); });
 smoke('leagueRenderSeasonsScreen without crash',  () => { leagueRenderSeasonsScreen(); });
-smoke('leagueRenderGroupMethodScreen without crash',()=>{ leagueRenderGroupMethodScreen(); });
 smoke('leagueRenderSessions without crash',        () => { leagueRenderSessions(); });
 smoke('leagueSessionLaunch without crash',         () => {
   // Add minimal session to avoid creating new one
@@ -5030,7 +5028,7 @@ smoke('leagueCurrentSession returns session', () => {
   const lgDone={sessions:[{id:'s1',completed:true}],courseId:'c1'};
   expect('leagueFirstOpenSession none=null', leagueFirstOpenSession(lgDone), null);
   expect('leagueCourse returns course',   leagueCourse(lg)?.id, 'c1');
-  expect('leagueCourse no courseId=null', leagueCourse({sessions:[]}), null);
+  expect('leagueCourse falls back (never null)', !!leagueCourse({sessions:[]}), true);
 }
 
 // ── 77. outingRecentPairHistory ───────────────────────────────
@@ -6935,15 +6933,15 @@ smoke('leagueCurrentSession returns session', () => {
   expect('outing nav: title id kept', navPid.includes('id="outing-plan-player-hdr"'), true);
 
   // League: place -> schedule -> roster flow, auto prev/next (no forward buttons on these screens)
-  const ln1 = workflowNeighbors('league','course');
-  expect('league course: no prev',     ln1.prev, null);
-  expect('league course: next seasons',ln1.next && ln1.next.id, 'seasons');
+  const ln1 = workflowNeighbors('league','seasons');
+  expect('league seasons: no prev',     ln1.prev, null);
+  expect('league seasons: next partners',ln1.next && ln1.next.id, 'partners');
   const ln2 = workflowNeighbors('league','standings');
   expect('league standings: prev sessions', ln2.prev && ln2.prev.id, 'sessions');
   expect('league standings: no next',       ln2.next, null);
-  const navLC = workflowNav('league','course');
+  const navLC = workflowNav('league','seasons');
   expect('league nav: hub',      navLC.includes("leagueGoStep('hub')"),      true);
-  expect('league nav: next→seasons', navLC.includes("leagueGoStep('seasons')"), true);
+  expect('league nav: next→partners', navLC.includes("leagueGoStep('partners')"), true);
   const navLS = workflowNav('league','standings');
   expect('league nav: prev→sessions', navLS.includes("leagueGoStep('sessions')"), true);
   expect('league nav: no next at end', navLS.includes('&#8250;'), false);
@@ -7376,6 +7374,41 @@ smoke('leagueCurrentSession returns session', () => {
   expect('public season', pub.season, 'Summer');
   expect('public player name', pub.players.p1.name, 'Al Blood');
   expect('public tee count', pub.teeTimes.length, 2);
+}
+
+// ── 141. League season model: course-on-season + close lifecycle ─
+{
+  const { leagueSeasonCourseId, leagueCloseSeason, leagueHasActiveSeason } = sandbox;
+  expect('season own course wins', leagueSeasonCourseId({courseId:'lgc'}, {courseId:'sc'}), 'sc');
+  expect('fallback to legacy league course', leagueSeasonCourseId({courseId:'lgc'}, {}), 'lgc');
+  vmSetS('courses',[{id:'home',homeCourse:true},{id:'other'}]);
+  expect('fallback to home course', vm.runInContext(`leagueSeasonCourseId({}, {})`, sandbox), 'home');
+  expect('has active season', leagueHasActiveSeason({seasons:[{active:true}]}), true);
+  expect('no active when all closed', leagueHasActiveSeason({seasons:[{closed:true,active:false}]}), false);
+  const lg = {seasons:[{id:'s1',active:true},{id:'s0',active:false,closed:true}]};
+  leagueCloseSeason(lg);
+  expect('close marks closed', lg.seasons[0].closed, true);
+  expect('close deactivates', lg.seasons[0].active, false);
+  expect('close → no active season', leagueHasActiveSeason(lg), false);
+}
+
+// ── 142. League calendar generation ─────────────────────────
+{
+  const { leagueGenerateSessionDates } = sandbox;
+  const may = leagueGenerateSessionDates('2026-05-01','2026-05-31',5);   // Fridays (verified)
+  expect('generate dates count', may.length, 5);
+  expect('generate first date', may[0], '2026-05-01');
+  expect('generate last date', may[4], '2026-05-29');
+  expect('spacing is weekly', may[1], '2026-05-08');
+  expect('no dayOfWeek → empty', leagueGenerateSessionDates('2026-05-01','2026-05-31',null).length, 0);
+  expect('no dates → empty', leagueGenerateSessionDates('','',5).length, 0);
+  vmSetS('courses',[{id:'cH',homeCourse:true}]);
+  const sess = vm.runInContext(`leagueGenerateSchedule({courseId:'cH'}, {id:'S1',startDate:'2026-05-01',endDate:'2026-05-15',dayOfWeek:5,nineSide:'front',teeTimes:['5:20']})`, sandbox);
+  expect('schedule session count', sess.length, 3);
+  expect('schedule seasonId', sess[0].seasonId, 'S1');
+  expect('schedule nineSide from season', sess[0].nineSide, 'front');
+  expect('schedule course resolved', sess[0].courseId, 'cH');
+  expect('schedule not completed', sess[0].completed, false);
 }
 
 const total = passed + failed;
