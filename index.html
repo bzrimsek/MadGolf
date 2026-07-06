@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.80  Build 2026-07-06 09:49 AM ET
+     Version : v0.90.82  Build 2026-07-06 03:17 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,8 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.82  2026-07-06  League partner-league game / scoring / skins inheritance (closes the League Setup feedback series, v0.90.78-82). GAME & SCORING (the season section, renamed from DEFAULT GAME): in a partner league the game list shows ONLY partner games and defaults to Match Play; a scoring-method control sits under the game (Best Ball / Team Total for match & stroke play; result method for shamble); and a league-wide SKINS On/Off toggle is folded in. INHERITANCE: leagueBuildSession now inherits teamScoring and resultMethod from the season (both were hardcoded to bestball/best2), and a partner league's sessions default to Match Play when no season game is set. Sessions inherit the league-wide skinsOn as their skins default (the per-session Add Skins box still overrides). Everything stays overridable per session. PER-SESSION PICKER: in a partner league leagueRenderGameType shows only the PARTNER GAMES section (individual and 4-man collapsed) and pre-selects the season default. GUARDRAIL: changing the pairing method while Partner League is on now toasts a warning — the partner setting prevails and the pairing method only affects blind-draw games. MIGRATION: lg.skinsOn defaults true, preserving the current always-on skins. New setters: leagueSetSeasonTeamScoring, leagueSetSeasonResultMethod, leagueSetSkinsOn. +8 inheritance tests (§154), all values pre-computed. Totals 2443 -> 2454.
+// v0.90.81  2026-07-06  FOURSOME 9-hole bug fixed across the board (F9 / B9 / 18). Root cause: the nine picker (window._fsNineMode) only reached the course-handicap calc — the game never recorded its nine-side, _totalHoles was always the full course length, and every foursome scorer/scorecard read course.holes (all 18). So a 9-hole game rendered an 18-hole card, and because fsBuildChs applied the full 18-hole par against a halved rating the course handicap went deeply negative (e.g. -30 for a 12). Fixes: (1) new fsHoles(g,course) accessor + fsIsNine(g) — every foursome scorer/scorecard now reads the active nine, never course.holes. (2) All nine start*Game creators stamp g.nineSide and _totalHoles from the active nine (DOC/Wolf build their segments/holes from the active nine too). (3) fsRenderScorecard renders the active nine. (4) 9-hole course handicap = full 18-hole CH / 2, rounded once (slope/113 unchanged; index, rating and par all halve, so CH halves) — a selection on an 18-hole course only; genuine 9-hole courses (rating < 50) and 18-hole play are byte-identical. (5) fsBuildChs takes an explicit nineMode and fsRefreshChs passes g.nineSide — closing a corruption path where reopening a saved 9-hole game with the picker at 18 rebuilt an 18-hole handicap. (6) Stableford quota is 9-hole aware via pointTarget. (7) Nassau front/back/total and DOC segments split the active nine. +23 tests (§153): CH halving, fsHoles slicing, quota, the reopen corruption guard, and Stableford scoring only the active nine. All existing 18-hole and genuine-9-hole tests unchanged (regression-safe). Totals 2420 -> 2443. Queued next: v0.90.82 league partner-league game/scoring/skins inheritance (Match Play default; skins in a Game & Scoring section).
 // v0.90.80  2026-07-06  League Setup redesign — checkpoint 3 of 3 (#8): round-robin partnership fixtures that DEFINE the playing groups. In a partner league you play in the same group as your weekly opponent, so the fixture IS the grouping. leagueRoundRobinRound(n,round) is the pure circle-method fixture (team 0 fixed, the rest rotate; odd n gets a phantom bye so one pair sits out each round) — over n-1 rounds every pair meets exactly once. leaguePartnerGroupsForRound(pairs,singles,round) turns a round into groups: each matchup (pair vs opponent pair) becomes a foursome, and a byed pair plus any unpaired players fill the remaining group. leagueSessionRoundIndex(lg,s) picks the round from the session's date-order within its season. leagueAssignGroups and leagueShuffleGroups (Partner League branch) now build s.groups from this fixture, replacing 0.90.79's keep-together helper (leagueAssignPartnerGroups removed — rule 6). §152 rewritten: fixtures hand-computed (rule 28) plus the full round-robin coverage property. Totals 2413 → 2420. This completes the League Setup redesign (checkpoints 1-3, v0.90.78-0.90.80). Still parked by request: flights/divisions by team handicap. Not addressed here (design follow-ups, not asked): showing an explicit "Pair A vs Pair B" opponent label on the groups screen.
 // v0.90.79  2026-07-06  League Setup redesign — checkpoint 2 of 3, and the #7 model correction I wrongly deferred in 0.90.78 (that left "Partners" sitting in the Group-Method choices, which was internally inconsistent). #7 MODEL: Partner League is now a top-level toggle (lg.partnerLeague), and "Partners" is removed from the Group-Method choices. ON → the partner editor is shown and partners are the grouping unit; OFF → pick a Group Method (Random / A-B-C-D) plus blind-draw Partner Pairing. Migration folds the legacy groupMethod==='partners' value into the new flag and resets the method to a real engine; new leagueSetPartnerLeague. PARTNERS-TOGETHER GROUPING (first step of #8): leagueAssignGroups and leagueShuffleGroups route through the new pure, deterministic leagueAssignPartnerGroups when Partner League is on — each partner pair present in the pool is placed whole into balanced groups and unpaired players fill in, so pairs are never split. Previously groupMethod==='partners' fell through to random, which is why pairs weren't kept together. +8 tests (§152). Round-robin opponent-of-the-week selection is the next step; flights/divisions by team handicap parked. PLAYERS PICKER: a PLAYERS section on the setup screen lists the master roster with In/Out toggles (leagueTogglePlayer sets the player's `regular` membership flag) — this is exactly what leagueBuildPool pools, so it fixes "only regulars get assigned to groups" by making league membership visible and editable inside the league flow. NAV ARROWS: the header prev/next arrows now name their destination (e.g. "‹ Setup", "Sessions ›") instead of bare glyphs, applied globally across outing/trip/league per the design guideline that a control always says where it leads. PARTNER EDITOR: season pills → dropdown. TEST INFRA note: the onchange-aware handler scanner (added 0.90.78) validated every new select/toggle handler this session. Totals 2403 → 2413.
 // v0.90.78  2026-07-06  League Setup redesign — checkpoint 1 of 3 (per BZ feedback). Information-architecture reorg of the league setup screen + hub + nav; no scoring-logic change. HUB (#1): the lone "Season Setup & Schedule" card under a collapsible "League Setup" header is now a single "League Setup" card — no collapsible wrapper for one tile; removed the now-dead sectionHdr helper + _leagueSetupCollapsed state. TITLE/NAV: the screen retitles to LEAGUE SETUP (the macro; Season is its first sub-section) and the standalone PARTNERS workflow step is dropped from the nav arrows — the partner editor is still reached from the Group-Method control and leagueGoStep's routing map, so nothing is orphaned; league nav tests updated (seasons→sessions). SEASON (#2): the season pills become a dropdown selector with New Season / Close Season beneath. COURSE (#3): because each tee is a separate course record, the options now read "Name — Tee · slope/rating" so same-named tees are distinguishable; HOLES moved directly beneath COURSE (#4). SCHEDULE (#5,#6): consolidated into one block with DAY first (renamed from "League Night" — a league can run any time of day), then Start/End + Generate Calendar, then Tee Times/Shotgun. DEFAULT GAME (#9): a new season-level default game type with HC Adjustment moved alongside it; sessions inherit both via leagueBuildSession (defaultGameType + defaultStablefordTeam) and still override per session — new leagueSetSeasonGameType mirrors the per-session key mapping. TEST INFRA: the defined-handler scanner now validates onchange handlers too (not just onclick), excluding method calls — +46 assertions, so a typo'd select handler anywhere in the app now fails the build; +6 inheritance tests (§151). Totals 2352 → 2403. Next: v0.90.79 Partner League toggle + Players picker (#7); v0.90.80 round-robin partnership fixtures (#8, flights/divisions parked).
@@ -1148,8 +1150,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.80';
-const BUILD_TIME = '2026-07-06 09:50 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.82';
+const BUILD_TIME = '2026-07-06 03:17 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1352,6 +1354,7 @@ function normalizeState(raw) {
         // Partner League is its own top-level flag now; fold the legacy groupMethod==='partners'
         // value into it and reset the method to a real grouping engine.
         if (ev.partnerLeague === undefined) ev.partnerLeague = (ev.groupMethod === 'partners');
+        if (ev.skinsOn === undefined) ev.skinsOn = true;  // league-wide skins default, inherited by sessions
         if (ev.groupMethod === 'partners') ev.groupMethod = 'random';
         if (!ev.skins)            ev.skins            = {hcpAdj:100,halfStroke:false,strokeOffBest:false};
         // Legacy: convert old 'day' string to numeric dayOfWeek (only if present)
@@ -2607,15 +2610,27 @@ function fsHcpBreakdown(gid, pid) {
   const ch  = g.rawChs?.[pid] ?? calcCourseHcp(idx, slope, rating, par, false);
   return `${firstName(pid)}: HI ${idx} · slope ${slope} · rating ${rating} · par ${par}  →  ${raw.toFixed(2)} → CH ${ch}`;
 }
-function fsBuildChs(players, course, strokeOffLow) {
+function fsBuildChs(players, course, strokeOffLow, nineMode) {
   const chs = {};
   if (!course || !course.holes || !course.holes.length) {
     players.forEach(p => { chs[p.id] = 0; }); return { chs, rawChs:{...chs}, minCH:0 };
   }
-  const isNine = course.nineHole || course.holes.length === 9 ||
-                 window._fsNineMode === 'front' || window._fsNineMode === 'back';
+  // 9-hole flag comes from the game's own nine-side when given (nineMode), falling back to the live
+  // picker for creation-time calls. Never rely on the global when a game already knows its nine-side,
+  // or reopening a saved 9-hole game with the picker at 18 would recompute 18-hole handicaps.
+  const nm = nineMode !== undefined ? nineMode : window._fsNineMode;
   const par = coursePar(course);
-  players.forEach(p => { chs[p.id] = calcCourseHcp(p.hcp ?? 0, course.slope, course.rating, par, isNine); });
+  // A 9-hole SELECTION on an 18-hole course: the course handicap is just the full 18-hole handicap
+  // halved. slope/113 is unchanged and index, rating and par all halve, so CH halves exactly — round
+  // once at the end. A genuine 9-hole course already carries a 9-hole rating/par, so it is NOT halved
+  // again (its rating is < 50 and calcCourseHcp leaves it alone).
+  const nineSelection = (nm === 'front' || nm === 'back') && !course.nineHole && course.holes.length >= 18;
+  players.forEach(p => {
+    const hi = p.hcp ?? 0;
+    chs[p.id] = nineSelection
+      ? roundHalfAwayZero(calcRawCourseHcp(hi, course.slope, course.rating, par, false) / 2)
+      : calcCourseHcp(hi, course.slope, course.rating, par, course.nineHole || course.holes.length === 9);
+  });
   const minCH = Math.min(...Object.values(chs));
   if (strokeOffLow) {
     const adj = {};
@@ -2696,6 +2711,14 @@ function getActiveHoles(course, nineMode) {
   if (nineMode === 'back')  return holes.slice(9, 18);
   return holes;
 }
+/** Holes actually in play for a foursome game — respects the stored nine-side (F9/B9/18). Every
+ *  foursome scorer/scorecard reads THIS, never course.holes, so 9-hole games score 9 holes. */
+function fsHoles(g, course) {
+  const c = course || fsGetCourse(g.courseId);
+  return c ? getActiveHoles(c, g.nineSide || 'all') : [];
+}
+/** True when a game plays a single nine (front or back). */
+function fsIsNine(g) { return g.nineSide === 'front' || g.nineSide === 'back'; }
 
 /** '18h' | 'F9' | 'B9' */
 function nineLabel(nineMode) {
@@ -3458,7 +3481,7 @@ function fsRefreshChs(g) {
   const course = fsGetCourse(g.courseId);
   const players = (g.playerIds||[]).map(id => fsPlayerById(id)).filter(Boolean);
   if (!course || !players.length) return;
-  const { chs, rawChs } = fsBuildChs(players, course, g.strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players, course, g.strokeMode === 'low', g.nineSide || 'all');
   if (JSON.stringify(g.rawChs) !== JSON.stringify(rawChs) || JSON.stringify(g.chs) !== JSON.stringify(chs)) {
     g.chs = chs; g.rawChs = rawChs; fsSaveGame(g);
   }
@@ -3820,6 +3843,7 @@ function startBBBGame() {
     cost,
     playerIds: players.map(p => p.id),
     playerNames: players.map(p => p.name),
+    nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length,
     bbb: {}, _scoring: true
   };
   fsSaveGame(g);
@@ -3850,7 +3874,7 @@ function renderBBBGame() {
   }
   const players = g.playerIds.map(id => fsPlayerById(id) || {id, name: id});
   const pts = calcBBBPoints(g);
-  const holes = course.holes;
+  const holes = fsHoles(g, course);
   const holesPlayed = Object.keys(g.bbb || {}).length;
 
   // Validate active hole
@@ -3985,7 +4009,7 @@ document.addEventListener('click', e => {
   if (a.bingo && a.bango && a.bongo) {
     const course = fsGetCourse(g.courseId);
     if (course) {
-      const holes = course.holes;
+      const holes = fsHoles(g, course);
       const idx = holes.findIndex(h => h.num === hole);
       if (idx >= 0 && idx < holes.length - 1) g._bbbHole = +holes[idx + 1].num;
     }
@@ -3998,7 +4022,7 @@ document.addEventListener('click', e => {
 function renderBBBSettlement(g) {
   const pts = calcBBBPoints(g);
   const course = fsGetCourse(g.courseId);
-  const totalHoles = course ? course.holes.length : 18;
+  const totalHoles = course ? fsHoles(g, course).length : 18;
   const n = g.playerIds.length;
   const holesPlayed = Object.keys(g.bbb || {}).length;
   const totalPts = g.playerIds.reduce((a, id) => a + pts[id].total, 0);
@@ -4059,7 +4083,7 @@ function fsRenderScorecard(g, players) {
   const offLow = g.strokeMode === 'low';
   const ctx = {
     players: players.map(p => ({ ...p, courseHcp: (g.chs && g.chs[p.id]) ?? 0 })),
-    activeHoles: (course.holes || []).map(h => ({ ...h, hcpRating: h.hcp ?? 0 })),
+    activeHoles: fsHoles(g, course).map(h => ({ ...h, hcpRating: h.hcp ?? 0 })),
     hcpScale: g._totalHoles || 18,
     scores: g.scores || {},
     format: g.gameType,
@@ -4156,7 +4180,7 @@ function advanceToNext(input, ordered) {
 function fsUpdateScoreTotals(g, pid) {
   const course = fsGetCourse(g.courseId); if (!course) return;
   const sc = g.scores;
-  const front = course.holes.slice(0, 9), back = course.holes.slice(9), all = course.holes;
+  const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
   const fTot = front.reduce((a, h) => a + (sc[pid]?.[+h.num] ?? 0), 0);
   const fAny = front.some(h => sc[pid]?.[+h.num] != null);
   const fEl  = document.getElementById(`sc-tot-f-${pid}`);
@@ -4206,7 +4230,7 @@ function fsUpdateStandingsInPlace(g) {
     if (sd) sd.innerHTML = fsRenderWalkoffSettlement(g);
   } else if (g.gameType === 'nassau') {
     const course = fsGetCourse(g.courseId); if (!course) return;
-    const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+    const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
     const pairs = fsGetNassauPairs(g);
     pairs.forEach((pair, pi) => {
       const fR = fsCalcNassauSeg(g,front,pair), bR = fsCalcNassauSeg(g,back,pair), tR = fsCalcNassauSeg(g,all,pair);
@@ -4311,7 +4335,7 @@ function fsHoleStatusPopup(g, hole) {
     });
   } else if (g.gameType === 'nassau') {
     const course = fsGetCourse(g.courseId); if (!course) return;
-    const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+    const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
     const pairs = fsGetNassauPairs(g);
     pairs.forEach(pair => {
       [[fsCalcNassauSeg(g,front,pair),'Front'],[fsCalcNassauSeg(g,back,pair),'Back'],[fsCalcNassauSeg(g,all,pair),'Total']].forEach(([r,lbl]) => {
@@ -4454,15 +4478,16 @@ function startDOCGame() {
   const cost        = parseInt(document.getElementById('doc-cost').value) || 10;
   const strokeMode  = document.getElementById('doc-stroke').value;
   const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
-  const n       = course.holes.length;
+  const activeHoles = getActiveHoles(course, window._fsNineMode||'all');
+  const n       = activeHoles.length;
   const segSize = Math.floor(n / 3);
-  const segs    = [course.holes.slice(0,segSize), course.holes.slice(segSize,segSize*2), course.holes.slice(segSize*2)];
+  const segs    = [activeHoles.slice(0,segSize), activeHoles.slice(segSize,segSize*2), activeHoles.slice(segSize*2)];
   const g = {
     id:uid(), type:'foursome', gameType:'doc', date:Date.now(), status:'active',
     courseId:course.id, courseName:course.name, teeColor:course.teeColor||'',
     cost, strokeMode, carts:window._cartState,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, segs, activeSeg:0, _totalHoles:n, _scoring:true
+    chs, rawChs, scores:{}, segs, activeSeg:0, nineSide:(window._fsNineMode||'all'), _totalHoles:n, _scoring:true
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -4697,7 +4722,7 @@ function startNassauGame() {
     // keep teams for backward compat with 4-player rejoin
     teams: n === 4 ? { A:[...window._teamState.A], B:[...window._teamState.B] } : null,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, _totalHoles:course.holes.length, _scoring:true
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -4829,7 +4854,7 @@ function renderNassauGame() {
   if (!course) { fsRender('<div class="card" style="text-align:center;color:var(--red);padding:32px;">Course data missing.</div>'); return; }
   const pairs = fsGetNassauPairs(g);
   const players = fsPairOrderedIds(g, pairs).map(id => fsPlayerById(id)||{id,name:id});
-  const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+  const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
   const varRed = '#c0392b';
 
   const nassauBanner = (label, cost, r, bid) => {
@@ -4893,7 +4918,7 @@ function renderNassauGame() {
 function fsRenderNassauSettlement(g) {
   const course = fsGetCourse(g.courseId); if (!course) return '';
   const pairs = fsGetNassauPairs(g);
-  const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+  const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
   // per-player net balance
   const bal = {};
   g.playerIds.forEach(id => { bal[id] = 0; });
@@ -4924,7 +4949,7 @@ function fsNassauSegLabel(seg, teamAName, teamBName, cost) {
 function fsNassauSummary(g) {
   const course = fsGetCourse(g.courseId); if (!course) return '';
   const pairs = fsGetNassauPairs(g);
-  const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+  const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
   const nm = ids => (ids||[]).map(id => { const p = fsPlayerById(id); return p ? (lastNameOf(p.name) || p.name) : id; }).join('/');
   return pairs.map(pair => {
     const aName = nm(pair.teamA || [pair.A]);
@@ -5044,7 +5069,7 @@ function startWalkoffGame() {
     teams: n === 4 ? { A:[...window._teamState.A], B:[...window._teamState.B] } : null,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
     chs, rawChs, scores:{},
-    _totalHoles:course.holes.length, _scoring:true
+    nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -5069,7 +5094,7 @@ function fsGetPairMatches(g) {
 function fsCalcOneMatch(g, match, pair) {
   const course = fsGetCourse(g.courseId); if (!course) return null;
   const pidsA = pair.teamA||[pair.A], pidsB = pair.teamB||[pair.B];
-  const allHoles = course.holes;
+  const allHoles = fsHoles(g, course);
   const start    = match.startHole || 1;
   const holes    = allHoles.filter(h => h.num >= start);
   const sc = g.scores;
@@ -5104,7 +5129,7 @@ function fsCalcOneMatch(g, match, pair) {
 /** Scan matches for auto-closures. Returns true if state changed. */
 function fsWoAutoAdvance(g) {
   const course = fsGetCourse(g.courseId); if (!course) return false;
-  const totalHoles = course.holes.length;
+  const totalHoles = fsHoles(g, course).length;
   const pairs = fsGetWalkoffPairs(g);
   const pairMatches = fsGetPairMatches(g);
   // ensure pairMatches is stored on g (migrate legacy g.matches)
@@ -5441,7 +5466,7 @@ function startWolfGame() {
   const ptValue    = parseFloat(document.getElementById('wolf-val')?.value) || 1;
   const strokeMode = document.getElementById('wolf-stroke')?.value || 'field';
   const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
-  const n = course.holes.length;
+  const n = getActiveHoles(course, window._fsNineMode||'all').length;
   const g = {
     id: uid(), type: 'foursome', gameType: 'wolf', date: Date.now(), status: 'active',
     courseId: course.id, courseName: course.name,
@@ -5453,7 +5478,7 @@ function startWolfGame() {
     scores: Object.fromEntries(players.map(p => [p.id, {}])),
     wolfHoles: {},   // keyed by hole number: { mode, captainPid, partnerPid, winner, base, value }
     wolfCarry: 0,    // consecutive tied holes carried forward
-    _totalHoles: n,
+    nineSide:(window._fsNineMode||'all'), _totalHoles: n,
     _scoring: true,
   };
   fsSaveGame(g);
@@ -5479,7 +5504,7 @@ function renderWolfGame() {
   }).join('');
 
   // ── Per-hole status rows ──────────────────────────────────
-  const allHoles = course.holes;
+  const allHoles = fsHoles(g, course);
   let holeRows = '';
   allHoles.forEach(h => {
     const capPid = wolfCaptainPid(g, h.num);
@@ -5560,7 +5585,7 @@ function renderWolfGame() {
  */
 function wolfRenderHoleAction(g, course) {
   // Find the current (lowest unresolved) hole
-  const allHoles = course.holes;
+  const allHoles = fsHoles(g, course);
   let currentHole = allHoles.find(h => !g.wolfHoles[h.num]) || allHoles[allHoles.length - 1];
   const hNum = currentHole.num;
   const capPid  = wolfCaptainPid(g, hNum);
@@ -5813,7 +5838,7 @@ function startStablefordGame() {
     courseId:course.id, courseName:course.name,
     strokeMode, cfg,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, _totalHoles:course.holes.length, _scoring:true,
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -5823,8 +5848,8 @@ function startStablefordGame() {
 function fsCalcStablefordPlayer(g, pid, course) {
   const cfg = g.cfg || {};
   const ch  = (g.chs && g.chs[pid]) ?? 0;
-  const quota = 36 - ch;
-  const holes = course.holes;
+  const quota = pointTarget(ch, fsIsNine(g));
+  const holes = fsHoles(g, course);
   let pts = 0, gross = 0, entered = 0;
   holes.forEach(h => {
     const gr = g.scores[pid]?.[+h.num];
@@ -5924,7 +5949,7 @@ function startLowNetGame() {
     courseId:course.id, courseName:course.name,
     strokeMode,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, _totalHoles:course.holes.length, _scoring:true,
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -5933,7 +5958,7 @@ function startLowNetGame() {
 
 function fsCalcLowNetPlayer(g, pid, course) {
   let gross = 0, net = 0, entered = 0;
-  course.holes.forEach(h => {
+  fsHoles(g, course).forEach(h => {
     const gr = g.scores[pid]?.[+h.num];
     if (gr == null) return;
     gross += gr;
@@ -6034,7 +6059,7 @@ function startTwoScrambleGame() {
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
     chs, rawChs,
     scores:{ grp_0:{}, grp_1:{} },
-    _totalHoles:course.holes.length, _scoring:true,
+    nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   fsSaveGame(g);
   renderTwoScrambleGame();
@@ -6048,7 +6073,7 @@ function fsRenderTwoScrambleStandings(g, course) {
   const name = firstName;
   const rows = teams.map((t,i) => {
     const sc    = g.scores[t.key] || {};
-    const gross = course.holes.reduce((a,h) => a + (parseInt(sc[h.num])||0), 0);
+    const gross = fsHoles(g, course).reduce((a,h) => a + (parseInt(sc[h.num])||0), 0);
     const teamCH = twoScrambleTeamCH(t.pids, g, course);
     const net   = gross ? gross - teamCH : null;
     const names = t.pids.map(name).join(' / ');
@@ -6080,7 +6105,7 @@ function renderTwoScrambleGame() {
   // Build two team scorecard rows (one per group, same pattern as outing scramble)
   const groupColors  = ['#e8f5e9','#e3f2fd'];
   const borderColors = ['#27ae60','#2471a3'];
-  const allHoles = course.holes;
+  const allHoles = fsHoles(g, course);
   const front = allHoles.slice(0,9), back = allHoles.slice(9);
   const hcpScale = allHoles.length;
 
@@ -6157,7 +6182,7 @@ function twoScrambleUpdateScore(input) {
   // Update subtotals
   const course = fsGetCourse(g.courseId);
   if (course) {
-    const allHoles = course.holes;
+    const allHoles = fsHoles(g, course);
     const sc = g.scores[key]||{};
     const front = allHoles.slice(0,9), back = allHoles.slice(9);
     const totA = front.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
@@ -6187,7 +6212,7 @@ function finalizeTwoScrambleGame() {
     const name = firstName;
     const results = teams.map(t => {
       const sc = g.scores[t.key]||{};
-      const gross = course.holes.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
+      const gross = fsHoles(g, course).reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
       const teamCH = twoScrambleTeamCH(t.pids, g, course);
       return { names:t.pids.map(name).join('/'), gross, net:gross?gross-teamCH:null };
     }).sort((a,b)=>(a.net??999)-(b.net??999));
@@ -6217,7 +6242,7 @@ function startTwoShambleGame() {
     courseId:course.id, courseName:course.name,
     teams: { A, B },
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, _totalHoles:course.holes.length, _scoring:true,
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -6226,7 +6251,7 @@ function startTwoShambleGame() {
 
 function fsTwoShambleTeamNet(pids, g, course) {
   // Sum of best net per hole across team
-  return course.holes.reduce((total, h) => {
+  return fsHoles(g, course).reduce((total, h) => {
     const nets = pids.map(pid => {
       const gr = g.scores[pid]?.[+h.num];
       if (gr == null || gr === 0) return null;
@@ -6244,9 +6269,9 @@ function fsRenderTwoShambleStandings(g, course) {
   ];
   const name = firstName;
   const rows = teams.map(t => {
-    const hasAny = t.pids.some(pid => course.holes.some(h => g.scores[pid]?.[+h.num] != null));
+    const hasAny = t.pids.some(pid => fsHoles(g, course).some(h => g.scores[pid]?.[+h.num] != null));
     const net  = hasAny ? fsTwoShambleTeamNet(t.pids, g, course) : null;
-    const par  = course.holes.reduce((a,h)=>a+h.par,0);
+    const par  = fsHoles(g, course).reduce((a,h)=>a+h.par,0);
     const diff = net != null ? net - par : null;
     return { names:t.pids.map(name).join(' / '), net, par, diff };
   }).sort((a,b)=>(a.net??999)-(b.net??999));
@@ -12049,17 +12074,21 @@ function leagueRenderSeasonsScreen() {
     <button onclick="leagueRemoveTeeTime('${esc(t)}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:#f87171;padding:2px 6px;">✕</button>
   </div>`).join('');
 
-  // DEFAULT GAME — season default, inherited by every session, overridable per session
-  const dgt = active.defaultGameType, dsf = active.defaultStablefordTeam||'individual';
+  // GAME & SCORING — season defaults, inherited by every session, overridable per session. A partner
+  // league only offers partner games and defaults to Match Play.
+  const dgt = active.defaultGameType || (lg.partnerLeague ? 'matchplay' : ''), dsf = active.defaultStablefordTeam||'individual';
   const curGameKey = !dgt ? '' : dgt==='stableford' ? (dsf==='2man'?'stableford_2man':'stableford_ind') : dgt;
-  const gameGroups = [
+  const allGameGroups = [
     ['Individual',    [['stableford_ind','Stableford (individual)'],['lownet','Low Net']]],
     ['Partner games', [['stableford_2man','Stableford (2-man)'],['matchplay','Match Play'],['strokeplay_2man','Stroke Play (2-man)'],['scramble2man','Scramble (2-man)']]],
     ['4-man team',    [['scramble','Scramble'],['shamble','Shamble'],['best2','2 Best Balls'],['321','3-2-1']]],
   ];
-  const gameOpts = `<option value="" ${!curGameKey?'selected':''}>— not set —</option>` +
+  const gameGroups = lg.partnerLeague ? allGameGroups.filter(([g])=>g==='Partner games') : allGameGroups;
+  const gameOpts = (lg.partnerLeague ? '' : `<option value="" ${!curGameKey?'selected':''}>— not set —</option>`) +
     gameGroups.map(([g,items])=>`<optgroup label="${g}">`+
       items.map(([v,l])=>`<option value="${v}" ${curGameKey===v?'selected':''}>${l}</option>`).join('')+`</optgroup>`).join('');
+  const dts = active.defaultTeamScoring||'bestball', drm = active.defaultResultMethod||'best2';
+  const showTeamScoring = dgt==='matchplay' || dgt==='strokeplay_2man';
 
   fsRender(`
     ${workflowNav('league','seasons')}
@@ -12114,8 +12143,22 @@ function leagueRenderSeasonsScreen() {
         </div>
       `}
 
-      ${lbl('DEFAULT GAME')}
-      <select onchange="leagueSetSeasonGameType(this.value)" style="${selStyle}">${gameOpts}</select>
+      ${lbl('GAME &amp; SCORING')}
+      <select onchange="leagueSetSeasonGameType(this.value)" style="${selStyle.replace('margin-bottom:16px;', 'margin-bottom:'+((showTeamScoring||dgt==='shamble')?'8px':'16px')+';')}">${gameOpts}</select>
+      ${showTeamScoring ? `
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button type="button" class="holes-toggle ${dts==='bestball'?'active':''}" style="flex:1;" onclick="leagueSetSeasonTeamScoring('bestball')">Best Ball</button>
+        <button type="button" class="holes-toggle ${dts==='total'?'active':''}" style="flex:1;" onclick="leagueSetSeasonTeamScoring('total')">Team Total</button>
+      </div>` : ''}
+      ${dgt==='shamble' ? `
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        ${[['best2','2 Best Balls'],['321','3-2-1'],['lowball','Low Ball']].map(([k,l])=>`<button type="button" class="holes-toggle ${drm===k?'active':''}" style="flex:1;font-size:12px;" onclick="leagueSetSeasonResultMethod('${k}')">${l}</button>`).join('')}
+      </div>` : ''}
+      ${lbl('SKINS <span style="font-weight:400;text-transform:none;">(league-wide default)</span>')}
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button type="button" class="holes-toggle ${lg.skinsOn!==false?'active':''}" style="flex:1;" onclick="leagueSetSkinsOn(true)">On</button>
+        <button type="button" class="holes-toggle ${lg.skinsOn===false?'active':''}" style="flex:1;" onclick="leagueSetSkinsOn(false)">Off</button>
+      </div>
       ${lbl('HC ADJUSTMENT')}
       <select onchange="leagueSetSeasonAllowance(this.value)" style="${selStyle}">
         ${[100,90,85,75,50].map(pct=>`<option value="${pct}" ${(active.strokeAllowance||100)===pct?'selected':''}>${pct}%</option>`).join('')}
@@ -12175,9 +12218,10 @@ function leagueBuildSession(lg, season, date) {
     courseId: leagueSeasonCourseId(lg, season),
     nineSide: season.nineSide || 'all',
     teeTimes: [...(season.teeTimes || [])],
-    rsvp: {}, groups: [], gameType: season.defaultGameType || null,
-    stablefordTeam: season.defaultStablefordTeam || 'individual', teamScoring: 'bestball',
-    resultMethod: 'best2', scores: {}, completed: false };
+    rsvp: {}, groups: [], gameType: season.defaultGameType || (lg.partnerLeague ? 'matchplay' : null),
+    stablefordTeam: season.defaultStablefordTeam || 'individual',
+    teamScoring: season.defaultTeamScoring || 'bestball',
+    resultMethod: season.defaultResultMethod || 'best2', scores: {}, completed: false };
 }
 /** Build a full season's sessions from its schedule (start/end/dayOfWeek). Pure. */
 function leagueGenerateSchedule(lg, season) {
@@ -12264,6 +12308,20 @@ function leagueSetSeasonGameType(val) {
   else { s.defaultGameType=val; s.defaultStablefordTeam='individual'; }
   scheduleWrite(); leagueRenderSeasonsScreen();
 }
+// Season default scoring method (inherited by sessions via leagueBuildSession, overridable per session).
+function leagueSetSeasonTeamScoring(v) {
+  const lg=leagueCurrent();if(!lg)return; const s=leagueActiveSeason(lg);if(!s)return;
+  s.defaultTeamScoring=v; scheduleWrite(); leagueRenderSeasonsScreen();
+}
+function leagueSetSeasonResultMethod(v) {
+  const lg=leagueCurrent();if(!lg)return; const s=leagueActiveSeason(lg);if(!s)return;
+  s.defaultResultMethod=v; scheduleWrite(); leagueRenderSeasonsScreen();
+}
+// League-wide skins on/off — sessions inherit this as their default (the per-session box overrides).
+function leagueSetSkinsOn(on) {
+  const lg=leagueCurrent();if(!lg)return;
+  lg.skinsOn=!!on; scheduleWrite(); leagueRenderSeasonsScreen();
+}
 function leagueSetSeasonStart(type) {
   const lg=leagueCurrent();if(!lg)return;
   leagueActiveSeason(lg).startType=type;  // 'teetimes' | 'shotgun'
@@ -12314,6 +12372,7 @@ function leagueSetGroupMethod(method) {
 }
 function leagueSetPairMode(mode) {
   const lg=leagueCurrent();if(!lg)return;
+  if(lg.partnerLeague && mode!=='partners') toast('Partner League uses fixed round-robin pairings — this affects blind-draw games only');
   lg.pairMode=mode;scheduleWrite();
 }
 
@@ -13034,7 +13093,8 @@ function leagueRenderGameType() {
   const shambleMethods=[{k:'best2',l:'2 Best Balls'},{k:'321',l:'3-2-1'},{k:'lowball',l:'Low Ball'}];
 
   let html='';
-  types.forEach(({group,items})=>{
+  const visibleTypes = lg.partnerLeague ? types.filter(t=>t.group==='PARTNER GAMES') : types;
+  visibleTypes.forEach(({group,items})=>{
     const open=items.some(i=>i.val===currentKey);
     const gid=group.replace(/[^a-z0-9]/gi,'_');
     html+=`<button type="button" onclick="leagueToggleGTSection('${gid}')"
@@ -13079,7 +13139,7 @@ function leagueRenderGameType() {
     html+='</div>';
   });
 
-  const skinsChecked = !!(s.skins !== false && lg.skins);
+  const skinsChecked = s.skins != null ? !!s.skins : (lg.skinsOn !== false);
   const skinsRow = `<div style="display:flex;align-items:center;gap:10px;padding:12px 4px 4px;border-top:2px solid var(--surf3);margin-top:4px;">
     <input type="checkbox" id="league-skins-chk" ${skinsChecked?'checked':''} style="width:18px;height:18px;accent-color:var(--gold);"
       onchange="leagueToggleSessionSkins(this.checked)">

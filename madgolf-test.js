@@ -8060,7 +8060,95 @@ smoke('leagueCurrentSession returns session', () => {
   expect('round idx w1 = 0', leagueSessionRoundIndex(lg, lg.sessions.find(x=>x.id==='w1')), 0);
   expect('round idx w2 = 1', leagueSessionRoundIndex(lg, lg.sessions.find(x=>x.id==='w2')), 1);
   expect('round idx w3 = 2', leagueSessionRoundIndex(lg, lg.sessions.find(x=>x.id==='w3')), 2);
-}const total = passed + failed;
+
+// ── 153. Foursome F9 / B9 / 18 selection handled across the board ─────────────
+// The nine-side is stored on the game (g.nineSide); fsHoles is the single accessor every foursome
+// scorer/scorecard uses, and a 9-hole selection's course handicap is the full 18-hole CH halved.
+{
+  const { fsHoles, fsIsNine, fsBuildChs, pointTarget, roundHalfAwayZero } = sandbox;
+  const C18 = { slope:113, rating:72, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1})) };
+
+  // fsHoles slices to the stored nine-side.
+  expect('fsHoles all → 18',   fsHoles({nineSide:'all'},   C18).length, 18);
+  expect('fsHoles front → 9',  fsHoles({nineSide:'front'}, C18).length, 9);
+  expect('fsHoles back → 9',   fsHoles({nineSide:'back'},  C18).length, 9);
+  expect('fsHoles front first hole = 1', fsHoles({nineSide:'front'}, C18)[0].num, 1);
+  expect('fsHoles back first hole = 10', fsHoles({nineSide:'back'},  C18)[0].num, 10);
+  expect('fsHoles default (no nineSide) → 18', fsHoles({}, C18).length, 18);
+
+  // fsIsNine
+  expect('fsIsNine front', fsIsNine({nineSide:'front'}), true);
+  expect('fsIsNine back',  fsIsNine({nineSide:'back'}),  true);
+  expect('fsIsNine all',   fsIsNine({nineSide:'all'}),   false);
+  expect('fsIsNine none',  fsIsNine({}),                 false);
+
+  // 9-hole selection course handicap = full 18-hole CH / 2 (rounded once).
+  const ch = (hcp, nm) => fsBuildChs([{id:'p',hcp}], C18, false, nm).chs.p;
+  expect('CH 18h hcp12', ch(12,'all'),   12);
+  expect('CH F9  hcp12', ch(12,'front'),  6);
+  expect('CH B9  hcp12', ch(12,'back'),   6);
+  expect('CH F9  hcp8',  ch(8,'front'),   4);   // 8/2
+  expect('CH F9  hcp15', ch(15,'front'),  8);   // round(15/2 = 7.5) → 8
+  expect('CH 18h hcp8',  ch(8,'all'),     8);
+
+  // Genuine 9-hole course (rating < 50) is NOT halved again — unchanged behaviour.
+  const C9 = { slope:113, rating:36, nineHole:true, holes:Array.from({length:9},(_,i)=>({num:i+1,par:4,hcp:i+1})) };
+  expect('genuine 9-hole course CH unchanged', fsBuildChs([{id:'p',hcp:12}], C9, false, 'all').chs.p,
+    sandbox.calcCourseHcp(12, 113, 36, 36, true));
+
+  // Stableford quota is 9-hole aware.
+  expect('quota 9h ch6',  pointTarget(6, true),  12);
+  expect('quota 9h ch0',  pointTarget(0, true),  18);
+  expect('quota 18h ch6', pointTarget(6, false), 30);
+
+  // Corruption guard: reopening a saved F9 game with the picker at 18 must NOT rebuild an 18-hole
+  // handicap. fsRefreshChs derives the nine from g.nineSide, not the global.
+  smokeSetup();
+  vmSetS('players', [{id:'p',name:'One',hcp:12}]);
+  vmSetS('courses', [{ id:'c18', name:'C18', slope:113, rating:72, par:72,
+    holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+  vmSetS('events', [{ id:'g9', type:'foursome', status:'active', gameType:'stableford', strokeMode:'field',
+    courseId:'c18', playerIds:['p'], nineSide:'front', _totalHoles:9, chs:{p:6}, rawChs:{p:6}, scores:{} }]);
+  const gAfter = vm.runInContext(`(function(){ window._fsNineMode='all'; const g=S.events.find(e=>e.id==='g9'); fsRefreshChs(g); return g; })()`, sandbox);
+  expect('F9 game CH survives reopen at picker=18', gAfter.chs.p, 6);
+
+  // Stableford scores ONLY the active nine — a score entered on hole 10 of a front-9 game is ignored.
+  const scCourse = { slope:113, rating:72, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1})) };
+  const gStab = { nineSide:'front', gameType:'stableford', cfg:{}, chs:{p:0}, rawChs:{p:0},
+    scores:{ p:{1:4,2:4,3:4,4:4,5:4,6:4,7:4,8:4,9:4, 10:99} } };
+  const res = sandbox.fsCalcStablefordPlayer(gStab, 'p', scCourse);
+  expect('stableford F9: gross counts 9 holes only', res.gross, 36);
+  expect('stableford F9: 9 holes entered (hole 10 ignored)', res.entered, 9);
+
+// ── 154. Partner-league game/scoring inheritance (League setup v0.90.82) ──────
+// leagueBuildSession now inherits the season's scoring method too, and a partner league defaults
+// its sessions to Match Play. All still overridable per session.
+{
+  const { leagueBuildSession } = sandbox;
+  const lg  = { id:'lg', courseId:'c1', seasons:[] };
+  const plg = { id:'plg', courseId:'c1', seasons:[], partnerLeague:true };
+
+  // Scoring method inherited from the season.
+  const b1 = leagueBuildSession(lg, { id:'s1', defaultGameType:'matchplay', defaultTeamScoring:'total', defaultResultMethod:'321' }, '2026-05-01');
+  expect('inherits gameType matchplay', b1.gameType, 'matchplay');
+  expect('inherits teamScoring total',  b1.teamScoring, 'total');
+  expect('inherits resultMethod 321',   b1.resultMethod, '321');
+
+  // No season scoring set → sensible defaults.
+  const b2 = leagueBuildSession(lg, { id:'s2' }, '2026-05-08');
+  expect('non-partner no default → null game', b2.gameType, null);
+  expect('teamScoring default bestball', b2.teamScoring, 'bestball');
+  expect('resultMethod default best2',   b2.resultMethod, 'best2');
+
+  // Partner league with no default game → Match Play.
+  const b3 = leagueBuildSession(plg, { id:'s3' }, '2026-05-15');
+  expect('partner league default → matchplay', b3.gameType, 'matchplay');
+
+  // Partner league still respects an explicit season game.
+  const b4 = leagueBuildSession(plg, { id:'s4', defaultGameType:'strokeplay_2man' }, '2026-05-22');
+  expect('partner league explicit game honoured', b4.gameType, 'strokeplay_2man');
+}
+}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
 console.log(`══════════════════════════════════════════`);
