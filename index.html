@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.73  Build 2026-07-05 08:04 PM ET
+     Version : v0.90.77  Build 2026-07-06 07:58 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,10 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.77  2026-07-06  Test-hardening: FINAL two missions (#5 lifecycle/staleness + #6 coverage) - the hardening arc is complete (all 6 sub-missions landed across 0.90.74-0.90.77). §150 LIFECYCLE/STALENESS (mission #5, bug 1 = the 15-vs-14 report): a game snapshots each player's course handicap at creation (g.chs / g.players[].courseHcp), so after a course is re-rated the stored value went stale and every unit test fed fresh data missed it. The suite now mutates the underlying data and asserts dependents refresh on open: foursome fsRefreshChs recomputes 12->16 and 8->11 after a slope/rating re-rate (strokes on the hcp-14 hole follow 0->1), picks up a player re-index (12->20 -> CH 25), and is a proven no-op when nothing changed (fsSaveGame spy shows zero writes); outing outingRefreshChs recomputes 12->16 and no-ops clean; League (leagueSessionCtx) and Trip (tripScoringCtx) recompute courseHcp live 12->16 with NO refresh call (no snapshot to go stale). +17 assertions -> 2352. COVERAGE (mission #6): opt-in function-level coverage baked into the harness - run `COVERAGE=1 node madgolf-test.js index.html`. It wraps every top-level function with a call counter (reassigning sandbox[name] is seen by the tests AND the app's own bare-name calls) and prints executed/total (254/567 = 44.8%) with the uncalled split into UI/render (expected - the harness can't invoke screens), handler/orchestration (DOM/Firebase integration), and PURE-LOGIC blind spots (the actionable list). Off by default so the ship gate is uninstrumented and unaffected (rule 7). It immediately surfaced a real gap: outingBestBallMatch (a scoring fn) is uncovered - tracked on the open board. No new production logic; test infra only. Also cleaned a stray changelog placeholder left from the 0.90.76 bump (rule 11).
+// v0.90.76  2026-07-06  Test-hardening: mission #1 (render-text extraction) COMPLETE + a real bug caught by it. Every status/banner/summary string still trapped in a render or completion body is now a pure, directly-tested helper (rule 30). §146 WALK-OFF: fsWalkoffCostLabel + fsWalkoffSubLabel out of the renderWalkoffGame closure, plus a walk-off render smoke (main banner already routed through the tested fsCalcOneMatch). §147 OUTING/DOC: outingResultSummary (all 7 finish formats) out of outingFinish, fsDOCSegLabel ("Holes X-Y") out of renderDOCGame. §148 IN-PLACE UPDATER: fsUpdateStandingsInPlace now delegates its Nassau/walk-off banners to the SAME helpers the first paint uses - which FIXED a live bug: its Nassau block held stroke-only logic (reads r.played/aT/bT), so a match-play Nassau (the default mode) painted correct match text once, then the next score entry overwrote it with wrong stroke text. Now routed through fsNassauBannerParts - stroke output byte-identical, match output correct - with a recording-DOM regression test pinning no-drift. §149: fsBBBResultSummary + fsDOCResultSummary (stored g.summary shown in recent-games), outingResultCellValue, and fsHolePopupNassauText (the compact hole-popup variant, kept distinct from the banner by design). Cleanups (rule 6): removed outingFinish's duplicate status/completedDate writes and an orphaned varRed. Rule 30 strengthened to name status/summary text and the in-place-updater no-drift principle. All extractions verbatim; §143 render matrix + every branch value hand-computed (rule 28). Totals 2277 to 2335.
+// v0.90.75  2026-07-05  Test-hardening cont. (missions #3 + #1-start). (A) STATE-INVARIANT SUITE (§144): asserts the structural invariants after each mutating op so impossible states fail the build, not the user - at most one active foursome, fsActiveGame never returns a non-active game, and no orphaned _scoring. normalizeState now ENFORCES the last one: it clears _scoring on any completed/abandoned foursome/outing (belt-and-suspenders; every _scoring read is gated behind status==='active', so this is regression-safe). Negative controls prove the checker catches multi-active + orphan states. +20 assertions. (B) NASSAU BANNER EXTRACTION (§145, rule 30): fsNassauBannerParts lifted out of the renderNassauGame closure - the exact bug-4 status string (Even/DORMIE/x UP/tally) the harness could never reach is now a pure, directly-tested helper. Behavior byte-preserved (extracted verbatim; §143 matrix confirms the render is unchanged). 25 branch-value assertions (hand-computed per rule 28) + a 14-state output scanner. +59 assertions. Note: walkoff/DOC banners already route their main text through the tested fsCalcOneMatch. Totals 2218 to 2277.
+// v0.90.74  2026-07-05  Test-hardening (mission #2, the broad net): new §143 RENDER MATRIX renders every module screen across a grid of degraded states — no course (bug-3 misconfig), no players, a half-scored round (bug-4 render-text), a completed game (bug-2 shape), and empty events — and fails the build on ANY throw or on a raw undefined/NaN/[object Object]/Infinity/${ leaking into the DOM. Two guarantees per cell: no-throw + no-garbage is universal; non-empty is asserted only where a screen must show chrome (a graceful empty render or toast-and-return is an accepted degrade). Scanner proven live via negative control (injected undefined-undefined and 0/0 both trip it). Covers renderFoursomeHome/renderHistory/renderNassauGame + outing/trip/league list, hub, scoring, results, standings. index.html behavior unchanged — tests only. +118 assertions (2080 to 2198).
 // v0.90.73  2026-07-05  League rework Stage 2 finished + regression fix + dead-code cleanup. (1) Regression fix: consolidating the Group Method card in v0.90.72 had orphaned the pairMode blind-draw setting (lg.pairMode is read by the pairing logic), leaving no UI to change it. pairMode is now an inline PARTNER PAIRING control (Balanced A/B / Random) on the season screen via leagueSetPairModeStay - so method AND pairing both live in the one settings area. (2) With both relocated, the standalone Group Method screen and the old Course picker are fully redundant and were removed: leagueRenderPlanCourse + leaguePlanSetCourse and leagueRenderGroupMethodScreen deleted, their routing-map entries and workflow-nav steps (course, groupmethod) pruned, and the shared leagueSetGroupMethod/leagueSetPairMode setters kept (still used by the Groups and Game-Type screens) with their now-dead re-render of the removed screen stripped - those callers already re-render themselves. No dangling references; nav tests updated (league workflow is now Seasons -> Partners -> Sessions -> Standings). The League Setup section is a single Season Setup & Schedule card holding course, schedule + Generate Calendar, night, holes, allowance, tee times, group method, pairing, and (when Partners is the method) the partner editor. Rework complete: Stages 1-4 done (Stage 4 per-session 9-side/game overrides were already provided by leagueSetSessionNine/leagueSetGameType); playoffs tabled.
 // v0.90.72  2026-07-05  League rework Stage 2: one consolidated settings area. The League Setup section had four cards (Course, Seasons & Schedules, Group Method, Season Partners); it is now a single Season Setup & Schedule card that opens the season screen, which holds everything: course (per season), start/end schedule + Generate Calendar, league night, holes, allowance, tee times, and now GROUP METHOD (Random / A-B-C-D / Partners) with the Season Partners editor shown inline only when Partners is the method. Added leagueSetGroupMethodStay. The old standalone Course picker (leagueRenderPlanCourse/leagueSelectCourse) and the Group Method screen (leagueRenderGroupMethodScreen) are now orphaned - the course one is fully replaced by the on-season picker; the group-method screen still holds the pairMode blind-draw option, so per rule 6/7 both are FLAGGED for a cleanup pass rather than removed at depth (pairMode needs a home first). Note: selecting Partners as the method surfaces the partner editor, but Partners-as-a-grouping-engine is still the coming-soon logic in the codebase - not faked. Remaining: Stage 4 per-session overrides.
 // v0.90.71  2026-07-05  League rework Stage 3: schedule + generate the calendar in advance. A season now carries startDate/endDate (added to the season screen alongside the existing league-night day-of-week). leagueGenerateSessionDates returns every league-night date in the range (pure), leagueBuildSession pre-fills a session from the season defaults (course, 9-side, tee times, game), leagueGenerateSchedule builds the whole season, and the Generate Calendar button (leagueGenerateCalendar) adds any missing dates - idempotent, will not duplicate an existing date, and sorts sessions by date. So the admin sets start/end + night once and gets the full season laid out, each session pre-filled and ready. +11 tests (S142). Remaining League stages: Stage 2 consolidate Group method + Partners (conditional) into the settings area and retire the redundant league-level course picker; Stage 4 per-session overrides (change one week 9-side/game). Playoffs tabled.
@@ -1141,8 +1145,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.73';
-const BUILD_TIME = '2026-07-05 08:04 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.77';
+const BUILD_TIME = '2026-07-06 07:59 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1256,6 +1260,12 @@ function normalizeState(raw) {
         activeFours.forEach(e => { if (e.id !== keep.id) { e.status='abandoned'; e._scoring=false; } });
       }
     }
+    // Invariant: _scoring is only ever set on an ACTIVE foursome/outing. Clear any orphan left on
+    // a completed/abandoned game (bad/legacy data) so no non-active game can read as scoring. Every
+    // _scoring read is gated behind a status==='active' filter, so this is a safe belt-and-suspenders.
+    raw.events.forEach(e => {
+      if ((e.type==='foursome' || e.type==='outing') && e.status !== 'active' && e._scoring) e._scoring = false;
+    });
 
     // ── Trip events (type:'trip' in S.events[]) ─────────────────
     // t.players = [{id, manager}] — refs into S.players[], not full objects
@@ -4003,14 +4013,19 @@ function renderBBBSettlement(g) {
   return html;
 }
 
-function finalizeBBBGame() {
-  const g = fsActiveGame(); if (!g || g.gameType !== 'bbb') return;
-  const pts = calcBBBPoints(g);
-  const summary = g.playerIds.map(id => {
+// Pure BBB result summary — extracted from finalizeBBBGame (rule 30).
+function fsBBBResultSummary(g, pts) {
+  return g.playerIds.map(id => {
     const t = pts[id];
     const name = (g.playerNames[g.playerIds.indexOf(id)] || fsPlayerById(id)?.name || id).split(' ')[0];
     return `${esc(name)}:${t.total}pts`;
   }).join(' ');
+}
+
+function finalizeBBBGame() {
+  const g = fsActiveGame(); if (!g || g.gameType !== 'bbb') return;
+  const pts = calcBBBPoints(g);
+  const summary = fsBBBResultSummary(g, pts);
   g.summary = summary;
   fsEndGame(g);
   window._fsPicked = null;
@@ -4177,9 +4192,7 @@ function fsUpdateStandingsInPlace(g) {
         if (bn)  bn.className = `match-banner ${st.cls}`;
         if (sc)  { sc.textContent = st.score; sc.style.color = st.color; }
         if (lbl) lbl.textContent = st.label;
-        if (sub) sub.textContent = m.closed
-          ? `Closed H${m.closedOnHole} — ${m.winner === 'tie' ? 'Halved' : `${(m.winner==='A'?(pair.teamA||[pair.A]):(pair.teamB||[pair.B])).map(id=>lastName(id)).join('&')} wins`}`
-          : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
+        if (sub) sub.textContent = fsWalkoffSubLabel(m, st, pair);
       });
     });
     const sd = document.getElementById('wo-settlement');
@@ -4188,17 +4201,12 @@ function fsUpdateStandingsInPlace(g) {
     const course = fsGetCourse(g.courseId); if (!course) return;
     const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
     const pairs = fsGetNassauPairs(g);
-    const varRed = '#c0392b';
     pairs.forEach((pair, pi) => {
       const fR = fsCalcNassauSeg(g,front,pair), bR = fsCalcNassauSeg(g,back,pair), tR = fsCalcNassauSeg(g,all,pair);
       const pA = (pair.teamA||[pair.A]).map(id=>lastName(id)).join('&');
       const pB = (pair.teamB||[pair.B]).map(id=>lastName(id)).join('&');
       [[fR,`${pi}-f`,g.costF],[bR,`${pi}-b`,g.costB],[tR,`${pi}-t`,g.costT]].forEach(([r,bid,cost]) => {
-        const w = r.winner;
-        const color = !w ? '#8a6700' : w==='tie' ? '#8a6700' : w==='A' ? '#166534' : varRed;
-        const txt = !w||r.played===0 ? 'Even' : w==='tie' ? 'TIE'
-          : w==='A' ? `${pA} wins${r.aT!=null?` (${r.aT}–${r.bT})`:''}` : `${pB} wins${r.bT!=null?` (${r.bT}–${r.aT})`:''}`;
-        const cls = !w ? 'mb-tied' : w==='tie' ? 'mb-tied' : w==='A' ? 'mb-up' : 'mb-down';
+        const { txt, cls, color } = fsNassauBannerParts(r, pA, pB);
         const bn = document.getElementById(`nassau-banner-${bid}`);
         const sc = document.getElementById(`nassau-banner-score-${bid}`);
         if (bn) bn.className = `match-banner ${cls}`;
@@ -4256,6 +4264,16 @@ function fsUpdateStandingsInPlace(g) {
 // Hole-completion popup — appears 200ms after 4th score on a hole, auto-dismisses 3s
 let _fsPopupTimer = null;
 let _woPendingPress = null; // persists across re-renders; not stored in Firebase
+// Pure hole-status popup Nassau text — extracted from fsHoleStatusPopup. This is the COMPACT
+// popup variant (own palette + short tally, no "wins"); intentionally distinct from the banner's
+// fsNassauBannerParts. Verbatim, so the popup looks identical.
+function fsHolePopupNassauText(r, pA, pB) {
+  const color = !r.winner ? '#d4a012' : r.winner==='tie' ? '#d4a012' : r.winner==='A' ? '#86efac' : '#dc2626';
+  const txt = !r.winner ? 'Even' : r.winner==='tie' ? 'TIE'
+    : r.winner==='A' ? `${pA}${r.aT!=null?` ${r.aT}–${r.bT}`:''}` : `${pB}${r.bT!=null?` ${r.bT}–${r.aT}`:''}`;
+  return { txt, color };
+}
+
 function fsHoleStatusPopup(g, hole) {
   fsDismissHolePopup();
   let rows = '';
@@ -4293,9 +4311,7 @@ function fsHoleStatusPopup(g, hole) {
         if (r.played === 0) return;
         const pA = (pair.teamA||[pair.A]).map(id=>lastName(id)).join('&');
         const pB = (pair.teamB||[pair.B]).map(id=>lastName(id)).join('&');
-        const color = !r.winner ? '#d4a012' : r.winner==='tie' ? '#d4a012' : r.winner==='A' ? '#86efac' : '#dc2626';
-        const txt = !r.winner ? 'Even' : r.winner==='tie' ? 'TIE'
-          : r.winner==='A' ? `${pA}${r.aT!=null?` ${r.aT}–${r.bT}`:''}` : `${pB}${r.bT!=null?` ${r.bT}–${r.aT}`:''}`;
+        const { txt, color } = fsHolePopupNassauText(r, pA, pB);
         const label = pairs.length > 1 ? `${pair.label||''} ${lbl}` : lbl;
         rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.1);">
           <span style="font-size:12px;color:rgba(255,255,255,.7);">${label}</span>
@@ -4474,6 +4490,12 @@ function fsCalcDOCMatch(g, segIdx, defs) {
   return           { cls:'mb-down',  color:'#c0392b', leading:def.t2lbl,  display:`${def.t2lbl} ${Math.abs(diff)}↑` };
 }
 
+// Pure DOC segment hole-range label — extracted from renderDOCGame (rule 30). Verbatim range,
+// no added guard, so behaviour is byte-identical to the inline form.
+function fsDOCSegLabel(seg) {
+  return `Holes ${seg[0].num}–${seg[seg.length-1].num}`;
+}
+
 function renderDOCGame() {
   const g = fsActiveGame();
   if (!g || g.gameType !== 'doc') { fsShowGameTypePicker(); return; }
@@ -4486,7 +4508,7 @@ function renderDOCGame() {
   const banners = statuses.map((st,i) => matchBanner({
     cls: st.cls, id: `doc-banner-${i}`,
     label: ['Drivers v Pass.','Opposites','Cart Partners'][i],
-    sub: `Holes ${g.segs[i][0].num}–${g.segs[i][g.segs[i].length-1].num}`,
+    sub: fsDOCSegLabel(g.segs[i]),
     score: st.display, scoreId: `doc-banner-score-${i}`, color: st.color
   })).join('');
   fsRender(`
@@ -4562,13 +4584,18 @@ function fsRenderDOCSettlement(g) {
   return settleBalanceTable(g.playerIds, balances) + settlePayLines(g.playerIds, balances);
 }
 
-function finalizeDOCGame() {
-  const g = fsActiveGame(); if (!g || g.gameType !== 'doc') return;
-  const defs = fsDocMatchDefs(g);
-  const summary = [0,1,2].map(i => {
+// Pure DOC result summary — extracted from finalizeDOCGame (rule 30).
+function fsDOCResultSummary(g, defs) {
+  return [0,1,2].map(i => {
     const st = fsCalcDOCMatch(g,i,defs);
     return `${['Drv','Opp','Crt'][i]}:${st.display}`;
   }).join(' | ');
+}
+
+function finalizeDOCGame() {
+  const g = fsActiveGame(); if (!g || g.gameType !== 'doc') return;
+  const defs = fsDocMatchDefs(g);
+  const summary = fsDOCResultSummary(g, defs);
   g.summary = summary;
   delete g.rawChs; // slim for archive
   delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
@@ -4742,23 +4769,13 @@ function fsGetNassauPairs(g) {
   return [];
 }
 
-function renderNassauGame() {
-  const g = fsActiveGame();
-  if (!g || g.gameType !== 'nassau') { fsShowGameTypePicker(); return; }
-  const course = fsGetCourse(g.courseId);
-  if (!course) { fsRender('<div class="card" style="text-align:center;color:var(--red);padding:32px;">Course data missing.</div>'); return; }
-  const pairs = fsGetNassauPairs(g);
-  const players = fsPairOrderedIds(g, pairs).map(id => fsPlayerById(id)||{id,name:id});
-  const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+// Pure Nassau banner text/colour — extracted from the renderNassauGame closure so the harness
+// can unit-test the status string (bug-4 class lived here). Returns {txt,cls,color,sub}; caller
+// supplies pA/pB team labels and passes the result to matchBanner (the HTML shell).
+function fsNassauBannerParts(r, pA, pB) {
   const varRed = '#c0392b';
-
-  const nassauBanner = (label, cost, r, bid) => {
-    const w = r.winner;
-    const isMatch = r.mode === 'match';
-    const pi  = pairs[Math.floor(bid.split('-')[0])] || pairs[0];
-    const pA  = pi ? (pi.teamA||[pi.A]).map(id=>lastName(id)).join('&') : 'A';
-    const pB  = pi ? (pi.teamB||[pi.B]).map(id=>lastName(id)).join('&') : 'B';
-
+  const w = r.winner;
+  const isMatch = r.mode === 'match';
     let txt, cls, color;
     if (isMatch) {
       const thru = r.thru||0;
@@ -4795,6 +4812,25 @@ function renderNassauGame() {
 
     const sub = isMatch ? (r.thru?`${r.thru} holes`:'No scores yet')
                         : (r.played?`${r.played} holes`:'No scores yet');
+  return { txt, cls, color, sub };
+}
+
+function renderNassauGame() {
+  const g = fsActiveGame();
+  if (!g || g.gameType !== 'nassau') { fsShowGameTypePicker(); return; }
+  const course = fsGetCourse(g.courseId);
+  if (!course) { fsRender('<div class="card" style="text-align:center;color:var(--red);padding:32px;">Course data missing.</div>'); return; }
+  const pairs = fsGetNassauPairs(g);
+  const players = fsPairOrderedIds(g, pairs).map(id => fsPlayerById(id)||{id,name:id});
+  const front = course.holes.slice(0,9), back = course.holes.slice(9), all = course.holes;
+  const varRed = '#c0392b';
+
+  const nassauBanner = (label, cost, r, bid) => {
+    const pi  = pairs[Math.floor(bid.split('-')[0])] || pairs[0];
+    const pA  = pi ? (pi.teamA||[pi.A]).map(id=>lastName(id)).join('&') : 'A';
+    const pB  = pi ? (pi.teamB||[pi.B]).map(id=>lastName(id)).join('&') : 'B';
+
+    const { txt, cls, color, sub } = fsNassauBannerParts(r, pA, pB);
     return matchBanner({
       cls, id: `nassau-banner-${bid}`,
       label: `${label} · $${cost}`, sub,
@@ -5087,6 +5123,18 @@ function fsWoAutoAdvance(g) {
   return changed;
 }
 
+// Pure Walk-off banner label + sub-label — extracted from the renderWalkoffGame closure so the
+// harness can test them (rule 30). Main banner text already comes from the tested fsCalcOneMatch.
+function fsWalkoffCostLabel(idx, cost) {
+  const mNum = idx + 1, m = { cost };
+  return idx === 0 ? `M${mNum} · $${m.cost}` : `M${mNum} · $${m.cost}${idx>1?' (press)':''}`;
+}
+function fsWalkoffSubLabel(m, st, pair) {
+  return m.closed
+        ? `Closed H${m.closedOnHole} — ${m.winner==='tie'?'Halved':`${m.winner==='A'?(pair.teamA||[pair.A]).map(id=>lastName(id)).join('&'):(pair.teamB||[pair.B]).map(id=>lastName(id)).join('&')} wins`}`
+        : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
+}
+
 function renderWalkoffGame() {
   const g = fsActiveGame();
   if (!g || g.gameType !== 'walkoff') { fsShowGameTypePicker(); return; }
@@ -5109,10 +5157,8 @@ function renderWalkoffGame() {
     matches.forEach((m, idx) => {
       const st = fsCalcOneMatch(g, m, pair); if (!st) return;
       const mNum = idx + 1;
-      const costLabel = idx === 0 ? `M${mNum} · $${m.cost}` : `M${mNum} · $${m.cost}${idx>1?' (press)':''}`;
-      const subLabel  = m.closed
-        ? `Closed H${m.closedOnHole} — ${m.winner==='tie'?'Halved':`${m.winner==='A'?(pair.teamA||[pair.A]).map(id=>lastName(id)).join('&'):(pair.teamB||[pair.B]).map(id=>lastName(id)).join('&')} wins`}`
-        : st.isDormie ? `Dormie — ${st.remaining} left` : `Thru ${st.thru}`;
+      const costLabel = fsWalkoffCostLabel(idx, m.cost);
+      const subLabel  = fsWalkoffSubLabel(m, st, pair);
       matchBannersHtml += `
         <div class="section-label">${costLabel}</div>
         ${matchBanner({ cls: st.cls, id: `wo-banner-${pi}-${idx}`, label: esc(st.label), sub: subLabel, score: st.score, scoreId: `wo-banner-score-${pi}-${idx}`, color: st.color, lblId: `wo-banner-lbl-${pi}-${idx}`, subId: `wo-banner-sub-${pi}-${idx}` })}`;
@@ -8444,6 +8490,13 @@ function outingViewResults() {
   outingRenderResults(g, r);
 }
 
+// Pure outing results cell value (points / net / gross with — fallback) — from outingRenderResults.
+function outingResultCellValue(p, isStab, isLowNet) {
+  return isStab ? p.totalGross?p.totalPts:'—'
+       : isLowNet ? p.totalNet||'—'
+       : p.totalGross||'—';
+}
+
 function outingRenderResults(g, r) {
   const gt = g.gameType;
   let shambleIndivHtml = ''; // populated below only for shamble; declared here to avoid ReferenceError
@@ -8621,9 +8674,7 @@ function outingRenderResults(g, r) {
             const isSkin = grossWinIds[hi]===p.id || netWinIds[hi]===p.id;
             return `<td style="text-align:center;padding:4px 3px;background:${isSkin?'#d4edda':rowBg};font-weight:${isSkin?700:400};">${hd.gross}</td>`;
           }).join('');
-          const summary = isStab ? p.totalGross?p.totalPts:'—'
-                        : isLowNet ? p.totalNet||'—'
-                        : p.totalGross||'—';
+          const summary = outingResultCellValue(p, isStab, isLowNet);
           return `<tr>
             <td style="padding:4px 6px;font-weight:600;background:${rowBg};font-size:12px;">${esc(p.name)}</td>
             ${cells}
@@ -8991,11 +9042,9 @@ function outingRenderBBMatchResults(g, r) {
 
 
 // ── Finish / save ─────────────────────────────────────────────
-function outingFinish() {
-  const g = outingActiveGame(); if (!g) return;
-  const r = outingComputeResults(g);
-
-  // Build summary string
+// Pure outing result summary — extracted from outingFinish (rule 30) so the per-format winner
+// string is directly testable (bug-4 class). Verbatim logic; returns '' when results are absent.
+function outingResultSummary(g, r) {
   let summary = '';
   if (r) {
     const gt = g.gameType;
@@ -9033,13 +9082,18 @@ function outingFinish() {
       if (sorted.length) summary = `${esc(sorted[0].name)} ${sorted[0].totalGross}`;
     }
   }
+  return summary;
+}
 
-  g.status        = 'complete';
+function outingFinish() {
+  const g = outingActiveGame(); if (!g) return;
+  const r = outingComputeResults(g);
+
+  const summary = outingResultSummary(g, r);
+  g.status        = 'complete';   // mark complete so outingActiveGame returns null
   g.completedDate = Date.now();
   g.summary       = summary;
   if (r) g.results = r;
-  g.status = 'complete';       // mark complete so outingActiveGame returns null
-  g.completedDate = Date.now();
   delete g._scoring;
   fsSaveGame(g);
   window._outingPicked = null;

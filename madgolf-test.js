@@ -132,6 +132,26 @@ try {
   evalError = e;
 }
 
+// ── Coverage instrumentation (mission #6, opt-in via COVERAGE=1) ──────────────
+// Turns invisible blind spots into a printed list: wrap every top-level app function with a call
+// counter. Reassigning sandbox[name] is picked up by BOTH the tests and the app's own bare-name
+// calls (function declarations are vm-global properties — same mechanism the fsSaveGame spy uses).
+// Off by default, so the ship gate runs uninstrumented and is unaffected (rule 7).
+const COVERAGE = !!process.env.COVERAGE;
+const _covCount = {};
+let _covInstrumented = [];
+if (COVERAGE && !evalError) {
+  const names = new Set();
+  const reFn = /(?:^|\n)\s*function\s+([A-Za-z_$][\w$]*)\s*\(/g;
+  let cm; while ((cm = reFn.exec(rawJS)) !== null) names.add(cm[1]);
+  names.forEach(n => {
+    const orig = sandbox[n];
+    if (typeof orig !== 'function') return;      // nested-only names aren't vm globals — skip
+    _covCount[n] = 0; _covInstrumented.push(n);
+    sandbox[n] = function(...a) { _covCount[n]++; return orig.apply(this, a); };
+  });
+}
+
 // Helper: set a property on the vm-local S (which is let S, separate from sandbox.S
 // after loadLocal() reassigns it). Use for tests that need S.players etc. in the vm.
 function vmSetS(key, value) {
@@ -7411,6 +7431,569 @@ smoke('leagueCurrentSession returns session', () => {
   expect('schedule not completed', sess[0].completed, false);
 }
 
+// ── 143. RENDER MATRIX — every screen × degraded states, scanned ──────────────
+// The 2080 unit tests feed pure fns clean inputs; the bugs BZ hits live OUTSIDE that box —
+// a screen rendered against a degraded state (no course, no players, a half-scored round, a
+// completed game) that emits a crash or a raw undefined / NaN / [object Object] into the DOM.
+// This renders each screen across a grid of realistic degraded states and fails on ANY throw
+// or garbage token in the output — the broad net for the misconfig (bug 3) and render-text
+// (bug 4) classes. Proven live: injecting "undefined-undefined" or 0/0 into a render target
+// trips the scanner (negative control verified during authoring).
+//
+// Two guarantees per cell:
+//   • no throw + no garbage token — UNIVERSAL (every screen, every state)
+//   • non-empty output — only for states in the entry's `must` list (a graceful empty render
+//     or a toast-and-return is a valid degrade for the rest, so non-empty is not forced there).
+{
+  const GARBAGE = /(undefined|NaN|\[object Object\]|Infinity|\$\{)/;
+  const clone = o => JSON.parse(JSON.stringify(o));
+
+  // rAF-sync capture with a Node-side applyFn that sets degraded state AFTER smokeSetup.
+  // (A setupStr run inside the vm can't reach the Node-side vmSetS, so state mutations run here.)
+  function capState(callStr, applyFn) {
+    smokeSetup();
+    if (applyFn) applyFn();
+    dummyEl.innerHTML = '';
+    sandbox.requestAnimationFrame = function(cb){ try { cb(); } catch(e) { dummyEl.__renderErr = e.message; } };
+    dummyEl.__renderErr = null;
+    let threw = null;
+    try { vm.runInContext(callStr, sandbox); } catch(e){ threw = e.message; }
+    sandbox.requestAnimationFrame = function(){};
+    return { threw: threw || dummyEl.__renderErr, html: dummyEl.innerHTML || '' };
+  }
+
+  // Degraded-event builders from the Node-side SMOKE_* fixtures.
+  function eventsMidScoring() {                       // Nassau with the back nine unplayed → partial tallies
+    const evs = [clone(SMOKE_GAME_NASSAU), clone(SMOKE_OUTING_SCRAMBLE), clone(SMOKE_OUTING), clone(SMOKE_TRIP), clone(SMOKE_LEAGUE)];
+    evs[0]._scoring = true;
+    for (const pid of evs[0].playerIds) for (let h=10; h<=18; h++) delete evs[0].scores[pid][h];
+    return evs;
+  }
+  function eventsCompletedNassau() {                  // Nassau finalized, no active foursome remains (bug-2 shape)
+    const evs = [clone(SMOKE_GAME_NASSAU), clone(SMOKE_OUTING_SCRAMBLE), clone(SMOKE_OUTING), clone(SMOKE_TRIP), clone(SMOKE_LEAGUE)];
+    evs[0].status = 'complete'; evs[0]._scoring = false; evs[0].completedDate = Date.now();
+    return evs;
+  }
+
+  const STATES = {
+    clean:       null,
+    noCourse:    () => vmSetS('courses', []),              // course deleted after event created (bug 3)
+    noPlayers:   () => vmSetS('players', []),              // roster cleared but event references pids
+    midScoring:  () => vmSetS('events', eventsMidScoring()),
+    completed:   () => vmSetS('events', eventsCompletedNassau()),
+    emptyEvents: () => vmSetS('events', []),               // fresh account — list screens must degrade
+  };
+
+  // [label, call string, [applicable states], [states that MUST render non-empty]]
+  const MATRIX = [
+    // Foursome home + history + live scorecard. renderFoursomeHome's only capturable region here
+    // is the RECENT GAMES list (the banner writes to a second element the shared harness DOM
+    // overwrites), so it is scanned in every state but only required non-empty when the list fills.
+    ['renderFoursomeHome',        `renderFoursomeHome();`,                       ['clean','completed','midScoring','noCourse','noPlayers','emptyEvents'], ['completed']],
+    ['renderHistory',             `renderHistory();`,                            ['clean','completed','emptyEvents'], ['clean','completed','emptyEvents']],
+    ['renderNassauGame',          `S.events.find(e=>e.gameType==='nassau')._scoring=true; renderNassauGame();`, ['clean','noCourse','noPlayers','midScoring'], ['clean','noCourse','noPlayers','midScoring']],
+    // Outing
+    ['outingRenderListScreen',    `outingRenderListScreen();`,                   ['clean','emptyEvents'], ['clean','emptyEvents']],
+    ['outingRenderHub',           `S.activeOutingId='o1'; outingRenderHub();`,   ['clean','noCourse','noPlayers'], ['clean']],
+    ['outingRenderScoring',       `S.activeOutingId='o1'; (function(){var gg=S.events.find(e=>e.id==='o1'); if(gg) outingRenderScoring(gg);})();`, ['clean','noCourse','noPlayers','midScoring'], ['clean','midScoring']],
+    ['outingViewResults/indiv',   `S.activeOutingId='o1'; outingViewResults();`, ['clean','noCourse','noPlayers'], ['clean']],
+    ['outingViewResults/team',    `S.activeOutingId='o2'; outingViewResults();`, ['clean','noCourse','noPlayers'], ['clean']],
+    // Trip
+    ['tripRenderListScreen',      `tripRenderListScreen();`,                     ['clean','emptyEvents'], ['clean','emptyEvents']],
+    ['tripRenderHub',             `S.activeTripId='t1'; tripRenderHub();`,       ['clean','noCourse','noPlayers'], ['clean']],
+    ['tripRenderResultsScreen',   `S.activeTripId='t1'; tripRenderResultsScreen();`, ['clean','noCourse','noPlayers'], ['clean']],
+    // League
+    ['leagueRenderListScreen',    `leagueRenderListScreen();`,                   ['clean','emptyEvents'], ['clean','emptyEvents']],
+    ['leagueRenderHub',           `S.activeLeagueId='l1'; leagueRenderHub();`,   ['clean','noCourse','noPlayers'], ['clean']],
+    ['leagueRenderSeasonsScreen', `S.activeLeagueId='l1'; leagueRenderSeasonsScreen();`, ['clean','noCourse','noPlayers'], ['clean']],
+    ['leagueRenderStandings',     `S.activeLeagueId='l1'; leagueRenderStandings(true);`,  ['clean','noCourse','noPlayers'], ['clean']],
+  ];
+
+  for (const [label, call, sts, must] of MATRIX) {
+    for (const st of sts) {
+      const r = capState(call, STATES[st]);
+      const cell = `${label} [${st}]`;
+      expect(`render ${cell}: no throw`, r.threw || false, false);
+      const m = (r.html||'').match(GARBAGE);
+      expect(`render ${cell}: no garbage${m ? ' ('+m[0]+')' : ''}`, !!m, false);
+      if (must.includes(st)) expect(`render ${cell}: non-empty`, (r.html||'').length > 0, true);
+    }
+  }
+}
+
+
+// ── 144. STATE-INVARIANT SUITE — impossible states stay impossible ────────────
+// Bug 2 (a completed game still showing IN PROGRESS) was an INVARIANT break: the app reached a
+// state two active foursomes that no unit test forbade. This suite asserts the structural
+// invariants after each mutating op, so an impossible state fails the build instead of the user:
+//   (I1) at most ONE active foursome
+//   (I2) fsActiveGame never returns a non-active game
+//   (I3) no orphaned _scoring — _scoring:true only ever on an active foursome/outing
+// normalizeState (load + every save) and the completion fns (fsEndGame, outingFinish) are the
+// enforcers; this pins their guarantees.
+{
+  // Pure invariant checker (Node-side) — returns list of violations, empty = clean.
+  function invViolations(events) {
+    const v = [];
+    const af = (events||[]).filter(e => e.type==='foursome' && e.status==='active');
+    if (af.length > 1) v.push('I1 multi-active-foursome='+af.length);                       // I1
+    for (const e of (events||[])) {
+      if ((e.type==='foursome'||e.type==='outing') && e.status!=='active' && e._scoring===true)
+        v.push('I3 orphan-_scoring:'+e.id+'('+e.status+')');                                  // I3
+    }
+    return v;
+  }
+  const base = (events) => ({account:{},players:[],courses:[],config:{},events});
+  const foursome = (id,status,scoring,date) => ({id,type:'foursome',status,_scoring:scoring,date,scores:{},pairs:[],playerIds:[]});
+  const outing   = (id,status,scoring)      => ({id,type:'outing',status,_scoring:scoring,date:1,scores:{},players:[],groups:[]});
+
+  // Negative control: the checker must actually catch a bad state (else it asserts nothing).
+  expect('invariant checker catches multi-active',
+    invViolations([foursome('a','active',true,1),foursome('b','active',true,2)]).length, 1);
+  expect('invariant checker catches orphan _scoring',
+    invViolations([foursome('c','complete',true,1)]).length, 1);
+  expect('invariant checker: clean state → no violations',
+    invViolations([foursome('d','active',true,1),foursome('e','complete',false,2)]).length, 0);
+
+  // I1 — N active foursomes collapse to the NEWEST (pre-computed: date 300 = 'B' survives).
+  {
+    const n = normalizeState(base([
+      foursome('A','active',true,100), foursome('B','active',true,300), foursome('C','active',false,200),
+    ]));
+    const active = n.events.filter(e=>e.type==='foursome'&&e.status==='active');
+    expect('I1: exactly one active foursome survives', active.length, 1);
+    expect('I1: survivor is the newest (B/date300)', active[0].id, 'B');
+    expect('I1: loser A abandoned', n.events.find(e=>e.id==='A').status, 'abandoned');
+    expect('I1: loser C abandoned', n.events.find(e=>e.id==='C').status, 'abandoned');
+    expect('I1: no violations after normalize', invViolations(n.events).length, 0);
+  }
+  // I1 — 0 and 1 active are left alone (no false abandonment)
+  expect('I1: single active untouched',
+    normalizeState(base([foursome('X','active',true,1)])).events[0].status, 'active');
+  expect('I1: zero active → no violations',
+    invViolations(normalizeState(base([foursome('Y','complete',false,1)])).events).length, 0);
+
+  // I3 — normalizeState clears orphan _scoring on completed/abandoned foursome AND outing.
+  expect('I3: completed foursome orphan _scoring cleared',
+    normalizeState(base([foursome('D','complete',true,1)])).events[0]._scoring, false);
+  expect('I3: completed outing orphan _scoring cleared',
+    normalizeState(base([outing('E','complete',true)])).events[0]._scoring, false);
+  expect('I3: abandoned foursome orphan _scoring cleared',
+    normalizeState(base([foursome('F','abandoned',true,1)])).events[0]._scoring, false);
+  expect('I3: ACTIVE foursome keeps _scoring (not over-cleared)',
+    normalizeState(base([foursome('G','active',true,1)])).events[0]._scoring, true);
+
+  // Idempotency — normalize(normalize(x)) == normalize(x) on the multi-active case.
+  {
+    const once  = normalizeState(base([foursome('A','active',true,100),foursome('B','active',true,300)]));
+    const sig1  = JSON.stringify(once.events.map(e=>[e.id,e.status,!!e._scoring]));
+    const twice = normalizeState(once);
+    const sig2  = JSON.stringify(twice.events.map(e=>[e.id,e.status,!!e._scoring]));
+    expect('normalizeState idempotent (multi-active)', sig1, sig2);
+  }
+
+  // I2 — after fsEndGame, the game is complete, _scoring:false, and fsActiveGame drops it.
+  {
+    vmSetS('events', [foursome('K','active',true,Date.now())]);
+    vm.runInContext(`fsEndGame(S.events.find(e=>e.id==='K'))`, sandbox);
+    const ev = JSON.parse(vm.runInContext(`JSON.stringify(S.events.find(e=>e.id==='K'))`, sandbox));
+    expect('I2: fsEndGame → status complete', ev.status, 'complete');
+    expect('I2: fsEndGame → _scoring false',  ev._scoring, false);
+    const activeId = vm.runInContext(`(fsActiveGame()||{}).id || null`, sandbox);
+    expect('I2: fsActiveGame drops the completed game', activeId, null);
+  }
+
+  // I2/I3 — a live active game beside a completed one: fsActiveGame returns the ACTIVE, never the completed.
+  {
+    vmSetS('events', [foursome('done','complete',false,1), foursome('live','active',true,2)]);
+    const activeId = vm.runInContext(`(fsActiveGame()||{}).id || null`, sandbox);
+    expect('I2: fsActiveGame returns the active game', activeId, 'live');
+    const ev = JSON.parse(vm.runInContext(`JSON.stringify(S.events)`, sandbox));
+    expect('I2: no invariant violations in mixed state', invViolations(ev).length, 0);
+  }
+}
+
+// ── 145. NASSAU BANNER TEXT — extracted pure helper (rule 30) ─────────────────
+// fsNassauBannerParts was lifted out of the renderNassauGame closure so the status string the
+// harness could never reach (bug-4 territory: "undefined–undefined"/"Pending") is now directly
+// tested. Expected values are reasoned from the branch logic, not read back from the function.
+// Colours: green #166534 (A leads), red #c0392b (B leads), amber #8a6700 (tied/none).
+{
+  const { fsNassauBannerParts } = sandbox;
+  const A = 'Alpha', B = 'Bravo';
+  const part = (r) => fsNassauBannerParts(r, A, B);
+
+  // Stroke play (mode !== 'match')
+  let p = part({mode:'stroke', winner:null, played:0});
+  expect('stroke no-scores txt',   p.txt, 'Even');
+  expect('stroke no-scores cls',   p.cls, 'mb-tied');
+  expect('stroke no-scores color', p.color, '#8a6700');
+  expect('stroke no-scores sub',   p.sub, 'No scores yet');
+
+  p = part({mode:'stroke', winner:'A', played:9, aT:5, bT:3});
+  expect('stroke A-wins txt',   p.txt, 'Alpha wins (5–3)');
+  expect('stroke A-wins cls',   p.cls, 'mb-up');
+  expect('stroke A-wins color', p.color, '#166534');
+  expect('stroke A-wins sub',   p.sub, '9 holes');
+
+  p = part({mode:'stroke', winner:'tie', played:9});
+  expect('stroke tie txt', p.txt, 'TIE');
+  expect('stroke tie cls', p.cls, 'mb-tied');
+
+  p = part({mode:'stroke', winner:'B', played:9, aT:3, bT:6});
+  expect('stroke B-wins txt',   p.txt, 'Bravo wins (6–3)');
+  expect('stroke B-wins cls',   p.cls, 'mb-down');
+  expect('stroke B-wins color', p.color, '#c0392b');
+
+  // Match play (mode === 'match')
+  p = part({mode:'match', thru:0});
+  expect('match not-started txt', p.txt, 'Even');
+  expect('match not-started sub', p.sub, 'No scores yet');
+
+  p = part({mode:'match', thru:5, isClosed:true, diff:2, remaining:1});
+  expect('match closed txt',   p.txt, 'Alpha wins 2&1');
+  expect('match closed cls',   p.cls, 'mb-up');
+  expect('match closed color', p.color, '#166534');
+  expect('match closed sub',   p.sub, '5 holes');
+
+  p = part({mode:'match', thru:7, isDormie:true, diff:-2, remaining:2});
+  expect('match dormie txt',   p.txt, 'Bravo DORMIE 2');
+  expect('match dormie cls',   p.cls, 'mb-down');
+  expect('match dormie color', p.color, '#c0392b');
+
+  p = part({mode:'match', thru:5, diff:1, remaining:4});
+  expect('match in-progress lead txt', p.txt, 'Alpha 1 UP (4 left)');
+  expect('match in-progress lead cls', p.cls, 'mb-up');
+
+  p = part({mode:'match', thru:5, diff:0, remaining:4});
+  expect('match in-progress AS txt', p.txt, 'All Square (thru 5)');
+  expect('match in-progress AS cls', p.cls, 'mb-tied');
+
+  p = part({mode:'match', thru:9, diff:0, remaining:0, winner:'tie'});
+  expect('match final AS txt',   p.txt, 'ALL SQUARE');
+  expect('match final AS color', p.color, '#8a6700');
+
+  p = part({mode:'match', thru:9, diff:2, remaining:0, winner:'A'});
+  expect('match final A-wins txt',   p.txt, 'Alpha wins AS');
+  expect('match final A-wins cls',   p.cls, 'mb-up');
+  expect('match final A-wins color', p.color, '#166534');
+
+  // OUTPUT SCANNER — every branch must yield clean, non-empty strings (no undefined/NaN leaks).
+  const MATRIX = [
+    {mode:'stroke', winner:null, played:0},
+    {mode:'stroke', winner:'A', played:9, aT:5, bT:3},
+    {mode:'stroke', winner:'B', played:9, aT:3, bT:6},
+    {mode:'stroke', winner:'tie', played:18},
+    {mode:'match', thru:0},
+    {mode:'match', thru:5, isClosed:true, diff:2, remaining:1},
+    {mode:'match', thru:5, isClosed:true, diff:-3, remaining:2},
+    {mode:'match', thru:7, isDormie:true, diff:2, remaining:2},
+    {mode:'match', thru:5, diff:1, remaining:4},
+    {mode:'match', thru:5, diff:-1, remaining:4},
+    {mode:'match', thru:5, diff:0, remaining:4},
+    {mode:'match', thru:9, diff:0, remaining:0, winner:'tie'},
+    {mode:'match', thru:9, diff:2, remaining:0, winner:'A'},
+    {mode:'match', thru:9, diff:-2, remaining:0, winner:'B'},
+  ];
+  const BAD = /(undefined|NaN|\[object Object\]|Infinity)/;
+  MATRIX.forEach((r, i) => {
+    const q = part(r);
+    const blob = `${q.txt}|${q.cls}|${q.color}|${q.sub}`;
+    expect(`nassau parts[${i}]: all fields non-empty`,
+      !!q.txt && !!q.cls && !!q.color && !!q.sub, true);
+    expect(`nassau parts[${i}]: no garbage token`, BAD.test(blob), false);
+  });
+}
+
+// ── 146. WALK-OFF banner labels — extracted pure helpers (rule 30) ────────────
+// fsWalkoffCostLabel + fsWalkoffSubLabel lifted from the renderWalkoffGame closure. The main
+// banner text already flows through the tested fsCalcOneMatch; these were the last inline bits.
+// lastNameOf lowercases, so a resolved winner name reads e.g. "snead wins" (capitalisation is CSS).
+{
+  const { fsWalkoffCostLabel, fsWalkoffSubLabel } = sandbox;
+
+  // costLabel — M-number + cost, "(press)" from the 3rd match on (idx>1).
+  expect('walkoff cost idx0', fsWalkoffCostLabel(0, 5),  'M1 · $5');
+  expect('walkoff cost idx1', fsWalkoffCostLabel(1, 5),  'M2 · $5');
+  expect('walkoff cost idx2', fsWalkoffCostLabel(2, 5),  'M3 · $5 (press)');
+  expect('walkoff cost idx3', fsWalkoffCostLabel(3, 10), 'M4 · $10 (press)');
+
+  // subLabel — needs players for the closed-winner branch.
+  vmSetS('players', [{id:'pA',name:'Sam Snead'}, {id:'pB',name:'Ben Hogan'}]);
+  const pair = { teamA:['pA'], teamB:['pB'] };
+  expect('walkoff sub thru',       fsWalkoffSubLabel({closed:false}, {isDormie:false, thru:6}, pair), 'Thru 6');
+  expect('walkoff sub dormie',     fsWalkoffSubLabel({closed:false}, {isDormie:true, remaining:2}, pair), 'Dormie — 2 left');
+  expect('walkoff sub closed tie', fsWalkoffSubLabel({closed:true, closedOnHole:7, winner:'tie'}, {}, pair), 'Closed H7 — Halved');
+  expect('walkoff sub closed A',   fsWalkoffSubLabel({closed:true, closedOnHole:5, winner:'A'}, {}, pair), 'Closed H5 — snead wins');
+  expect('walkoff sub closed B',   fsWalkoffSubLabel({closed:true, closedOnHole:5, winner:'B'}, {}, pair), 'Closed H5 — hogan wins');
+
+  // Render smoke — the rewired closure must still render walkoff without throwing or leaking garbage.
+  function capWalkoff() {
+    smokeSetup();
+    vmSetS('players', [{id:'pA',name:'Sam Snead'}, {id:'pB',name:'Ben Hogan'}]);
+    vmSetS('courses', [{ id:'wc', name:'WC', slope:113, rating:36, par:36,
+      holes:Array.from({length:9},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+    vmSetS('events', [{ id:'wo1', type:'foursome', status:'active', _scoring:true, date:Date.now(),
+      courseId:'wc', courseName:'WC', gameType:'walkoff', playerIds:['pA','pB'], chs:{pA:0,pB:0}, _totalHoles:9,
+      scores:{ pA:{1:3,2:4}, pB:{1:4,2:3} }, pairs:[{ A:'pA', B:'pB' }], pairMatches:[[{ startHole:1, cost:5, closed:false, winner:null }]] }]);
+    dummyEl.innerHTML = '';
+    sandbox.requestAnimationFrame = function(cb){ try { cb(); } catch(e){ dummyEl.__err = e.message; } };
+    dummyEl.__err = null;
+    let threw = null;
+    try { vm.runInContext('renderWalkoffGame();', sandbox); } catch(e){ threw = e.message; }
+    sandbox.requestAnimationFrame = function(){};
+    return { threw: threw || dummyEl.__err, html: dummyEl.innerHTML || '' };
+  }
+  const w = capWalkoff();
+  expect('walkoff render: no throw', w.threw || false, false);
+  expect('walkoff render: non-empty', w.html.length > 0, true);
+  expect('walkoff render: no garbage', /(undefined|NaN|\[object Object\]|Infinity|\$\{)/.test(w.html), false);
+}
+
+// ── 147. OUTING result summary + DOC seg label — extracted helpers (rule 30) ──
+// outingResultSummary was the per-format winner string built inside outingFinish (untested,
+// bug-4 class). fsDOCSegLabel was the "Holes X–Y" sub-label inside renderDOCGame. Both verbatim.
+{
+  const { outingResultSummary, fsDOCSegLabel } = sandbox;
+  const sum = (gt, r) => outingResultSummary({gameType:gt}, r);
+
+  // Team formats
+  expect('outing scramble', sum('scramble', {isTeam:true, teamResults:[{names:'Team1', teamNet:65}]}), 'Team1 net 65');
+  expect('outing team vs par (under)', sum('bestball', {isTeam:true, teamResults:[{names:'Team1', netVsPar:-3}]}), 'Team1 -3 vs par');
+  expect('outing team vs par (over)',  sum('bestball', {isTeam:true, teamResults:[{names:'Team1', netVsPar:2}]}),  'Team1 +2 vs par');
+  expect('outing team no winner → empty', sum('scramble', {isTeam:true, teamResults:[]}), '');
+
+  // Stableford (net points over target)
+  expect('outing stableford', sum('stableford',
+    {playerData:[{name:'Sam', totalGross:80, totalPts:38, ptTarget:36}]}), 'Sam +2 pts');
+
+  // Partner stableford
+  expect('outing pstableford', sum('pstableford', {pairResults:[{names:'PairX', teamPts:72}]}), 'PairX 72 pts');
+
+  // Best-ball match mode
+  expect('outing bbmatch A up',  sum('bbmatch', {mode:'match', matchStatus:3,  names0:'WinA', names1:'WinB'}), 'WinA 3 UP');
+  expect('outing bbmatch square',sum('bbmatch', {mode:'match', matchStatus:0,  names0:'WinA', names1:'WinB'}), 'All Square');
+  expect('outing bbmatch B up',  sum('bbmatch', {mode:'match', matchStatus:-2, names0:'WinA', names1:'WinB'}), 'WinB 2 UP');
+  // Best-ball stroke mode
+  expect('outing bbmatch stroke', sum('bbmatch', {mode:'stroke', groupResults:[{names:'GrpZ', totalBestNet:60}]}), 'GrpZ best net 60');
+
+  // Low net / gross
+  expect('outing lownet', sum('lownet', {playerData:[{name:'Lo', totalGross:80, totalNet:68}]}), 'Lo net 68');
+  expect('outing gross',  sum('gross',  {playerData:[{name:'Gr', totalGross:75}]}), 'Gr 75');
+
+  // Degrade: no results → empty string (never "undefined")
+  expect('outing summary null r → empty', sum('gross', null), '');
+  expect('outing summary unknown gt → empty', sum('mystery', {playerData:[{name:'X', totalGross:70}]}), '');
+
+  // Output scanner across all branches — no garbage token ever.
+  const BAD = /(undefined|NaN|\[object Object\]|Infinity)/;
+  [
+    sum('scramble', {isTeam:true, teamResults:[{names:'T', teamNet:65}]}),
+    sum('bestball', {isTeam:true, teamResults:[{names:'T', netVsPar:-3}]}),
+    sum('stableford', {playerData:[{name:'S', totalGross:80, totalPts:38, ptTarget:36}]}),
+    sum('bbmatch', {mode:'match', matchStatus:3, names0:'A', names1:'B'}),
+    sum('bbmatch', {mode:'stroke', groupResults:[{names:'G', totalBestNet:60}]}),
+    sum('lownet', {playerData:[{name:'L', totalGross:80, totalNet:68}]}),
+    sum('gross', {playerData:[{name:'G', totalGross:75}]}),
+    sum('gross', null),
+  ].forEach((s,i)=> expect(`outing summary[${i}] no garbage`, BAD.test(s), false));
+
+  // DOC segment hole-range label
+  expect('DOC seg label front9', fsDOCSegLabel(Array.from({length:6},(_,i)=>({num:i+1}))), 'Holes 1–6');
+  expect('DOC seg label 7-9',    fsDOCSegLabel([{num:7},{num:8},{num:9}]), 'Holes 7–9');
+  expect('DOC seg label single', fsDOCSegLabel([{num:4}]), 'Holes 4–4');
+}
+
+// ── 148. IN-PLACE UPDATER shares the render helpers — no drift (rule 30) ──────
+// fsUpdateStandingsInPlace re-computed the Nassau banner INLINE with stroke-only logic, so a
+// match-play Nassau (the DEFAULT mode) showed correct match text on first render but was
+// overwritten with wrong stroke text on the next score entry. It now delegates to the same
+// fsNassauBannerParts the render uses, so the two paths cannot diverge. This pins that.
+{
+  const { fsCalcNassauSeg, fsNassauBannerParts } = sandbox;
+
+  smokeSetup();
+  vmSetS('players', [{id:'p1',name:'Sam Snead'},{id:'p2',name:'Ben Hogan'}]);
+  vmSetS('courses', [{ id:'nc', name:'NC', slope:113, rating:36, par:72,
+    holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+  // Match-mode Nassau; A takes holes 1 & 2 (gross 3 vs 5, CH 0) → A 2 UP thru 2 on the front.
+  const g = { id:'nas1', type:'foursome', status:'active', _scoring:true, date:Date.now(),
+    courseId:'nc', courseName:'NC', gameType:'nassau', nassauMode:'match',
+    playerIds:['p1','p2'], chs:{p1:0,p2:0}, _totalHoles:18,
+    costF:5, costB:5, costT:10,
+    scores:{ p1:{1:3,2:3}, p2:{1:5,2:5} },
+    pairs:[{ A:'p1', B:'p2', teamA:['p1'], teamB:['p2'] }] };
+  vmSetS('events', [g]);
+
+  // Independent expected: compute the front-segment result and the helper's text (helper values
+  // themselves are hand-pinned in §145; here we assert the UPDATER emits exactly them).
+  const course = { holes: Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) };
+  const front = course.holes.slice(0,9);
+  const fR = fsCalcNassauSeg(g, front, g.pairs[0]);
+  const expected = fsNassauBannerParts(fR, 'snead', 'hogan');
+
+  // Recording DOM: capture what the updater writes to the front-segment score banner.
+  const rec = {};
+  const realGEBI = sandbox.document.getElementById;
+  sandbox.document.getElementById = (id) => (rec[id] || (rec[id] = { id, textContent:'', className:'', innerHTML:'', style:{} }));
+  try { vm.runInContext(`fsUpdateStandingsInPlace(S.events.find(e=>e.gameType==='nassau'))`, sandbox); }
+  finally { sandbox.document.getElementById = realGEBI; }
+
+  const scoreEl = rec['nassau-banner-score-0-f'];
+  expect('in-place nassau: front banner written', !!scoreEl && scoreEl.textContent.length>0, true);
+  expect('in-place nassau: matches shared helper (no drift)', scoreEl.textContent, expected.txt);
+  expect('in-place nassau: emits MATCH text (not stroke)', /UP|DORMIE|SQUARE|wins \d/.test(scoreEl.textContent), true);
+  expect('in-place nassau: colour matches helper', (rec['nassau-banner-score-0-f'].style.color||''), expected.color);
+  expect('in-place nassau: no garbage token',
+    /(undefined|NaN|\[object Object\]|Infinity)/.test(scoreEl.textContent), false);
+}
+
+// ── 149. Finalize summaries + outing cell + hole-popup text (rule 30) ─────────
+// Four more helpers lifted verbatim from completion/render bodies: fsBBBResultSummary and
+// fsDOCResultSummary (stored g.summary, shown later in recent-games — bug-4 class),
+// outingResultCellValue (results-table cell), and fsHolePopupNassauText (the compact hole-
+// popup variant, deliberately distinct from the banner's fsNassauBannerParts).
+{
+  const { fsBBBResultSummary, fsDOCResultSummary, outingResultCellValue,
+          fsHolePopupNassauText, fsDocMatchDefs } = sandbox;
+
+  // BBB summary — first name : points, space-joined.
+  expect('BBB summary', fsBBBResultSummary(
+    { playerIds:['p1','p2'], playerNames:['Sam Snead','Ben Hogan'] },
+    { p1:{total:5}, p2:{total:3} }), 'Sam:5pts Ben:3pts');
+
+  // DOC summary — no scores → every segment All Square, Drv/Opp/Crt prefixes, ' | ' joins.
+  smokeSetup();
+  vmSetS('players', [{id:'p1',name:'A A'},{id:'p2',name:'B B'},{id:'p3',name:'C C'},{id:'p4',name:'D D'}]);
+  const holes = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}));
+  vmSetS('courses', [{ id:'dc', name:'DC', slope:113, rating:36, par:72, holes }]);
+  const gd = { gameType:'doc', courseId:'dc', _totalHoles:18, scores:{},
+    chs:{p1:0,p2:0,p3:0,p4:0},
+    segs:[holes.slice(0,6), holes.slice(6,12), holes.slice(12,18)],
+    carts:{ cart1:{driver:'p1',passenger:'p2'}, cart2:{driver:'p3',passenger:'p4'} } };
+  const defs = fsDocMatchDefs(gd);
+  expect('DOC summary all-even', fsDOCResultSummary(gd, defs),
+    'Drv:All Square | Opp:All Square | Crt:All Square');
+
+  // Outing results cell — points / net / gross with — fallback on falsy totals.
+  expect('outing cell stab pts',   outingResultCellValue({totalGross:80, totalPts:38}, true,  false), 38);
+  expect('outing cell stab blank', outingResultCellValue({totalGross:0,  totalPts:38}, true,  false), '—');
+  expect('outing cell lownet',     outingResultCellValue({totalNet:68},               false, true),  68);
+  expect('outing cell lownet 0',   outingResultCellValue({totalNet:0},                false, true),  '—');
+  expect('outing cell gross',      outingResultCellValue({totalGross:75},             false, false), 75);
+  expect('outing cell gross 0',    outingResultCellValue({totalGross:0},              false, false), '—');
+
+  // Hole-status popup text (compact variant) — own palette, short tally, no "wins".
+  expect('popup even',   fsHolePopupNassauText({winner:null},          'snead','hogan').txt,   'Even');
+  expect('popup even c', fsHolePopupNassauText({winner:null},          'snead','hogan').color, '#d4a012');
+  expect('popup tie',    fsHolePopupNassauText({winner:'tie'},         'snead','hogan').txt,   'TIE');
+  expect('popup A tally', fsHolePopupNassauText({winner:'A',aT:5,bT:3},'snead','hogan').txt,   'snead 5–3');
+  expect('popup A colour',fsHolePopupNassauText({winner:'A',aT:5,bT:3},'snead','hogan').color, '#86efac');
+  expect('popup A no tally', fsHolePopupNassauText({winner:'A'},       'snead','hogan').txt,   'snead');
+  expect('popup B tally', fsHolePopupNassauText({winner:'B',aT:3,bT:6},'snead','hogan').txt,   'hogan 6–3');
+  expect('popup B colour',fsHolePopupNassauText({winner:'B',aT:3,bT:6},'snead','hogan').color, '#dc2626');
+}
+
+// ── 150. LIFECYCLE / STALENESS suite (mission #5, bug 1) ──────────────────────
+// The 15-vs-14 report: the calc was right, but a game SNAPSHOTS each player's course handicap at
+// creation (g.chs / g.rawChs, g.players[].courseHcp). After the course was re-rated the game kept
+// the stale value. Every unit test fed fresh data, so nothing caught it. fsRefreshChs (foursome)
+// and outingRefreshChs (outing) — called from fsRouteToGame on open — recompute from CURRENT
+// course+player and no-op when unchanged. League/Trip compute live in their ctx each render.
+// This suite mutates the underlying data and asserts dependents refresh (and don't over-write).
+{
+  const { fsRefreshChs, outingRefreshChs, fsGetStrokesForSc, leagueSessionCtx, tripScoringCtx } = sandbox;
+
+  const ORIG = { id:'sc', name:'SC', slope:113, rating:72, par:72,
+    holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) };
+  const RERATE = { ...ORIG, slope:130, rating:74 }; // par unchanged (holes identical)
+
+  // ---- A. Foursome: fsRefreshChs recomputes on re-rate; strokes follow ----
+  smokeSetup();
+  vmSetS('players', [{id:'p1',name:'One',hcp:12},{id:'p2',name:'Two',hcp:8}]);
+  vmSetS('courses', [ORIG]);
+  // Build the game's snapshot exactly as creation would (fsBuildChs), strokeMode default (not low).
+  const built = sandbox.fsBuildChs([{id:'p1',hcp:12},{id:'p2',hcp:8}], ORIG, false);
+  const g = { id:'g1', type:'foursome', status:'active', _scoring:true, date:Date.now(),
+    courseId:'sc', gameType:'nassau', playerIds:['p1','p2'], _totalHoles:18,
+    chs:{...built.chs}, rawChs:{...built.rawChs}, scores:{} };
+  vmSetS('events', [g]);
+
+  expect('stale A: baseline chs p1', g.chs.p1, 12);
+  expect('stale A: baseline chs p2', g.chs.p2, 8);
+  // hole hcpRating 14: at CH12 no stroke, at CH16 one stroke — the discriminating hole.
+  expect('stale A: baseline strokes h14 = 0', fsGetStrokesForSc(g, 'p1', {num:14,hcp:14,hcpRating:14}), 0);
+
+  // Spy on fsSaveGame to prove the no-op branch doesn't write.
+  let saves = 0; const realSave = sandbox.fsSaveGame;
+  sandbox.fsSaveGame = function(x){ saves++; return realSave(x); };
+
+  // Re-rate the course, then open the game (fsRefreshChs) and read the game back from the vm.
+  vmSetS('courses', [RERATE]);
+  const savesBeforeRerate = saves;
+  const gA = vm.runInContext(`(function(){ const g=S.events.find(e=>e.id==='g1'); fsRefreshChs(g); return g; })()`, sandbox);
+  expect('stale A: chs p1 recomputed 12→16', gA.chs.p1, 16);
+  expect('stale A: chs p2 recomputed 8→11',  gA.chs.p2, 11);
+  expect('stale A: strokes h14 now 1',        fsGetStrokesForSc(gA, 'p1', {num:14,hcp:14,hcpRating:14}), 1);
+  expect('stale A: re-rate DID write',         saves > savesBeforeRerate, true);
+
+  // Open again with nothing changed → no-op, no write.
+  const savesBeforeNoop = saves;
+  const gNoop = vm.runInContext(`(function(){ const g=S.events.find(e=>e.id==='g1'); fsRefreshChs(g); return g; })()`, sandbox);
+  expect('stale A: unchanged open is a no-op (no write)', saves, savesBeforeNoop);
+  expect('stale A: chs unchanged after no-op', gNoop.chs.p1, 16);
+
+  // Re-index the PLAYER (12→20) — the other staleness axis. Refresh must pick up the new index.
+  vmSetS('players', [{id:'p1',name:'One',hcp:20},{id:'p2',name:'Two',hcp:8}]);
+  const gReidx = vm.runInContext(`(function(){ const g=S.events.find(e=>e.id==='g1'); fsRefreshChs(g); return g; })()`, sandbox);
+  expect('stale A: player re-index 12→20 → chs 25', gReidx.chs.p1, 25);
+  sandbox.fsSaveGame = realSave;
+
+  // ---- B. Outing: outingRefreshChs recomputes courseHcp on re-rate; no-op when clean ----
+  smokeSetup();
+  vmSetS('players', [{id:'p1',name:'One',hcp:12}]);
+  vmSetS('courses', [ORIG]);
+  const og = { id:'o1', type:'outing', status:'active', courseId:'sc', strokeAllowance:100,
+    players:[{id:'p1', hcp:12, courseHcp:12}] };
+  vmSetS('events', [og]);
+  vmSetS('courses', [RERATE]);
+  let osaves = 0; const realSave2 = sandbox.fsSaveGame;
+  sandbox.fsSaveGame = function(x){ osaves++; return realSave2(x); };
+  const ogA = vm.runInContext(`(function(){ const g=S.events.find(e=>e.id==='o1'); outingRefreshChs(g); return g; })()`, sandbox);
+  expect('stale B: outing courseHcp 12→16', ogA.players[0].courseHcp, 16);
+  expect('stale B: re-rate DID write', osaves > 0, true);
+  const ob = osaves;
+  vm.runInContext(`(function(){ outingRefreshChs(S.events.find(e=>e.id==='o1')); })()`, sandbox);
+  expect('stale B: clean open is a no-op', osaves, ob);
+  sandbox.fsSaveGame = realSave2;
+
+  // ---- C. League computes live (no snapshot to go stale) ----
+  smokeSetup();
+  vmSetS('players', [{id:'p1',name:'One',hcp:12,regular:true}]);
+  vmSetS('courses', [ORIG]);
+  const lg = { id:'lg1', seasons:[], sessions:[] };
+  const sess = { id:'s1', courseId:'sc', gameType:'stableford', rsvp:{p1:{status:'in'}},
+    groups:[{playerIds:['p1'], teetime:'8:00'}], scores:{} };
+  const ctxOrig = leagueSessionCtx(lg, sess);
+  expect('stale C: league live courseHcp orig 12', ctxOrig.pool.find(p=>p.id==='p1').courseHcp, 12);
+  vmSetS('courses', [RERATE]);
+  const ctxNew = leagueSessionCtx(lg, sess);
+  expect('stale C: league live courseHcp re-rated 16 (no refresh call)',
+    ctxNew.pool.find(p=>p.id==='p1').courseHcp, 16);
+
+  // ---- D. Trip computes live too ----
+  smokeSetup();
+  vmSetS('players', [{id:'p1',name:'One',hcp:12}]);
+  vmSetS('courses', [ORIG]);
+  const t = { id:'t1', players:[{id:'p1'}], settings:{strokeAllowance:100} };
+  const r = { courseId:'sc', groups:[{playerIds:['p1']}], format:'stroke', scores:{} };
+  const tOrig = tripScoringCtx(t, r);
+  expect('stale D: trip live courseHcp orig 12', tOrig.players.find(p=>p.id==='p1').courseHcp, 12);
+  vmSetS('courses', [RERATE]);
+  const tNew = tripScoringCtx(t, r);
+  expect('stale D: trip live courseHcp re-rated 16 (no refresh call)',
+    tNew.players.find(p=>p.id==='p1').courseHcp, 16);
+}
 const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
@@ -7420,6 +8003,39 @@ if (evalError) {
   console.log(`\n  ✖ FATAL: Could not eval index.html`);
   console.log(`    ${evalError.message}`);
   process.exit(1);
+}
+
+if (COVERAGE) {
+  const inst = _covInstrumented;
+  const called   = inst.filter(n => _covCount[n] > 0);
+  const uncalled = inst.filter(n => _covCount[n] === 0).sort();
+  const pct = inst.length ? (100 * called.length / inst.length) : 0;
+  // Three buckets. UI/render: screens the harness can't invoke (expected). Handler/orchestration:
+  // event handlers + state mutators that read the DOM or write Firebase (integration, not unit-
+  // testable in isolation). Pure logic: calc/build/compute/get with no DOM/FB — the real blind spots.
+  const uiRe      = /(render|show|screen|modal|popup|launch|picker|confirm|toast|setup|breakdown|nav|tab|hub|plan|preview)/i;
+  // Strip the module prefix, then test the verb — so leagueSetX / outingAddY / fsSwapZ classify as
+  // handlers even though the verb isn't at the string start.
+  const stripPre  = n => n.replace(/^_?(fs|outing|league|trip|wolf|bbb|doc|twoScramble|twoShamble|nassau|walkoff|stableford|lownet)/i, '');
+  const handlerRe = /^(on|set|save|start|finish|finalize|add|remove|delete|move|toggle|select|assign|shuffle|go|open|close|pick|copy|send|do|update|rejoin|resume|abandon|clear|deal|generate|swap|unassign|activate|edit|import|admin|roster|sign|init|switch|advance|check|load|declare|force|lock|refresh|view|rebuild|highlight|group)/i;
+  const isHandler = n => handlerRe.test(n) || handlerRe.test(stripPre(n));
+  const uiOut      = uncalled.filter(n => uiRe.test(n));
+  const handlerOut = uncalled.filter(n => !uiRe.test(n) && isHandler(n));
+  const logicOut   = uncalled.filter(n => !uiRe.test(n) && !isHandler(n));
+  console.log(`\n────────────── FUNCTION COVERAGE ──────────────`);
+  console.log(`  ${called.length}/${inst.length} top-level functions executed (${pct.toFixed(1)}%)`);
+  console.log(`  uncalled: ${uiOut.length} UI/render (expected) · ${handlerOut.length} handler/orchestration (integration) · ${logicOut.length} pure logic`);
+  console.log(`  PURE-LOGIC blind spots (the actionable ones — unit-testable, no DOM/Firebase):`);
+  const groups = {};
+  logicOut.forEach(n => {
+    const pre = n.startsWith('fs') ? 'foursome' : n.startsWith('outing') ? 'outing'
+      : n.startsWith('league') ? 'league' : n.startsWith('trip') ? 'trip'
+      : n.startsWith('wolf') ? 'wolf' : n.startsWith('rsvp') ? 'rsvp' : 'other';
+    (groups[pre] = groups[pre] || []).push(n);
+  });
+  Object.keys(groups).sort().forEach(k => console.log(`    ${k} (${groups[k].length}): ${groups[k].join(', ')}`));
+  if (!logicOut.length) console.log('    (none — every non-render logic function is exercised)');
+  console.log('');
 }
 
 if (failed === 0) {
