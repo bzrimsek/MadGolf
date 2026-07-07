@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.83  Build 2026-07-06 03:45 PM ET
+     Version : v0.90.89  Build 2026-07-06 10:11 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,12 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.89  2026-07-06  Season standings are now an OPTION for non-partner leagues (lg.trackStandings), default OFF for new leagues. A non-partner league whose game changes week to week doesn't need a blended season table — an individual week ranks people, a foursome week ranks teams — so the Standings hub card and screen only appear when trackStandings is on. Partner leagues always show their match-play standings (win +1 / tie +0.5) regardless of this toggle. New SEASON STANDINGS On/Off control in the GAME & SCORING section (hidden for partner leagues, which are always match play); setter leagueSetTrackStandings. MIGRATION: existing leagues default to ON so their current standings don't disappear (rule 7); only newly created leagues default off. No scoring logic changed — standings are still live-computed, so toggling on instantly restores the table. Handler count 2720 -> 2721 (the new toggle handler, validated by the source handler scan; the test file is unchanged).
+// v0.90.88  2026-07-06  Partner-league RESULTS screen now reads as match play, completing the match-play flow end to end. The per-session Results screen shows match outcomes for a partner league — "Pair A def. Pair B 2&1", "halved with", and vs-Par on a bye — instead of net-rank finish order. leaguePartnerMatch now also returns the match MARGIN via running status + close detection ("2&1" when the match closes early, "N up" / "1 up" otherwise, "Halved" for a tie); the winner/holes it already returned are unchanged, so standings are unaffected. New helpers: leaguePartnerSessionResults (per-group match data, reusing leagueGroupPairs + leaguePartnerMatch) and leaguePartnerResultsHtml (templating only). Skins is preserved as a side pot — leaguePartnerSkinsHtml renders it below the matches when skins is on, so nothing regresses. +5 tests (§159 extended): match margins on every case, session-results data (A def B 10&8, byed pair def Par 10&8), and results templating. Totals 2715 -> 2720. Partner-league match play is now complete: scoring + standings (v0.90.87) and the results screen all read as match play.
+// v0.90.87  2026-07-06  Partner-league better-ball MATCH PLAY + match standings (win +1, tie +0.5). A partner league is now scored as match play regardless of the game-type setting: each round-robin group is pair A vs pair B — better ball vs better ball, lower net wins the hole — and on a bye the pair plays against par. New pure helpers: leaguePairHoleNet (a pair's better-ball net on a hole), leagueGroupPairs (the two partnerships present in a group; second is null on a bye), and leaguePartnerMatch (hole-by-hole match → winner + holes won each side). leagueComputeStandings now branches: partner leagues award win = +1 / tie = +0.5 per match and skip the 3/2/1 finish-rank system (which non-partner leagues keep), and every group member appears in the standings even after losing every match. Reuses bestBallsHoleNet (rule 2). +14 tests (§159): match A-wins / tie / B-wins, bye win and loss vs par, pair identification, and a full standings integration (winner pair +1, loser 0, byed pair beats par +1, all participants in the rows). Totals 2701 -> 2715. Tracked follow-up (rule 31): the per-session RESULTS screen still renders net-rank finish order for a partner league — it should show the match outcomes (Pair A def. Pair B); standings are already correct.
+// v0.90.86  2026-07-06  Closed the remaining group-module volume gaps + extracted league standings for testability. REFACTOR (rule 30): the league standings accumulation (points 3/2/1 by finish rank, wins, net countback tie-breaks) was computed inline inside leagueRenderStandings — business logic buried in a render, so it shipped untested. Extracted it into a named helper leagueComputeStandings(lg, showSeason) that returns {points, wins, cb, rows, useSeason, activeSeason, completed}; the render now calls it. Behavior-preserving — the existing standings render test is unchanged. VOLUME (§158, up to 50 golfers): trip group SIZING (calcGroupCount, buildGroupShells) — 13 groups, caps sum to 50, balanced 11×4+2×3, none over 4; trip group ASSIGNMENT (bestShell greedy balancing) — every player placed exactly once, all shells filled to cap; the shared results engine (computeRoundResults) at 50 — all 50 ranked exactly once, sorted by net; and league standings (leagueComputeStandings) across 50 players × 10 completed sessions — all 50 in the rows, total points = 6 per session (60), none negative or NaN. Outing/trip per-round standings ride on computeRoundResults, now tested at 50; the trip cumulative aggregation (tripLeaderboard) uses that same engine. +17 assertions. Totals 2684 -> 2701.
+// v0.90.85  2026-07-06  Volume / scale test suite for the group modules up to 50 golfers (§157) — test infrastructure only, no production change. The group tests previously topped out around 24 players and mostly asserted group COUNT; at 50 the real risks are remainder handling (50 isn't divisible by 4), tier splits, round-robin with many pairs, and dropped or duplicated players. §157 drives the real assignment functions at scale and asserts structural invariants: outingGenerateGroups across n=17..53 (every player placed exactly once, no group >4, no empty group, balanced within 1, correct ceil(n/4) count, exact 11×4+2×3 profile at 50); outingBuildTeams at 50 (A/B and random — everyone covered, 25 teams) and 49 (odd → exactly one borrow team); leagueRoundRobinRound at 25 partnerships (12 matchups/round with one bye, and every pairing meets exactly once over the full 25-round cycle); leaguePartnerGroupsForRound at 25 pairs (all 50 placed once, 12 matchup foursomes); and leagueGenerateSessionDates for a full Apr–Sep season (correct weekday, sorted, 20+ weeks). +86 assertions. Totals 2598 -> 2684. Note surfaced for follow-up: League partner scoring is still net-rank 3/2/1 via computeRoundResults — there is no head-to-head pair-vs-pair match result yet, so "a byed pair plays against par" awaits a partner head-to-head match-scoring feature.
+// v0.90.84  2026-07-06  New FLOW / INTEGRATION test layer (§156) — the answer to "obvious bugs keep slipping past a green suite." Test infrastructure only; no production logic changed. Diagnosis: the ~2460 existing tests are almost all UNIT tests of pure functions fed hand-built fixtures — they never create a game the way the app does, and the render tests only assert no-throw / no-garbage, so a game built with the wrong SHAPE (nineSide unset, _totalHoles=18 for a nine) and a scorecard rendering the wrong hole count both passed. That is exactly how the 9-hole bug hid behind 2400 green tests: it lived in the seams between correct units, which unit tests structurally cannot see. §156 drives the REAL start*Game creators the way the UI does (course + picks + nine-mode set on window, preconditions for teams/carts) and captures the game object each one builds via an fsSaveGame spy — before persistence — then asserts shape invariants across ALL NINE foursome game types × {18, F9, B9}: creator built a game, nineSide matches the selection, _totalHoles is 9 or 18 to match, active-hole count matches, and no positive-index player ever gets a negative course handicap. Plus render-correctness checks that the scorecard actually shows hole 9 (not 18) for a front nine and hole 18 for a full round. This layer would have caught the 9-hole scorecard bug at creation. +135 assertions. Totals 2463 -> 2598.
 // v0.90.83  2026-07-06  Closed the last coverage-tool item (outingBestBallMatch) — test infrastructure only, no production logic changed. outingBestBallMatch turned out to be a game-type SELECTOR (it sets window._outingGameType and calls outingGroupAssign), not a scoring function; the real best-ball match scoring, outingComputeBestBallMatch, was already covered. §155 pins the genuinely-pure helpers the coverage tool had surfaced — fsCartsComplete (all four cart seats filled?), outingTeamsSub (teams sub-label), tripGetPublishMsg (saved publish message) — plus a smoke that outingBestBallMatch sets bbmatch mode. The COVERAGE report classifier was rewritten to bucket by what a function DOES (its body) rather than its name: builds markup or calls a render -> UI/render; touches the DOM, writes Firebase, mutates window state, or delegates to a render -> handler/orchestration; otherwise pure logic. That dropped the "pure-logic blind spots" list from 29 (mostly verbless handlers and DOM getters the name heuristic mislabeled) to 7 (getters + service-worker hooks + a DOM hide) — so the report now reflects real gaps. No untested scoring logic remains. Totals 2454 -> 2463.
 // v0.90.82  2026-07-06  League partner-league game / scoring / skins inheritance (closes the League Setup feedback series, v0.90.78-82). GAME & SCORING (the season section, renamed from DEFAULT GAME): in a partner league the game list shows ONLY partner games and defaults to Match Play; a scoring-method control sits under the game (Best Ball / Team Total for match & stroke play; result method for shamble); and a league-wide SKINS On/Off toggle is folded in. INHERITANCE: leagueBuildSession now inherits teamScoring and resultMethod from the season (both were hardcoded to bestball/best2), and a partner league's sessions default to Match Play when no season game is set. Sessions inherit the league-wide skinsOn as their skins default (the per-session Add Skins box still overrides). Everything stays overridable per session. PER-SESSION PICKER: in a partner league leagueRenderGameType shows only the PARTNER GAMES section (individual and 4-man collapsed) and pre-selects the season default. GUARDRAIL: changing the pairing method while Partner League is on now toasts a warning — the partner setting prevails and the pairing method only affects blind-draw games. MIGRATION: lg.skinsOn defaults true, preserving the current always-on skins. New setters: leagueSetSeasonTeamScoring, leagueSetSeasonResultMethod, leagueSetSkinsOn. +8 inheritance tests (§154), all values pre-computed. Totals 2443 -> 2454.
 // v0.90.81  2026-07-06  FOURSOME 9-hole bug fixed across the board (F9 / B9 / 18). Root cause: the nine picker (window._fsNineMode) only reached the course-handicap calc — the game never recorded its nine-side, _totalHoles was always the full course length, and every foursome scorer/scorecard read course.holes (all 18). So a 9-hole game rendered an 18-hole card, and because fsBuildChs applied the full 18-hole par against a halved rating the course handicap went deeply negative (e.g. -30 for a 12). Fixes: (1) new fsHoles(g,course) accessor + fsIsNine(g) — every foursome scorer/scorecard now reads the active nine, never course.holes. (2) All nine start*Game creators stamp g.nineSide and _totalHoles from the active nine (DOC/Wolf build their segments/holes from the active nine too). (3) fsRenderScorecard renders the active nine. (4) 9-hole course handicap = full 18-hole CH / 2, rounded once (slope/113 unchanged; index, rating and par all halve, so CH halves) — a selection on an 18-hole course only; genuine 9-hole courses (rating < 50) and 18-hole play are byte-identical. (5) fsBuildChs takes an explicit nineMode and fsRefreshChs passes g.nineSide — closing a corruption path where reopening a saved 9-hole game with the picker at 18 rebuilt an 18-hole handicap. (6) Stableford quota is 9-hole aware via pointTarget. (7) Nassau front/back/total and DOC segments split the active nine. +23 tests (§153): CH halving, fsHoles slicing, quota, the reopen corruption guard, and Stableford scoring only the active nine. All existing 18-hole and genuine-9-hole tests unchanged (regression-safe). Totals 2420 -> 2443. Queued next: v0.90.82 league partner-league game/scoring/skins inheritance (Match Play default; skins in a Game & Scoring section).
@@ -1151,8 +1157,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.83';
-const BUILD_TIME = '2026-07-06 03:45 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.89';
+const BUILD_TIME = '2026-07-06 10:11 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1356,6 +1362,7 @@ function normalizeState(raw) {
         // value into it and reset the method to a real grouping engine.
         if (ev.partnerLeague === undefined) ev.partnerLeague = (ev.groupMethod === 'partners');
         if (ev.skinsOn === undefined) ev.skinsOn = true;  // league-wide skins default, inherited by sessions
+        if (ev.trackStandings === undefined) ev.trackStandings = true;  // existing leagues keep their season standings; new leagues default off
         if (ev.groupMethod === 'partners') ev.groupMethod = 'random';
         if (!ev.skins)            ev.skins            = {hcpAdj:100,halfStroke:false,strokeOffBest:false};
         // Legacy: convert old 'day' string to numeric dayOfWeek (only if present)
@@ -11788,7 +11795,7 @@ function leagueSaveModal() {
     const id = uid();
     const lg = { id, type:'league', status:'active', name:name.trim(),
       date:Date.now(), courseId:null,
-      groupManagerIds:[], pairMode:'ab', groupMethod:'random', partnerLeague:false,
+      groupManagerIds:[], pairMode:'ab', groupMethod:'random', partnerLeague:false, trackStandings:false,
       skins:{hcpAdj:100,halfStroke:false,strokeOffBest:false},
       sessions:[], seasons:[] };
     leagueMigrateSchedule(lg);   // creates Season 1 with default schedule; weeknight set later in Seasons & Schedules
@@ -12025,7 +12032,7 @@ function leagueRenderHub() {
 
   const html = `
     ${sessCard}
-    ${nComp>0 ? hubCard('🏆','Standings',nComp+' session'+(nComp!==1?'s':'')+' complete','leagueRenderStandings()') : ''}
+    ${nComp>0 && (lg.partnerLeague || lg.trackStandings) ? hubCard('🏆','Standings',nComp+' session'+(nComp!==1?'s':'')+' complete','leagueRenderStandings()') : ''}
     ${hubCard('📅','Session History',sessions.length?sessions.length+' sessions · '+nComp+' complete':'No sessions yet','leagueRenderSessions()')}
     <div style="margin:8px 0 6px;"></div>
     ${setupSection}
@@ -12160,6 +12167,11 @@ function leagueRenderSeasonsScreen() {
         <button type="button" class="holes-toggle ${lg.skinsOn!==false?'active':''}" style="flex:1;" onclick="leagueSetSkinsOn(true)">On</button>
         <button type="button" class="holes-toggle ${lg.skinsOn===false?'active':''}" style="flex:1;" onclick="leagueSetSkinsOn(false)">Off</button>
       </div>
+      ${!lg.partnerLeague ? `${lbl('SEASON STANDINGS')}
+      <div style="display:flex;gap:6px;margin-bottom:16px;">
+        <button type="button" class="holes-toggle ${lg.trackStandings?'active':''}" style="flex:1;" onclick="leagueSetTrackStandings(true)">On</button>
+        <button type="button" class="holes-toggle ${!lg.trackStandings?'active':''}" style="flex:1;" onclick="leagueSetTrackStandings(false)">Off</button>
+      </div>` : ''}
       ${lbl('HC ADJUSTMENT')}
       <select onchange="leagueSetSeasonAllowance(this.value)" style="${selStyle}">
         ${[100,90,85,75,50].map(pct=>`<option value="${pct}" ${(active.strokeAllowance||100)===pct?'selected':''}>${pct}%</option>`).join('')}
@@ -12322,6 +12334,11 @@ function leagueSetSeasonResultMethod(v) {
 function leagueSetSkinsOn(on) {
   const lg=leagueCurrent();if(!lg)return;
   lg.skinsOn=!!on; scheduleWrite(); leagueRenderSeasonsScreen();
+}
+// Season standings on/off for non-partner leagues (default off; partner leagues always show match standings).
+function leagueSetTrackStandings(on) {
+  const lg=leagueCurrent();if(!lg)return;
+  lg.trackStandings=!!on; scheduleWrite(); leagueRenderSeasonsScreen();
 }
 function leagueSetSeasonStart(type) {
   const lg=leagueCurrent();if(!lg)return;
@@ -13001,6 +13018,44 @@ function leaguePartnerGroupsForRound(pairs, singles, round) {
   for (let i = 0; i < leftover.length; i += 4) groups.push(leftover.slice(i, i + 4));
   return groups;
 }
+// Better-ball net for a pair on a hole (lowest net of the two partners), or null if neither scored.
+function leaguePairHoleNet(pairPlayers, scores, hole, hcpScale) {
+  const nets = bestBallsHoleNet(pairPlayers, scores, hole, hcpScale);
+  return nets.length ? nets[0] : null;
+}
+// The (up to) two partnerships present in a group. pairB is null on a bye (only one pair present).
+function leagueGroupPairs(groupPlayerIds, seasonPartners) {
+  const set = new Set(groupPlayerIds || []);
+  const present = (seasonPartners || [])
+    .map(pr => (pr.playerIds || []).filter(id => set.has(id)))
+    .filter(ids => ids.length === 2);
+  return [present[0] || null, present[1] || null];
+}
+// Better-ball match play for a partner-league group: pair A vs pair B, hole by hole, lower net wins
+// the hole. A partner league is ALWAYS match play — the game-type setting never changes this. On a
+// bye (pairBPlayers null) the pair plays against par. Returns winner + holes won each side.
+function leaguePartnerMatch(pairAPlayers, pairBPlayers, scores, activeHoles, hcpScale) {
+  const hs = activeHoles || [];
+  let holesA = 0, holesB = 0, played = 0, status = 0, closeAt = -1, closeStat = 0;
+  hs.forEach((h, i) => {
+    const na = leaguePairHoleNet(pairAPlayers, scores, h, hcpScale);
+    if (na === null) return;
+    const nb = pairBPlayers ? leaguePairHoleNet(pairBPlayers, scores, h, hcpScale) : h.par;
+    if (nb === null) return;                       // opponent hasn't scored → hole not decided
+    played++;
+    if (na < nb) { holesA++; status++; } else if (nb < na) { holesB++; status--; }
+    // Match closes the first time the lead exceeds the holes remaining (dormie-and-done).
+    if (closeAt < 0 && status !== 0 && Math.abs(status) > hs.length - (i + 1)) { closeAt = i; closeStat = status; }
+  });
+  const winner = holesA > holesB ? 'A' : holesB > holesA ? 'B' : 'tie';
+  let margin = 'Halved';
+  if (winner !== 'tie') {
+    margin = (closeAt >= 0 && closeAt < hs.length - 1)
+      ? `${Math.abs(closeStat)}&${hs.length - (closeAt + 1)}`   // closed early, e.g. "2&1"
+      : (Math.abs(status) === 1 ? '1 up' : `${Math.abs(status)} up`);
+  }
+  return { winner, holesA, holesB, holesPlayed: played, margin };
+}
 // Which round-robin round a session is — its position among its season's sessions, ordered by date.
 function leagueSessionRoundIndex(lg, s) {
   const seas = (lg.seasons||[]).find(x => x.id === s.seasonId) || leagueActiveSeason(lg);
@@ -13336,6 +13391,52 @@ function leagueSessionCtx(lg, s){
   return { course, gameType, nineMode, pool, ctx };
 }
 
+// Per-group match results for a partner-league session (data for the Results screen). Reuses
+// leagueGroupPairs + leaguePartnerMatch. Returns [{a, b, winner, margin}] — b is 'Par' on a bye.
+function leaguePartnerSessionResults(lg, s) {
+  const sc = leagueSessionCtx(lg, s);
+  if (!sc) return [];
+  const { ctx } = sc;
+  const seas = (lg.seasons||[]).find(x=>x.id===s.seasonId) || leagueActiveSeason(lg);
+  const partners = (seas && seas.partners) || [];
+  const pById = id => ctx.players.find(p=>p.id===id);
+  const nm = id => { const p = pById(id) || (S.players||[]).find(x=>x.id===id); return p ? String(p.name).split(',')[0] : id; };
+  const out = [];
+  (s.groups||[]).forEach(grp => {
+    const [pa, pb] = leagueGroupPairs(grp.playerIds||[], partners);
+    if (!pa) return;
+    const m = leaguePartnerMatch(pa.map(pById).filter(Boolean), pb ? pb.map(pById).filter(Boolean) : null,
+      s.scores||{}, ctx.activeHoles, ctx.hcpScale);
+    out.push({ a: pa.map(nm).join(' / '), b: pb ? pb.map(nm).join(' / ') : 'Par',
+      winner: m.winner, margin: m.margin });
+  });
+  return out;
+}
+// Templating only — turns leaguePartnerSessionResults data into match-result rows.
+function leaguePartnerResultsHtml(results) {
+  if (!results.length) return '<div style="text-align:center;color:var(--muted);padding:16px;">No matches yet</div>';
+  return results.map(r => {
+    let line;
+    if (r.winner === 'tie') line = `${esc(r.a)} <span style="color:var(--muted);">halved with</span> ${esc(r.b)}`;
+    else {
+      const winName = r.winner === 'A' ? r.a : r.b, loseName = r.winner === 'A' ? r.b : r.a;
+      line = `<b>${esc(winName)}</b> <span style="color:var(--muted);">def.</span> ${esc(loseName)} <b>${esc(r.margin)}</b>`;
+    }
+    return `<div style="padding:10px 12px;border-bottom:1px solid var(--surf3);font-size:13px;">${line}</div>`;
+  }).join('');
+}
+// Compact skins list appended under partner match results (skins is a side pot, still shown when on).
+function leaguePartnerSkinsHtml(skins, ctx) {
+  if (!skins || !skins.anyWins) return '';
+  const { players, groups } = ctx;
+  const items = (skins.type === 'team'
+    ? groups.map((grp, gi) => ({ name: grp.playerIds.map(id => { const p = players.find(x => x.id === id); return p ? (lastNameOf(p.name) || p.name) : '?'; }).join('/'), n: skins.wins[gi] || 0 }))
+    : players.map(p => ({ name: lastNameOf(p.name) || p.name, n: skins.wins[p.id] || 0 }))
+  ).filter(x => x.n > 0).sort((a, b) => b.n - a.n);
+  if (!items.length) return '';
+  return `<div class="section-label" style="margin-top:14px;">Skins</div>` +
+    items.map(x => `<div style="padding:6px 12px;border-bottom:1px solid var(--surf3);font-size:13px;display:flex;justify-content:space-between;"><span>${esc(x.name)}</span><b style="color:var(--gold);">${x.n}</b></div>`).join('');
+}
 function leagueRenderResults() {
   const lg=leagueCurrent();if(!lg)return;
   const s=leagueSessionById(lg,_leagueSessionId);if(!s)return;
@@ -13344,7 +13445,9 @@ function leagueRenderResults() {
   const activeHoles=getActiveHoles(c,nineMode);
   const res=computeRoundResults(ctx);
   const skins=lg.skins?computeSkins(ctx):{anyWins:false,type:'individual',wins:{}};
-  const resHtml=renderRoundResultsHtml(res,skins,ctx);
+  const resHtml=lg.partnerLeague
+    ? leaguePartnerResultsHtml(leaguePartnerSessionResults(lg,s))+leaguePartnerSkinsHtml(skins,ctx)
+    : renderRoundResultsHtml(res,skins,ctx);
   const allHaveScores=pWithCH.length>0&&pWithCH.every(p=>activeHoles.some(h=>(s.scores[p.id]||{})[h.num]));
   fsRender(`
     <div class="fs-scr-hdr">
@@ -13407,24 +13510,37 @@ function leagueCmpCountback(a, b) {
   if (!b) return -1;
   return (a.back9-b.back9) || (a.back6-b.back6) || (a.back3-b.back3) || (a.last1-b.last1);
 }
-function leagueRenderStandings(showSeason) {
-  const lg=leagueCurrent();if(!lg){leagueRenderListScreen();return;}
+// League standings across completed sessions: points (3/2/1 by finish rank), wins (1st place), and
+// net countback for tie-breaks. Extracted from leagueRenderStandings so the aggregation is testable
+// (rule 30). showSeason=true limits to the active season; false/undefined = all-time.
+function leagueComputeStandings(lg, showSeason) {
   const activeSeason = (lg.seasons||[]).find(s=>s.active);
-  // showSeason: true=active season only, false/undefined=all time
   const useSeason = showSeason && activeSeason;
   const completed = (lg.sessions||[]).filter(s =>
     s.completed && (!useSeason || s.seasonId === activeSeason.id)
   );
-  const points={}, wins={}, cb={};   // cb[pid] = net countback record for tie-breaks
-  // Single pass per completed session: points (3/2/1), wins (1st place), and net countback.
-  // Each session is scored against its own course + hole set via leagueSessionCtx.
+  const points={}, wins={}, cb={};
   completed.forEach(s=>{
     const sc=leagueSessionCtx(lg,s);
     if(!sc||!sc.pool.length)return;
     const {gameType, ctx}=sc;
+    if (lg.partnerLeague) {
+      // Partner league = better-ball match play, consistent regardless of the game-type setting.
+      // Each group is pair A vs pair B (or pair vs par on a bye). Win = +1, tie = +0.5.
+      const seas=(lg.seasons||[]).find(x=>x.id===s.seasonId)||activeSeason;
+      const partners=(seas&&seas.partners)||[];
+      const pById=id=>ctx.players.find(p=>p.id===id);
+      (s.groups||[]).forEach(grp=>{
+        const [pa,pb]=leagueGroupPairs(grp.playerIds||[], partners);
+        if(!pa)return;
+        const m=leaguePartnerMatch(pa.map(pById).filter(Boolean), pb?pb.map(pById).filter(Boolean):null, s.scores||{}, ctx.activeHoles, ctx.hcpScale);
+        if(m.winner==='tie'){ [...pa,...(pb||[])].forEach(id=>{points[id]=(points[id]||0)+0.5;}); }
+        else { const w=m.winner==='A'?pa:(m.winner==='B'?pb:null); if(w) w.forEach(id=>{points[id]=(points[id]||0)+1; wins[id]=(wins[id]||0)+1;}); }
+      });
+      return;   // partner leagues never use the 3/2/1 finish-rank system
+    }
     const res=computeRoundResults(ctx);
     const entries=res.entries||[];
-    // Points: 1st=3, 2nd=2, 3rd=1 (team formats award every group member)
     [3,2,1].forEach((pts,rank)=>{
       const e=entries[rank];if(!e)return;
       if(res.type==='individual'){
@@ -13435,17 +13551,23 @@ function leagueRenderStandings(showSeason) {
         (grp&&grp.playerIds||[]).forEach(pid=>{points[pid]=(points[pid]||0)+pts;});
       }
     });
-    // Wins: 1st place, individual formats only
     if(entries[0]&&res.type==='individual'){wins[entries[0].playerId]=(wins[entries[0].playerId]||0)+1;}
-    // Countback: accumulate net back9/back6/back3/last1, individual comp formats only
     if(res.type==='individual'&&!isTeamFormat(gameType)) leagueAccumCountback(cb,ctx,s.scores||{});
   });
-  const allPids=new Set([...Object.keys(points),...completed.flatMap(s=>Object.entries(s.rsvp||{}).filter(([,v])=>(v||{}).status==='in').map(([pid])=>pid))]);
+  const allPids=new Set([...Object.keys(points),...completed.flatMap(s=>[
+    ...Object.entries(s.rsvp||{}).filter(([,v])=>(v||{}).status==='in').map(([pid])=>pid),
+    ...(lg.partnerLeague?(s.groups||[]).flatMap(g=>g.playerIds||[]):[])
+  ])]);
   const rows=[...(S.players||[])].filter(p=>allPids.has(p.id)).sort((a,b)=>{
     const dp=(points[b.id]||0)-(points[a.id]||0);
     if(dp!==0)return dp;
-    return leagueCmpCountback(cb[a.id],cb[b.id]);   // equal points → lower net countback ranks ahead
+    return leagueCmpCountback(cb[a.id],cb[b.id]);
   });
+  return { points, wins, cb, rows, useSeason, activeSeason, completed };
+}
+function leagueRenderStandings(showSeason) {
+  const lg=leagueCurrent();if(!lg){leagueRenderListScreen();return;}
+  const { points, wins, cb, rows, useSeason, activeSeason, completed } = leagueComputeStandings(lg, showSeason);
 
   const seasonToggle = activeSeason ? `<div style="display:flex;gap:6px;margin-bottom:10px;">
     <button class="holes-toggle ${!useSeason?'active':''}" style="font-size:11px;padding:3px 10px;"
