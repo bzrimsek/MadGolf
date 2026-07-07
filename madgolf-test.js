@@ -738,7 +738,6 @@ function makeHoles(n) {
 // Games config default values present
 {
   const s = normalizeState({});
-  expect('normalizeState: skins config exists',       typeof s.config.games.skins,                'object');
   expect('normalizeState: bbb config exists',         typeof s.config.games.fourPlayer.bbb,       'object');
   expect('normalizeState: nassau config exists',      typeof s.config.games.fourPlayer.nassau,    'object');
   expect('normalizeState: doc config exists',         typeof s.config.games.fourPlayer.doc,       'object');
@@ -6390,7 +6389,6 @@ smoke('leagueCurrentSession returns session', () => {
   expect('idempotent: sessions not doubled', rawTwice.events[0].sessions.length, 0);
   // Config games added on first run, preserved (not doubled) on second
   expect('idempotent: config.games present', !!rawTwice.config.games, true);
-  expect('idempotent: skins config once', !!rawTwice.config.games.skins, true);
 
   // computeSkins is pure: calling twice returns same result
   const idCourse={id:'idc',slope:113,rating:72,par:72,
@@ -6502,7 +6500,6 @@ smoke('leagueCurrentSession returns session', () => {
   // Migration 10: config.games absent → full default tree inserted
   const noConfig={account:{},players:[],courses:[],events:[],config:{}};
   const migCfg=normalizeState(noConfig);
-  expect('migration: config.games.skins inserted',    !!migCfg.config.games.skins, true);
   expect('migration: config.games.individual inserted',!!migCfg.config.games.individual, true);
   expect('migration: config.games.fourPlayer.wolf',   !!migCfg.config.games.fourPlayer.wolf, true);
   expect('migration: modules inserted',               !!migCfg.config.modules, true);
@@ -8184,7 +8181,291 @@ smoke('leagueCurrentSession returns session', () => {
   expect('outingBestBallMatch sets bbmatch mode', vm.runInContext(`window._outingGameType`, sandbox), 'bbmatch');
   sandbox.outingGroupAssign = realGA;
 }
-}}const total = passed + failed;
+
+// ── 156. GAME-CREATION FLOW + INVARIANTS (the integration layer) ──────────────
+// Unit tests feed pure functions clean fixtures, so a game built with the WRONG SHAPE is never seen.
+// This drives the REAL start*Game creators the way the UI does (course + picks + nine-mode on window)
+// and captures the game object each one builds (via an fsSaveGame spy, before persistence). It asserts
+// the shape invariants across every foursome game type × {18, F9, B9}. THIS is the layer that would
+// have caught the 9-hole scorecard bug: nineSide unset, _totalHoles wrong, negative course handicaps.
+{
+  const setPicks = ids => vm.runInContext(`window._fsPicked=${JSON.stringify(ids)}`, sandbox);
+  const setCarts = () => vm.runInContext(`window._cartState={cart1:{driver:'p1',passenger:'p2'},cart2:{driver:'p3',passenger:'p4'}}`, sandbox);
+  const setTeams = () => vm.runInContext(`window._teamState={A:['p1','p2'],B:['p3','p4']}`, sandbox);
+
+  function flowCheck(desc, setup, startCall, nm) {
+    smokeSetup();
+    setup && setup();
+    let captured = null;
+    const realSave = sandbox.fsSaveGame;
+    sandbox.fsSaveGame = function(g){ captured = g; };   // capture the built game, skip persistence
+    try { vm.runInContext(`window._fsNineMode=${JSON.stringify(nm)}; ${startCall};`, sandbox); } catch(e){}
+    sandbox.fsSaveGame = realSave;
+    const course = vm.runInContext(`fsGetCourse('c1')`, sandbox);
+    const exp = nm === 'all' ? 18 : 9;
+    expect(`${desc}: creator built a game`, !!captured, true);
+    if (!captured) return;
+    expect(`${desc}: nineSide=${nm}`, captured.nineSide, nm);
+    expect(`${desc}: _totalHoles=${exp}`, captured._totalHoles, exp);
+    expect(`${desc}: active holes = ${exp}`, sandbox.fsHoles(captured, course).length, exp);
+    if (captured.chs) expect(`${desc}: no negative course handicap`, Object.values(captured.chs).some(v => v < 0), false);
+  }
+
+  ['all','front','back'].forEach(nm => {
+    flowCheck(`stableford ${nm}`, null,                        'startStablefordGame()',  nm);
+    flowCheck(`lownet ${nm}`,     null,                        'startLowNetGame()',      nm);
+    flowCheck(`bbb ${nm}`,        null,                        'startBBBGame()',         nm);
+    flowCheck(`nassau ${nm}`,     () => setPicks(['p1','p2']), 'startNassauGame()',      nm);
+    flowCheck(`walkoff ${nm}`,    () => setPicks(['p1','p2']), 'startWalkoffGame()',     nm);
+    flowCheck(`wolf ${nm}`,       null,                        'startWolfGame()',        nm);
+    flowCheck(`doc ${nm}`,        setCarts,                    'startDOCGame()',         nm);
+    flowCheck(`2scramble ${nm}`,  setTeams,                    'startTwoScrambleGame()', nm);
+    flowCheck(`2shamble ${nm}`,   setTeams,                    'startTwoShambleGame()',  nm);
+  });
+
+  // Render correctness: the scorecard shows the RIGHT hole columns (no throw ≠ correct output).
+  const renderScorecardFor = (nm) => {
+    smokeSetup();
+    let captured = null; const realSave = sandbox.fsSaveGame;
+    sandbox.fsSaveGame = function(g){ captured = g; };
+    try { vm.runInContext(`window._fsNineMode='${nm}'; startStablefordGame();`, sandbox); } catch(e){}
+    sandbox.fsSaveGame = realSave;
+    const players = vm.runInContext(`fsGetActivePlayers()`, sandbox);
+    return sandbox.fsRenderScorecard(captured, players);
+  };
+  const scF9 = renderScorecardFor('front');
+  expect('F9 scorecard renders hole 9',  /data-hole="9"/.test(scF9),  true);
+  expect('F9 scorecard omits hole 18',   /data-hole="18"/.test(scF9), false);
+  const sc18 = renderScorecardFor('all');
+  expect('18 scorecard renders hole 18', /data-hole="18"/.test(sc18), true);
+}
+
+// ── 157. VOLUME / SCALE — group modules up to 50 golfers ──────────────────────
+// The group tests topped out ~24 and mostly checked group COUNT. At 50 golfers the risks are
+// remainder handling (50 isn't ÷4), tier splits, round-robin with many pairs, and dropped/duplicated
+// players. These drive the real assignment functions at scale and assert structural invariants:
+// every player placed exactly once, balanced sizes, correct counts.
+{
+  const { outingGenerateGroups, outingBuildTeams, leagueRoundRobinRound,
+          leaguePartnerGroupsForRound, leagueGenerateSessionDates } = sandbox;
+  const P = n => Array.from({length:n}, (_,i)=>`p${i}`);
+
+  // ---- Outing group generation: balanced, every player once, ceil(n/4) groups ----
+  function checkGroups(n) {
+    const pids = P(n);
+    const groups = outingGenerateGroups(pids);
+    const all = groups.flatMap(g=>g.playerIds);
+    const sizes = groups.map(g=>g.playerIds.length);
+    expect(`groups n=${n}: count = ceil(n/4)`, groups.length, Math.ceil(n/4));
+    expect(`groups n=${n}: every player placed exactly once`,
+      all.length===n && new Set(all).size===n && pids.every(p=>all.includes(p)), true);
+    expect(`groups n=${n}: no group > 4`, Math.max(...sizes) <= 4, true);
+    expect(`groups n=${n}: no empty group`, Math.min(...sizes) >= 1, true);
+    expect(`groups n=${n}: balanced (max-min ≤ 1)`, Math.max(...sizes)-Math.min(...sizes) <= 1, true);
+    expect(`groups n=${n}: sizes sum to n`, sizes.reduce((a,b)=>a+b,0), n);
+  }
+  [17, 40, 48, 49, 50, 51, 52, 53].forEach(checkGroups);
+  // Exact size profile at 50: 13 groups → 11×4 + 2×3.
+  expect('groups n=50: size profile 11×4 + 2×3',
+    JSON.stringify(outingGenerateGroups(P(50)).map(g=>g.playerIds.length).sort((a,b)=>b-a)),
+    JSON.stringify([4,4,4,4,4,4,4,4,4,4,4,3,3]));
+
+  // ---- Outing scoring teams at scale ----
+  const players50 = Array.from({length:50}, (_,i)=>({id:`p${i}`, courseHcp:(i*7)%30}));
+  ['ab','random'].forEach(mode => {
+    const teams = outingBuildTeams(players50, 2, mode);
+    const covered = new Set(teams.flatMap(t=>t.playerIds));
+    expect(`teams n=50 ${mode}: every player on a team`, players50.every(p=>covered.has(p.id)), true);
+    expect(`teams n=50 ${mode}: 25 teams of 2`, teams.filter(t=>!t.isBorrow).length, 25);
+  });
+  // Odd count → one borrow team, still everyone covered.
+  const players49 = players50.slice(0,49);
+  const t49 = outingBuildTeams(players49, 2, 'ab');
+  expect('teams n=49 ab: everyone covered (borrow)', players49.every(p=>new Set(t49.flatMap(x=>x.playerIds)).has(p.id)), true);
+  expect('teams n=49 ab: exactly one borrow team', t49.filter(t=>t.isBorrow).length, 1);
+
+  // ---- League round-robin at 25 partnerships (50 players) ----
+  // Odd team count → one bye per round; over n-1 rounds every pair meets exactly once.
+  const NT = 25, seen = {};
+  const rounds = NT % 2 === 0 ? NT-1 : NT;   // odd n needs n rounds (one bye each round), not n-1
+  for (let r=0; r<rounds; r++) {
+    const m = leagueRoundRobinRound(NT, r);
+    expect(`RR25 r${r}: 12 matchups (one team byes)`, m.length, 12);
+    m.forEach(([a,b]) => { const k=[a,b].sort((x,y)=>x-y).join('-'); seen[k]=(seen[k]||0)+1; });
+  }
+  const allPairs = []; for (let i=0;i<NT;i++) for (let j=i+1;j<NT;j++) allPairs.push(i+'-'+j);
+  expect(`RR25: every pairing meets exactly once over ${rounds} rounds`,
+    allPairs.every(k=>seen[k]===1) && Object.keys(seen).length===allPairs.length, true);
+
+  // ---- Partner-league groups for a round at 25 pairs (50 players) ----
+  const pairs25 = Array.from({length:25}, (_,i)=>[`a${i}`,`b${i}`]);
+  const pg = leaguePartnerGroupsForRound(pairs25, [], 0);
+  const pgAll = pg.flatMap(g=>g);
+  expect('partner groups 25 pairs: all 50 players placed once',
+    pgAll.length===50 && new Set(pgAll).size===50, true);
+  expect('partner groups 25 pairs: 12 matchup foursomes', pg.filter(g=>g.length===4).length, 12);
+
+  // ---- League schedule generation for a long season ----
+  const dates = leagueGenerateSessionDates('2026-04-01','2026-09-30', 3); // Wednesdays Apr–Sep
+  expect('schedule: every date is the right weekday', dates.every(d=>new Date(d+'T12:00:00').getDay()===3), true);
+  expect('schedule: dates sorted ascending', JSON.stringify(dates)===JSON.stringify([...dates].sort()), true);
+  expect('schedule: a full season yields 20+ weeks', dates.length >= 20, true);
+}
+
+// ── 158. VOLUME / SCALE — Trip groups + standings aggregation to 50 golfers ────
+// Closes the remaining volume gaps: Trip group sizing, the shared results engine, and League
+// standings aggregation — all driven at 50 players with structural invariants.
+{
+  const { calcGroupCount, buildGroupShells, buildScoringCtx, computeRoundResults,
+          leagueComputeStandings } = sandbox;
+  const COURSE = { slope:113, rating:72, holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1})) };
+
+  // ---- Trip group sizing at scale (remainder-critical) ----
+  expect('calcGroupCount 50, no labels',  calcGroupCount(50, 0),  13);   // ceil(50/4)
+  expect('calcGroupCount 50, 20 labels',  calcGroupCount(50, 20), 13);   // capped to needed
+  expect('calcGroupCount 50, 8 labels',   calcGroupCount(50, 8),  13);   // never fewer than ceil(n/4)
+  expect('calcGroupCount 37',             calcGroupCount(37, 0),  10);
+  const shells = buildGroupShells(13, [], 50);
+  const caps = shells.map(s=>s.cap);
+  expect('shells 50/13: 13 groups',        shells.length, 13);
+  expect('shells 50/13: caps sum to 50',   caps.reduce((a,b)=>a+b,0), 50);
+  expect('shells 50/13: balanced (11×4+2×3)', JSON.stringify(caps.slice().sort((a,b)=>b-a)),
+    JSON.stringify([4,4,4,4,4,4,4,4,4,4,4,3,3]));
+  expect('shells 50/13: no cap > 4',       Math.max(...caps) <= 4, true);
+
+  // ---- Shared results engine at 50 players (individual net rank) ----
+  const players50 = Array.from({length:50}, (_,i)=>({id:`p${i}`, name:`P${i}`, courseHcp:i%20}));
+  const scores50 = {};
+  players50.forEach((p,i)=>{ scores50[p.id]={}; for(let h=1;h<=18;h++) scores50[p.id][h]=4+((i+h)%3); });
+  const ctx = buildScoringCtx(players50, COURSE, 'all', scores50,
+    [{playerIds:players50.map(p=>p.id), label:'All'}], 'lownet', {});
+  const res = computeRoundResults(ctx);
+  const ids = res.entries.map(e=>e.playerId);
+  expect('results n=50: type individual', res.type, 'individual');
+  expect('results n=50: every player ranked exactly once',
+    ids.length===50 && new Set(ids).size===50, true);
+  expect('results n=50: sorted ascending by net',
+    res.entries.every((e,i)=> i===0 || res.entries[i-1].net <= e.net), true);
+
+  // ---- League standings across 50 players × 10 completed sessions ----
+  vmSetS('players', players50.map(p=>({id:p.id, name:p.name, hcp:p.courseHcp, regular:true})));
+  vmSetS('courses', [{ id:'c50', name:'Vol', slope:113, rating:72, par:72,
+    holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+  const sessions = Array.from({length:10}, (_,k)=>{
+    const sc={}, rsvp={};
+    players50.forEach((p,i)=>{ sc[p.id]={}; for(let h=1;h<=18;h++) sc[p.id][h]=4+((i+h+k)%3); rsvp[p.id]={status:'in'}; });
+    return { id:`w${k}`, seasonId:'sea', completed:true, courseId:'c50', gameType:'lownet',
+             nineSide:'all', groups:[{playerIds:players50.map(p=>p.id), teetime:'8:00'}], scores:sc, rsvp };
+  });
+  const lg = { id:'lg', seasons:[{id:'sea', active:true, strokeAllowance:100}], sessions };
+  const st = leagueComputeStandings(lg, false);
+  expect('standings 50×10: all 50 players in rows', st.rows.length, 50);
+  expect('standings 50×10: total points = 6 per session',
+    Object.values(st.points).reduce((a,b)=>a+b,0), 60);
+  expect('standings 50×10: no negative or NaN points',
+    Object.values(st.points).every(v=>v>0 && Number.isFinite(v)), true);
+
+  // ---- Trip group ASSIGNMENT at scale (bestShell greedy balancing) ----
+  const asgShells = buildGroupShells(13, [], 50);
+  const hist = new Map();
+  Array.from({length:50}, (_,i)=>`g${i}`).forEach(pid => {
+    const shell = sandbox.bestShell(pid, asgShells, hist);
+    shell.playerIds.push(pid);
+  });
+  const placed = asgShells.flatMap(s=>s.playerIds);
+  expect('trip assign n=50: every player placed exactly once',
+    placed.length===50 && new Set(placed).size===50, true);
+  expect('trip assign n=50: no shell exceeds its cap',
+    asgShells.every(s=>s.playerIds.length<=s.cap), true);
+  expect('trip assign n=50: all shells filled to cap (balanced)',
+    asgShells.every(s=>s.playerIds.length===s.cap), true);
+
+// ── 159. Partner-league BETTER-BALL MATCH PLAY (win +1, tie +0.5) ─────────────
+// A partner league is always match play regardless of game type: each group is pair A vs pair B
+// (or pair vs par on a bye), lower better-ball net wins the hole, and standings award win +1 / tie +0.5.
+{
+  const { leaguePairHoleNet, leagueGroupPairs, leaguePartnerMatch, leagueComputeStandings } = sandbox;
+  const H = [{num:1,par:4,hcpRating:1},{num:2,par:4,hcpRating:2},{num:3,par:4,hcpRating:3}];
+  const mk = id => ({id, courseHcp:0});          // courseHcp 0 → net = gross (clean control)
+  const A = [mk('A1'),mk('A2')], B = [mk('B1'),mk('B2')];
+
+  // Better-ball net = lowest net of the pair.
+  expect('pair BB net = min', leaguePairHoleNet(A, {A1:{1:4},A2:{1:5}}, H[0], 18), 4);
+  expect('pair BB net = null when unscored', leaguePairHoleNet(A, {}, H[0], 18), null);
+
+  // Identify the two pairs in a group (bye → second is null).
+  const PARTNERS = [{id:'x',playerIds:['A1','A2']},{id:'y',playerIds:['B1','B2']},{id:'z',playerIds:['C1','C2']}];
+  expect('group pairs: A vs B', JSON.stringify(leagueGroupPairs(['A1','A2','B1','B2'], PARTNERS)), JSON.stringify([['A1','A2'],['B1','B2']]));
+  expect('group pairs: bye (one pair)', JSON.stringify(leagueGroupPairs(['C1','C2'], PARTNERS)), JSON.stringify([['C1','C2'], null]));
+  expect('group pairs: lone player is not a pair', JSON.stringify(leagueGroupPairs(['A1','A2','B1'], PARTNERS)), JSON.stringify([['A1','A2'], null]));
+
+  // Match results.
+  const sAwin = {A1:{1:4,2:4,3:4},A2:{1:4,2:4,3:4}, B1:{1:5,2:4,3:5},B2:{1:5,2:4,3:5}};
+  expect('match A wins 2&0', JSON.stringify(leaguePartnerMatch(A,B,sAwin,H,18)), JSON.stringify({winner:'A',holesA:2,holesB:0,holesPlayed:3,margin:'2 up'}));
+  const sTie = {A1:{1:4,2:5,3:4},A2:{1:4,2:5,3:4}, B1:{1:5,2:4,3:4},B2:{1:5,2:4,3:4}};
+  expect('match tie 1-1', JSON.stringify(leaguePartnerMatch(A,B,sTie,H,18)), JSON.stringify({winner:'tie',holesA:1,holesB:1,holesPlayed:3,margin:'Halved'}));
+  const sBwin = {A1:{1:5,2:4,3:5},A2:{1:5,2:4,3:5}, B1:{1:4,2:4,3:4},B2:{1:4,2:4,3:4}};
+  expect('match B wins 0&2', JSON.stringify(leaguePartnerMatch(A,B,sBwin,H,18)), JSON.stringify({winner:'B',holesA:0,holesB:2,holesPlayed:3,margin:'2 up'}));
+  // Bye: pair plays against par.
+  const sByeWin = {A1:{1:3,2:4,3:3},A2:{1:3,2:4,3:3}};
+  expect('bye vs par: pair beats par', JSON.stringify(leaguePartnerMatch(A,null,sByeWin,H,18)), JSON.stringify({winner:'A',holesA:2,holesB:0,holesPlayed:3,margin:'2 up'}));
+  const sByeLoss = {A1:{1:5,2:5,3:5},A2:{1:5,2:5,3:5}};
+  expect('bye vs par: pair loses to par', JSON.stringify(leaguePartnerMatch(A,null,sByeLoss,H,18)), JSON.stringify({winner:'B',holesA:0,holesB:3,holesPlayed:3,margin:'2&1'}));
+
+  // Standings integration: partner league, one session — A beats B, C beats par on a bye.
+  vmSetS('players', ['A1','A2','B1','B2','C1','C2'].map(id=>({id, name:id, hcp:0, regular:true})));
+  vmSetS('courses', [{ id:'cpl', name:'PL', slope:113, rating:72, par:72,
+    holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+  const mkScores = v => { const o={}; for(let h=1;h<=18;h++) o[h]=v; return o; };
+  const rsvpIn = {}; ['A1','A2','B1','B2','C1','C2'].forEach(id=>rsvpIn[id]={status:'in'});
+  const session = { id:'w0', seasonId:'sea', completed:true, courseId:'cpl', gameType:'matchplay', nineSide:'all',
+    groups:[{playerIds:['A1','A2','B1','B2']},{playerIds:['C1','C2']}], rsvp:rsvpIn,
+    scores:{ A1:mkScores(4),A2:mkScores(4), B1:mkScores(5),B2:mkScores(5), C1:mkScores(3),C2:mkScores(3) } };
+  const lg = { id:'plg', partnerLeague:true, seasons:[{id:'sea',active:true,strokeAllowance:100,partners:PARTNERS}], sessions:[session] };
+  const st = leagueComputeStandings(lg, false);
+  expect('partner standings: winner pair +1', st.points['A1'], 1);
+  expect('partner standings: loser pair 0', st.points['B1'] || 0, 0);
+  expect('partner standings: bye pair beats par +1', st.points['C1'], 1);
+  expect('partner standings: all six players in rows', st.rows.length, 6);
+
+  // Per-session match RESULTS (display data for the Results screen).
+  const pr = sandbox.leaguePartnerSessionResults(lg, session);
+  expect('session results: two matches', pr.length, 2);
+  expect('session results: A def B',
+    JSON.stringify(pr[0]), JSON.stringify({a:'A1 / A2', b:'B1 / B2', winner:'A', margin:'10&8'}));
+  expect('session results: bye pair def Par',
+    JSON.stringify(pr[1]), JSON.stringify({a:'C1 / C2', b:'Par', winner:'A', margin:'10&8'}));
+
+  // Results screen templating.
+  const winHtml = sandbox.leaguePartnerResultsHtml([{a:'A1 / A2', b:'B1 / B2', winner:'A', margin:'2 up'}]);
+  expect('results html: shows winner def. loser + margin',
+    winHtml.includes('A1 / A2') && winHtml.includes('def.') && winHtml.includes('B1 / B2') && winHtml.includes('2 up'), true);
+  const tieHtml = sandbox.leaguePartnerResultsHtml([{a:'A1 / A2', b:'B1 / B2', winner:'tie', margin:'Halved'}]);
+  expect('results html: tie shows halved with', tieHtml.includes('halved with'), true);
+}
+
+// ── 160. Skins "stroke off low man" — shared effective-handicap helper ────────
+// Per-instance skins config in League/Outing/Trip all route through skinsEffHcp so the setting
+// behaves identically. Low man plays off scratch; everyone else off the difference, floored at 0.
+{
+  const { skinsEffHcp } = sandbox;
+  expect('off: hcp unchanged',        skinsEffHcp(12, 5, false), 12);
+  expect('on: 12 vs low 5 → 7',       skinsEffHcp(12, 5, true),   7);
+  expect('on: low man → 0',           skinsEffHcp(5,  5, true),   0);
+  expect('on: below low → floored 0', skinsEffHcp(3,  5, true),   0);
+}
+
+// ── 161. Sync reconciliation — never clobber unsaved local scores ─────────────
+// A stale remote snapshot must NOT overwrite scores entered just before the app backgrounded.
+// Take remote only when it has data AND local has no unsaved (dirty) edits.
+{
+  const { fbShouldTakeRemote } = sandbox;
+  expect('remote data + local clean → take remote', fbShouldTakeRemote(true,  false), true);
+  expect('remote data + local DIRTY → keep local',  fbShouldTakeRemote(true,  true),  false);
+  expect('no remote data → keep local',             fbShouldTakeRemote(false, false), false);
+  expect('no remote + dirty → keep local',          fbShouldTakeRemote(false, true),  false);
+}
+}}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
 console.log(`══════════════════════════════════════════`);

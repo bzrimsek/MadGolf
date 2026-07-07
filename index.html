@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.89  Build 2026-07-06 10:11 PM ET
+     Version : v0.90.92  Build 2026-07-07 02:56 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,9 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.92  2026-07-07  Per-instance skins — checkpoint 2 of 2 (League + Trip), completing the feature. League and Trip now expose Half-stroke and "Stroke off low man" controls in their OWN skins settings: League under the SKINS On/Off in the GAME & SCORING section (writing lg.skins), Trip in a new SKINS section on the Handicaps/Settings screen (writing t.settings.skins). Both flow through computeSkins → skinsEffHcp, so the setting actually applies (confirmed: leagueSessionCtx feeds lg.skins, tripScoringCtx feeds t.settings.skins). Setters leagueSetSkinsCfg, tripSetSkinsCfg. RETIRED the global "Skins / Strokes" settings screen (its GAME_DEFS entry) and removed the dead config.games.skins default — nothing read it after Outing moved to per-instance in v0.90.90, so the old strokeOffLow / hcpPct variant is gone and all three modules are unified on strokeOffBest / hcpAdj (rule 6). Removed 3 now-obsolete tests that asserted the global skins config existed; the shared application is still covered by skinsEffHcp (§160). Totals 2732 -> 2729 (only the removed-feature tests went; no coverage lost). This closes the per-instance skins feature across Foursome (by game), League, Outing and Trip.
+// v0.90.91  2026-07-07  CRITICAL FIX: entered scores could be lost when the app was backgrounded mid-round. Root cause: fbLoad replaced local state with the remote Firebase snapshot UNCONDITIONALLY (S = normalized whenever remote had data), and onVisibilityChange only ran on becoming VISIBLE — there was no flush when the app went to the background. So scores entered within the 1.5s debounce window before backgrounding lived only in localStorage; on return or cold start, fbLoad overwrote them with the stale remote (e.g. a par-5 hole left blank for three players after a real round). Fixes: (1) new fbShouldTakeRemote(hasRemoteData, localDirty) — take the remote snapshot ONLY when it has data AND local has no unsaved edits (the dirty flag, persisted in localStorage); otherwise keep local and flush it up (last-write-wins = local). fbLoad now gates its overwrite on this and pushes the kept-local edits to Firebase after load. (2) new flushWrite() cancels the debounce and writes immediately. (3) onVisibilityChange flushes on HIDDEN (backgrounding) and, on return, flushes any unsaved edits before reloading. Normal sync (clean local, remote wins) is unchanged. +4 tests (§161). Totals 2726 -> 2730. Still tracked (rule 31): per-instance skins checkpoint 2 — League/Trip controls + retire the global Skins/Strokes screen.
+// v0.90.90  2026-07-07  Per-instance skins — checkpoint 1 of 2: OUTING. Outing now carries its own skins config (o.skinsCfg = {halfStroke, strokeOffBest}) instead of reading the global config.games.skins, and it actually APPLIES "stroke off low man" to the individual-skins net (previously ignored — only half-stroke was honored). New shared helper skinsEffHcp(courseHcp, lowCH, strokeOffBest) computes the effective handicap when stroke-off-low is on (low man off scratch, others off the difference, floored at 0); computeSkins (League/Trip) and outingComputeResults both route through it, so the setting behaves identically everywhere (rules 2, 30). The config flows from the outing to its active game (via o.skinsCfg + window._outingSkinsCfg), and outingScoringCtx feeds it to computeSkins for team skins. New per-outing UI: Half-stroke and "Stroke off low man" checkboxes under Add Skins (shown when skins is on); setter outingSetSkinsCfg. Existing outings without a config read as off (safe default). +4 tests (§160: skinsEffHcp off / 12-vs-5 / low-man-0 / floored). Totals 2722 -> 2726. TRACKED, still open (rule 31): checkpoint 2 — surface the same Half-stroke + Stroke-off-low controls in League and Trip per-instance skins settings, then retire the now-unused global "Skins / Strokes" settings screen (confirmed OK to remove).
 // v0.90.89  2026-07-06  Season standings are now an OPTION for non-partner leagues (lg.trackStandings), default OFF for new leagues. A non-partner league whose game changes week to week doesn't need a blended season table — an individual week ranks people, a foursome week ranks teams — so the Standings hub card and screen only appear when trackStandings is on. Partner leagues always show their match-play standings (win +1 / tie +0.5) regardless of this toggle. New SEASON STANDINGS On/Off control in the GAME & SCORING section (hidden for partner leagues, which are always match play); setter leagueSetTrackStandings. MIGRATION: existing leagues default to ON so their current standings don't disappear (rule 7); only newly created leagues default off. No scoring logic changed — standings are still live-computed, so toggling on instantly restores the table. Handler count 2720 -> 2721 (the new toggle handler, validated by the source handler scan; the test file is unchanged).
 // v0.90.88  2026-07-06  Partner-league RESULTS screen now reads as match play, completing the match-play flow end to end. The per-session Results screen shows match outcomes for a partner league — "Pair A def. Pair B 2&1", "halved with", and vs-Par on a bye — instead of net-rank finish order. leaguePartnerMatch now also returns the match MARGIN via running status + close detection ("2&1" when the match closes early, "N up" / "1 up" otherwise, "Halved" for a tie); the winner/holes it already returned are unchanged, so standings are unaffected. New helpers: leaguePartnerSessionResults (per-group match data, reusing leagueGroupPairs + leaguePartnerMatch) and leaguePartnerResultsHtml (templating only). Skins is preserved as a side pot — leaguePartnerSkinsHtml renders it below the matches when skins is on, so nothing regresses. +5 tests (§159 extended): match margins on every case, session-results data (A def B 10&8, byed pair def Par 10&8), and results templating. Totals 2715 -> 2720. Partner-league match play is now complete: scoring + standings (v0.90.87) and the results screen all read as match play.
 // v0.90.87  2026-07-06  Partner-league better-ball MATCH PLAY + match standings (win +1, tie +0.5). A partner league is now scored as match play regardless of the game-type setting: each round-robin group is pair A vs pair B — better ball vs better ball, lower net wins the hole — and on a bye the pair plays against par. New pure helpers: leaguePairHoleNet (a pair's better-ball net on a hole), leagueGroupPairs (the two partnerships present in a group; second is null on a bye), and leaguePartnerMatch (hole-by-hole match → winner + holes won each side). leagueComputeStandings now branches: partner leagues award win = +1 / tie = +0.5 per match and skip the 3/2/1 finish-rank system (which non-partner leagues keep), and every group member appears in the standings even after losing every match. Reuses bestBallsHoleNet (rule 2). +14 tests (§159): match A-wins / tie / B-wins, bye win and loss vs par, pair identification, and a full standings integration (winner pair +1, loser 0, byed pair beats par +1, all participants in the rows). Totals 2701 -> 2715. Tracked follow-up (rule 31): the per-session RESULTS screen still renders net-rank finish order for a partner league — it should show the match outcomes (Pair A def. Pair B); standings are already correct.
@@ -1157,8 +1160,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.89';
-const BUILD_TIME = '2026-07-06 10:11 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.92';
+const BUILD_TIME = '2026-07-07 02:56 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1398,7 +1401,6 @@ function normalizeState(raw) {
     if (raw.config.myPlayerAuto === undefined) raw.config.myPlayerAuto = false;
     if (raw.config.tripPublishMsg === undefined) raw.config.tripPublishMsg = '';
     if (!raw.config.games) raw.config.games = {
-      skins:      { enabled:true, hcpPct:100, halfStroke:false, strokeOffLow:false, carryTies:true },
       individual: {
         stableford: { enabled:true, dblEagle:8, eagle:4, birdie:2, par:1, bogey:0, dbl:0, showQuota:true },
         lowNet:     { enabled:true },
@@ -1518,6 +1520,16 @@ function scheduleWrite() {
   _dirty = true;
   if (_writeTimer) clearTimeout(_writeTimer);
   _writeTimer = setTimeout(() => { fbWrite(S); _writeTimer = null; }, DEBOUNCE_MS);
+}
+/** Take the remote snapshot only when it has data AND local has no unsaved edits — otherwise a stale
+ *  remote would clobber scores entered just before the app backgrounded. Pure, so it's unit-tested. */
+function fbShouldTakeRemote(hasRemoteData, localDirty) {
+  return !!hasRemoteData && !localDirty;
+}
+/** Flush any pending debounced write immediately (app backgrounding / returning). */
+function flushWrite() {
+  if (_writeTimer) { clearTimeout(_writeTimer); _writeTimer = null; }
+  if (_dirty && window._currentUser && _fbLoaded) fbWrite(S);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1776,11 +1788,15 @@ async function fbLoad() {
     const r     = await fetchWithTimeout(url, {}, 10000);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const remote = await r.json();
+    let pushLocalDirty = false;
     if (remote && typeof remote === 'object') {
       const normalized = normalizeState(remote);
       const hasRemoteData = (normalized.players && normalized.players.length) ||
                             (normalized.events  && normalized.events.length);
-      if (hasRemoteData) {
+      // Never let a stale remote snapshot overwrite unsaved local edits (e.g. scores entered just
+      // before the app was backgrounded, before the debounced write fired). Local wins; flush it up.
+      const localDirty = _dirty || localStorage.getItem(LS_KEY + '_dirty') === '1';
+      if (fbShouldTakeRemote(hasRemoteData, localDirty)) {
         // Preserve active trip navigation state across reloads
         const activeTripId   = S.activeTripId;
         const activeRound    = S.activeRound;
@@ -1798,12 +1814,14 @@ async function fbLoad() {
           S.activeLeagueId = activeLeagueId;
         }
       } else {
-        // First sign-in or empty account — keep local, merge account record
+        // First sign-in / empty account, OR local has unsaved edits — keep local, merge account.
         S.account = normalized.account || S.account;
+        pushLocalDirty = hasRemoteData && localDirty;   // unsaved local scores → push them up
       }
     }
     _fbLoaded = true;
     saveLocal();
+    if (pushLocalDirty) fbWrite(S);   // flush the unsaved local edits that beat the stale remote
     renderAll();
     setSyncStatus('ready', '#86efac');
     appLog('Firebase loaded');
@@ -1869,9 +1887,14 @@ function onSignedOut() {
 }
 
 function onVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    fbLoad();
-    if (_dirty && window._currentUser) fbWrite(S);
+  if (document.visibilityState === 'hidden') {
+    // Backgrounding — push unsaved scores now instead of waiting for the 1.5s debounce.
+    flushWrite();
+  } else if (document.visibilityState === 'visible') {
+    // Returning — if we have unsaved edits, flush them (fbLoad won't clobber them either, but this
+    // is immediate); otherwise reload to pick up changes made elsewhere.
+    if (_dirty || localStorage.getItem(LS_KEY + '_dirty') === '1') flushWrite();
+    else fbLoad();
   }
 }
 
@@ -2148,28 +2171,6 @@ function saveScramblePct(game, idx, val) {
 // Toggling enabled re-renders the whole tab so games sort into MY/OTHER.
 
 const GAME_DEFS = [
-  // ── Skins overlay ──────────────────────────────────────────────────────
-  { path:'skins', id:'skins', label:'Skins / Strokes', sub:'Overlay · applies to any game',
-    category:'Skins',
-    detail: g => `
-      <div class="field-row" style="margin-bottom:8px;">
-        <div class="field"><label>Stroke Allowance %</label>
-          <select onchange="saveGameSetting('skins','hcpPct',+this.value)">
-            ${[100,85,75,50,0].map(v=>`<option value="${v}" ${g.hcpPct===v?'selected':''}>${v===0?'Gross':v+'%'}</option>`).join('')}
-          </select></div>
-        <div class="field"><label>Tie Rule</label>
-          <select onchange="saveGameSetting('skins','carryTies',this.value==='carry')">
-            <option value="carry" ${g.carryTies?'selected':''}>Carry to next</option>
-            <option value="push"  ${!g.carryTies?'selected':''}>Push (split)</option>
-          </select></div>
-      </div>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;">
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-          <input type="checkbox" ${g.halfStroke?'checked':''} onchange="saveGameSetting('skins','halfStroke',this.checked)" style="accent-color:var(--gold);">Half-stroke rule</label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
-          <input type="checkbox" ${g.strokeOffLow?'checked':''} onchange="saveGameSetting('skins','strokeOffLow',this.checked)" style="accent-color:var(--gold);">Stroke off low man</label>
-      </div>` },
-
   // ── Individual ─────────────────────────────────────────────────────────
   { path:'individual.stableford', id:'stab', label:'Stableford / Quota', sub:'Individual · Points per hole · Quota = 36 − Course HCP',
     category:'Individual',
@@ -2682,6 +2683,12 @@ function strokesOnHoleHalf(courseHcp, holeHcpRating, hcpScale) {
 /** Net score for a hole used in skins comparison. Half-stroke keeps the .5 — it is NEVER
  *  floored (flooring 0.5→0 was the outing bug). Single source shared by computeSkins and
  *  outingComputeResults so the two can't drift again. */
+/** Effective course handicap for skins when "stroke off low man" is on: the field's low handicap
+ *  plays off scratch, everyone else off the difference (floored at 0). Shared by computeSkins (all
+ *  modules) and the Outing individual-skins path so the setting behaves identically everywhere. */
+function skinsEffHcp(courseHcp, lowCH, strokeOffBest) {
+  return strokeOffBest ? Math.max(0, courseHcp - lowCH) : courseHcp;
+}
 function skinsNetOnHole(gross, courseHcp, holeHcpRating, hcpScale, halfStroke) {
   if (!(gross > 0)) return 0;
   const str = halfStroke ? strokesOnHoleHalf(courseHcp, holeHcpRating, hcpScale)
@@ -3045,7 +3052,7 @@ function outingScoringCtx(g) {
     settings: {
       scramblePcts:    pcts,
       strokeAllowance: 100,
-      skins:           S.config.games?.skins || {},
+      skins:           g.skinsCfg || {},
       sfCfg:           S.config.games?.individual?.stableford || {},
       resultMethod:    g.resultMethod || 'best2',
       borrows:         []
@@ -3194,7 +3201,7 @@ function computeSkins(ctx) {
   activeHoles.forEach(h => {
     const hr = players.map((p, pi) => {
       const gross = parseInt((scores[p.id]||{})[h.num]) || 0; if (!gross) return null;
-      const eff = sob ? Math.max(0, hcps[pi]-lowCH) : hcps[pi];
+      const eff = skinsEffHcp(hcps[pi], lowCH, sob);
       return { id:p.id, net: skinsNetOnHole(gross, eff, h.hcpRating||0, hcpScale, half) };
     }).filter(Boolean);
     if (!hr.length) return;
@@ -6550,6 +6557,7 @@ function outingSaveNew() {
     const o = { id, type:'outing', status:'planning', name:nm.trim(),
       eventDate: new Date(dt+'T12:00:00').getTime(), date: Date.now(),
       playerIds:[], courseId:null, nineMode:'all', gameType:null,
+      skinsCfg:{halfStroke:false,strokeOffBest:false},
       groups:[], scores:{}, phase:'planning' };
     if (!S.events) S.events=[];
     S.events.push(o); S.activeOutingId=id;
@@ -6980,6 +6988,7 @@ function outingRenderPlanFormat() {
     ${gameRows}`;
 
   // ── Section 3: Skins — always available, no carry-over ────
+  const sc = o.skinsCfg || {};
   const skinsRow = `
     <div style="display:flex;align-items:center;gap:10px;padding:12px 4px 4px;margin-top:4px;border-top:2px solid var(--surf3);">
       <input type="checkbox" id="outing-skins-chk" ${o.skins?'checked':''} style="width:18px;height:18px;accent-color:var(--gold);" onchange="outingPlanToggleSkins(this.checked)">
@@ -6987,7 +6996,13 @@ function outingRenderPlanFormat() {
         <div style="font-size:13px;font-weight:600;">Add Skins</div>
         <div style="font-size:11px;color:var(--muted);">Low net wins the hole</div>
       </label>
-    </div>`;
+    </div>
+    ${o.skins ? `<div style="display:flex;gap:16px;flex-wrap:wrap;padding:2px 4px 8px 32px;">
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" ${sc.halfStroke?'checked':''} onchange="outingSetSkinsCfg('halfStroke',this.checked)" style="accent-color:var(--gold);">Half-stroke</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+        <input type="checkbox" ${sc.strokeOffBest?'checked':''} onchange="outingSetSkinsCfg('strokeOffBest',this.checked)" style="accent-color:var(--gold);">Stroke off low man</label>
+    </div>` : ''}`;
 
   fsRender(`
      ${workflowNav('outing','format','FORMAT','<button class="btn btn-sm btn-gold" onclick="outingHubGroups()">Groups →</button>')}
@@ -7037,7 +7052,13 @@ function outingPlanSetShamble(method) {
 
 function outingPlanToggleSkins(checked) {
   const o = outingCurrent(); if (!o) return;
-  o.skins = checked; scheduleWrite();
+  o.skins = checked; scheduleWrite(); outingRenderPlanFormat();
+}
+// Per-outing skins config (half-stroke, stroke off low man). Applied by outingComputeResults + outingScoringCtx.
+function outingSetSkinsCfg(key, val) {
+  const o = outingCurrent(); if (!o) return;
+  if (!o.skinsCfg) o.skinsCfg = {halfStroke:false, strokeOffBest:false};
+  o.skinsCfg[key] = !!val; scheduleWrite(); outingRenderPlanFormat();
 }
 
 function outingHubGroups() {
@@ -7069,6 +7090,7 @@ function outingHubStartScoring() {
   window._outingCourseId    = o.courseId;
   window._outingGameType    = o.gameType;
   window._outingSkins       = o.skins||false;
+  window._outingSkinsCfg    = o.skinsCfg||{halfStroke:false,strokeOffBest:false};
   window._outingGroupMethod = o.groupMethod||'random';
   window._outingResultMethod= o.resultMethod||null;
   window._outingGroups      = (o.groups||[]).length ? o.groups.map(g=>({...g})) : null;
@@ -8146,12 +8168,13 @@ function _outingDoStart(rawPlayers, course, gameType) {
   } else {
     g={id:uid(),type:'outing',status:'active',_scoring:true,date:Date.now(),
       courseId:course.id,courseName:course.name,gameType,skins:!!(window._outingSkins),nineSide,
+      skinsCfg:window._outingSkinsCfg||{halfStroke:false,strokeOffBest:false},
       groupMethod:method,abcdTiers,resultMethod:window._outingResultMethod||null,
       playerIds:pids,playerNames:players.map(p=>p.name),players,groups:rawGroups,scores:{},phase:'scoring'};
     fsSaveGame(g);
   }
   window._outingPicked=null;window._outingGuests=[];window._outingGroups=null;
-  window._outingGameType=null;window._outingSkins=undefined;window._outingGroupMethod=null;
+  window._outingGameType=null;window._outingSkins=undefined;window._outingSkinsCfg=undefined;window._outingGroupMethod=null;
   window._outingResultMethod=null;window._outingFromHub=false;_outingSelectedGroup=0;
   S.activeOutingId=g.id;scheduleWrite();outingRender(g);
 }
@@ -8457,8 +8480,10 @@ function outingComputeResults(g) {
   const rankMap  = effectiveHcpRatings(course, activeHoles);
   const hcpRating = h => rankMap ? rankMap[h.num] : (h.hcp || 0);
   const cfg      = S.config.games?.individual?.stableford || {};
-  const skinsCfg = S.config.games?.skins || {};
+  const skinsCfg = g.skinsCfg || {};
   const halfStroke = skinsCfg.halfStroke === true;
+  const sob        = skinsCfg.strokeOffBest === true;   // stroke off low man for skins
+  const lowCH      = sob ? Math.min(...g.players.map(p => p.courseHcp || 0)) : null;
 
   const playerData = g.players.map(gp => {
     const sc = g.scores[gp.id] || {};
@@ -8468,7 +8493,8 @@ function outingComputeResults(g) {
       const net       = gross > 0 ? gross - strokes : 0;
       const grossVsPar= gross > 0 ? gross - h.par : 999;
       const pts       = gross > 0 ? stablefordPts(grossVsPar, cfg) : 0;
-      const skinsNetCmp = skinsNetOnHole(gross, gp.courseHcp, hcpRating(h), hcpScale, halfStroke);
+      const effCH       = skinsEffHcp(gp.courseHcp, lowCH, sob);
+      const skinsNetCmp = skinsNetOnHole(gross, effCH, hcpRating(h), hcpScale, halfStroke);
       return { holeNum:h.num, par:h.par, gross, strokes, net, grossVsPar, pts, skinsNetCmp };
     });
     const totalGross = holeData.reduce((a,h)=>a+(h.gross||0), 0);
@@ -10929,6 +10955,13 @@ function tripRenderHandicapsScreen() {
       </div>
       <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:4px 2px 8px;">STROKE ALLOWANCE</div>
       ${allowOpts}
+      <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:16px 2px 8px;">SKINS</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;padding:0 2px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" ${(ds.skins||{}).halfStroke?'checked':''} onchange="tripSetSkinsCfg('halfStroke',this.checked)" style="accent-color:var(--gold);width:18px;height:18px;">Half-stroke</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" ${(ds.skins||{}).strokeOffBest?'checked':''} onchange="tripSetSkinsCfg('strokeOffBest',this.checked)" style="accent-color:var(--gold);width:18px;height:18px;">Stroke off low man</label>
+      </div>
     </div>
   `);
   fsShowGameTab('✈️ Trip');
@@ -10939,7 +10972,14 @@ function tripSetStrokeAllowance(pct) {
   if (!t.settings) t.settings = {};
   t.settings.strokeAllowance = pct;
   scheduleWrite();
-  tripRenderHandicapsScreen();
+  tripRenderHandicapsScreen();}
+// Per-trip skins config (half-stroke, stroke off low man). Applied by computeSkins via t.settings.skins.
+function tripSetSkinsCfg(key, val) {
+  const t = tripActive(); if (!t) return;
+  if (!t.settings) t.settings = {};
+  if (!t.settings.skins) t.settings.skins = {hcpAdj:100, halfStroke:false, strokeOffBest:false};
+  t.settings.skins[key] = !!val;
+  scheduleWrite(); tripRenderHandicapsScreen();
 }
 
 function tripRenderPairingsScreen(){
@@ -12167,6 +12207,12 @@ function leagueRenderSeasonsScreen() {
         <button type="button" class="holes-toggle ${lg.skinsOn!==false?'active':''}" style="flex:1;" onclick="leagueSetSkinsOn(true)">On</button>
         <button type="button" class="holes-toggle ${lg.skinsOn===false?'active':''}" style="flex:1;" onclick="leagueSetSkinsOn(false)">Off</button>
       </div>
+      ${lg.skinsOn!==false ? `<div style="display:flex;gap:16px;flex-wrap:wrap;margin:-8px 0 16px 4px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" ${(lg.skins||{}).halfStroke?'checked':''} onchange="leagueSetSkinsCfg('halfStroke',this.checked)" style="accent-color:var(--gold);">Half-stroke</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+          <input type="checkbox" ${(lg.skins||{}).strokeOffBest?'checked':''} onchange="leagueSetSkinsCfg('strokeOffBest',this.checked)" style="accent-color:var(--gold);">Stroke off low man</label>
+      </div>` : ''}
       ${!lg.partnerLeague ? `${lbl('SEASON STANDINGS')}
       <div style="display:flex;gap:6px;margin-bottom:16px;">
         <button type="button" class="holes-toggle ${lg.trackStandings?'active':''}" style="flex:1;" onclick="leagueSetTrackStandings(true)">On</button>
@@ -12334,6 +12380,12 @@ function leagueSetSeasonResultMethod(v) {
 function leagueSetSkinsOn(on) {
   const lg=leagueCurrent();if(!lg)return;
   lg.skinsOn=!!on; scheduleWrite(); leagueRenderSeasonsScreen();
+}
+// Per-league skins config (half-stroke, stroke off low man). Applied by computeSkins via lg.skins.
+function leagueSetSkinsCfg(key, val) {
+  const lg=leagueCurrent();if(!lg)return;
+  if(!lg.skins) lg.skins={hcpAdj:100,halfStroke:false,strokeOffBest:false};
+  lg.skins[key]=!!val; scheduleWrite(); leagueRenderSeasonsScreen();
 }
 // Season standings on/off for non-partner leagues (default off; partner leagues always show match standings).
 function leagueSetTrackStandings(on) {
