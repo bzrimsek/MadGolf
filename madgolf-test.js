@@ -8497,6 +8497,29 @@ smoke('leagueCurrentSession returns session', () => {
   expect('ctx Blue CH', chFor('p1'), 12);
   expect('ctx White CH', chFor('p2'), 6);
 }
+
+// ── 163. Tee picker helpers (phase 2 UI) ──────────────────────────────────────
+{
+  const { teeOptions, teePickerHtml } = sandbox;
+  const H = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));
+  vmSetS('courses', [
+    { id:'blue',  name:'Walden', teeColor:'Blue',  slope:130, rating:72, holes:H },
+    { id:'white', name:'Walden', teeColor:'White', slope:113, rating:68, holes:H },
+    { id:'red',   name:'Walden', teeColor:'Red',   slope:105, rating:66, holes:H },
+    { id:'pebble',name:'Pebble', teeColor:'Blue',  slope:140, rating:75, holes:H },
+  ]);
+  const BLUE = sandbox.fsGetCourse('blue');
+  const tees = teeOptions(BLUE);
+  expect('tees: 3 Walden tees (Pebble excluded)', tees.length, 3);
+  expect('tees: sorted by slope desc', JSON.stringify(tees.map(t=>t.slope)), JSON.stringify([130,113,105]));
+  // Picker renders only with 2+ tees.
+  const html = teePickerHtml('p1', 'white', BLUE, 'leagueSetPlayerTee');
+  expect('picker renders a select', html.includes('<select') && html.includes("leagueSetPlayerTee('p1'"), true);
+  expect('picker marks current tee selected', html.includes('value="white" selected'), true);
+  // Single-tee course → no picker.
+  const single = teePickerHtml('p1', null, sandbox.fsGetCourse('pebble'), 'leagueSetPlayerTee');
+  expect('single tee → no picker', single, '');
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);

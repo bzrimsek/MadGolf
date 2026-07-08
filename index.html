@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.94  Build 2026-07-08 07:44 AM ET
+     Version : v0.90.95  Build 2026-07-08 07:57 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.95  2026-07-08  Per-player TEES — phases 2 & 3 COMPLETE (feature done). PHASE 2 (assignment UI): a per-player tee picker (teePickerHtml, renders only when the course has 2+ tees) is wired into every module's player screen — League groups, Trip round groups, Outing player list, and the Foursome game-type screen — each with a setter (leagueSetPlayerTee, tripSetPlayerTee, outingSetPlayerTee, fsSetPlayerTee) that writes ev.playerTees[pid] (deleting it when the pick is the default tee). playerTees is carried onto created games: Foursome creators stamp fsBuildChs at creation and store g.playerTees (via window._fsPlayerTees) so fsRefreshChs re-stamps on open; Outing carries window._outingPlayerTees → g.playerTees for outingRefreshChs; League and Trip recompute live so need nothing extra. PHASE 3 (scorecard, paper-card model): a player on a non-default tee now shows their tee colour on the card — the Foursome chLabel and the shared group-card default label both render it (in gold, above/beside the handicap), driven by the teeColor the withPlayerTee stamp already carries. +5 tests (§163: teeOptions same-name filter + slope-desc sort, picker renders/select-marks with 2+ tees, single-tee course → no picker). Totals 2737 -> 2742. The per-player tees feature is complete end to end: assign in any module, handicaps compute from each player's tee, nets stay comparable, and the card reflects a non-default tee.
 // v0.90.94  2026-07-08  Per-player TEES — phase 1 COMPLETE (all modules) + phase 2 picker infrastructure. Tee-aware course handicaps now cover every module: added to Trip (tripScoringCtx, per round — r.playerTees) and Outing (outingRefreshChs + creation in _outingDoStart), on top of Foursome (fsRefreshChs) and League (leagueSessionCtx + _leagueDoScoring) from v0.90.93. Every player's course handicap is computed from THEIR tee via ev.playerTees[pid] (default = the event course); with no override set it is byte-identical to before. Phase 2 infrastructure added: teeOptions(defaultCourse) (alternate tees = course entries sharing the name, sorted by slope, longest first) and teePickerHtml (a compact per-player tee select that renders only when the course actually has 2+ tees). Totals unchanged (2737). PROCEEDING next (rule 31): wire the picker + per-module setters into each player/groups screen (Foursome player-select, Outing groups, League groups, Trip round groups), then phase 3 — show each player's tee on the scorecard.
 // v0.90.93  2026-07-07  Per-player TEES — phase 1 foundation (handicaps from each player's own tee). A "tee" is already a separate course entry of the same course (teeColor), and calcRawCourseHcp includes (CR − Par), so computing each player's handicap from THEIR tee makes net scores directly comparable across tees — no separate tee-differential adjustment. New: per-event override ev.playerTees[pid] (default = the event course); playerTeeCourse(ev,pid,default) resolver; withPlayerTee(p,ev,default) stamps a player's tee slope/rating/par (default-tee players returned unchanged). fsBuildChs (Foursome) and buildScoringCtx (Outing/League/Trip) now read p.teeSlope/teeRating/teePar with fallback to the event course, so each player's course handicap comes from their own tee. Stamp wired at fsRefreshChs (foursome reopen) and both league CH paths (leagueSessionCtx + _leagueDoScoring live scoring). With no tee overrides set every handicap is byte-identical to before (regression-safe). +8 tests (§162): withPlayerTee stamping, and same-index players on Blue (130/72 → CH 12) vs White (113/68 → CH 6) through both fsBuildChs and the shared context. Totals 2729 -> 2737. TRACKED (rule 31): phase 1 completion — stamp Outing + Trip + foursome creation-time (inert until the UI exists); phase 2 — per-player tee picker (grouped by course name, sorted by slope) + event default tee; phase 3 — show each player's tee on the scorecard (paper-card model).
 // v0.90.92  2026-07-07  Per-instance skins — checkpoint 2 of 2 (League + Trip), completing the feature. League and Trip now expose Half-stroke and "Stroke off low man" controls in their OWN skins settings: League under the SKINS On/Off in the GAME & SCORING section (writing lg.skins), Trip in a new SKINS section on the Handicaps/Settings screen (writing t.settings.skins). Both flow through computeSkins → skinsEffHcp, so the setting actually applies (confirmed: leagueSessionCtx feeds lg.skins, tripScoringCtx feeds t.settings.skins). Setters leagueSetSkinsCfg, tripSetSkinsCfg. RETIRED the global "Skins / Strokes" settings screen (its GAME_DEFS entry) and removed the dead config.games.skins default — nothing read it after Outing moved to per-instance in v0.90.90, so the old strokeOffLow / hcpPct variant is gone and all three modules are unified on strokeOffBest / hcpAdj (rule 6). Removed 3 now-obsolete tests that asserted the global skins config existed; the shared application is still covered by skinsEffHcp (§160). Totals 2732 -> 2729 (only the removed-feature tests went; no coverage lost). This closes the per-instance skins feature across Foursome (by game), League, Outing and Trip.
@@ -1162,8 +1163,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.94';
-const BUILD_TIME = '2026-07-08 07:45 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.95';
+const BUILD_TIME = '2026-07-08 07:58 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3248,7 +3249,7 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
   const pfxA    = o.pfxA     || 'out_A_';
   const pfxB    = o.pfxB     || 'out_B_';
   const pfxT    = o.pfxT     || 'out_tot_';
-  const chLabelFn = o.chLabel || (pp => '<span style="color:var(--muted);font-weight:400;font-size:9px;">CH' + pp.courseHcp + '</span>');
+  const chLabelFn = o.chLabel || (pp => (pp.teeColor?`<span style="font-size:8px;color:var(--gold);font-weight:700;">${esc(pp.teeColor)}</span> `:'') + '<span style="color:var(--muted);font-weight:400;font-size:9px;">CH' + pp.courseHcp + '</span>');
   const hcpRow  = o.hcpRow  || false;
 
   function playerRow(p, holes, secPfx) {
@@ -3767,8 +3768,24 @@ function fsShowGameTypePicker() {
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">
       ${players.map(p=>esc(firstWord(p.name))).join(' · ')} · ${fsGetCourse(window._fsCourseId)?.name||'—'}
     </div>
+    ${(()=>{ const _fc=fsGetCourse(window._fsCourseId); if(teeOptions(_fc).length<2) return ''; const pt=window._fsPlayerTees||{};
+      return `<div style="margin-bottom:12px;">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:0 0 6px;">TEES</div>
+        ${players.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--surf3);">
+          <span style="flex:1;font-size:13px;">${esc(firstWord(p.name))}</span>
+          ${teePickerHtml(p.id, pt[p.id], _fc, 'fsSetPlayerTee')}
+        </div>`).join('')}
+      </div>`; })()}
     ${cards}
   </div>`);
+}
+// Per-player tee override for a foursome game (default tee = the selected course). Held on
+// window._fsPlayerTees during setup, carried to g.playerTees so fsRefreshChs re-stamps on open.
+function fsSetPlayerTee(pid, courseId) {
+  const def=fsGetCourse(window._fsCourseId);
+  if(!window._fsPlayerTees) window._fsPlayerTees={};
+  if(!def||courseId===def.id) delete window._fsPlayerTees[pid]; else window._fsPlayerTees[pid]=courseId;
+  fsShowGameTypePicker();
 }
 function fsSelectGameType(type) {
   const routes={bbb:showBBBSetup,doc:showDOCSetup,nassau:showNassauSetup,walkoff:showWalkoffSetup,
@@ -3889,7 +3906,7 @@ function startBBBGame() {
     cost,
     playerIds: players.map(p => p.id),
     playerNames: players.map(p => p.name),
-    nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length,
+    nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length,
     bbb: {}, _scoring: true
   };
   fsSaveGame(g);
@@ -4138,7 +4155,11 @@ function fsRenderScorecard(g, players) {
   const chLabel = (p) => {
     const rawCh = g.rawChs?.[p.id] ?? (g.chs && g.chs[p.id]) ?? '?';
     const adjCh = (g.chs && g.chs[p.id]) ?? '?';
-    return `<span onclick="toast(fsHcpBreakdown('${g.id}','${p.id}'))" style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};cursor:pointer;">${rawCh}</span><span style="font-size:9px;color:var(--muted);"> · </span><span style="font-size:9px;font-weight:${offLow?700:400};color:${offLow?'var(--text)':'var(--muted)'};">${adjCh}</span>`;
+    const teeId = g.playerTees && g.playerTees[p.id];
+    const tee   = teeId && fsGetCourse(teeId);
+    const teeTag = (tee && tee.teeColor && teeId !== g.courseId)
+      ? `<span style="font-size:8px;color:var(--gold);font-weight:700;display:block;letter-spacing:.3px;">${esc(tee.teeColor)}</span>` : '';
+    return teeTag + `<span onclick="toast(fsHcpBreakdown('${g.id}','${p.id}'))" style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};cursor:pointer;">${rawCh}</span><span style="font-size:9px;color:var(--muted);"> · </span><span style="font-size:9px;font-weight:${offLow?700:400};color:${offLow?'var(--text)':'var(--muted)'};">${adjCh}</span>`;
   };
   return renderScorecardGroup(ctx, 0,
     { playerIds: players.map(p => p.id), label: fsGameTypeLabel(g.gameType) + ' · ' + (course.name || '') },
@@ -4523,7 +4544,7 @@ function startDOCGame() {
   const players = fsGetActivePlayers();
   const cost        = parseInt(document.getElementById('doc-cost').value) || 10;
   const strokeMode  = document.getElementById('doc-stroke').value;
-  const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, strokeMode === 'low');
   const activeHoles = getActiveHoles(course, window._fsNineMode||'all');
   const n       = activeHoles.length;
   const segSize = Math.floor(n / 3);
@@ -4533,7 +4554,7 @@ function startDOCGame() {
     courseId:course.id, courseName:course.name, teeColor:course.teeColor||'',
     cost, strokeMode, carts:window._cartState,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, segs, activeSeg:0, nineSide:(window._fsNineMode||'all'), _totalHoles:n, _scoring:true
+    chs, rawChs, scores:{}, segs, activeSeg:0, nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:n, _scoring:true
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -4759,7 +4780,7 @@ function startNassauGame() {
   const costT = parseInt(document.getElementById('nassau-t').value) || 10;
   const strokeMode = document.getElementById('nassau-stroke').value;
   const nassauMode = document.getElementById('nassau-mode')?.value || 'match';
-  const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, strokeMode === 'low');
   const pairs = fsBuildNassauPairs(players, window._teamState);
   const g = {
     id:uid(), type:'foursome', gameType:'nassau', date:Date.now(), status:'active',
@@ -4768,7 +4789,7 @@ function startNassauGame() {
     // keep teams for backward compat with 4-player rejoin
     teams: n === 4 ? { A:[...window._teamState.A], B:[...window._teamState.B] } : null,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -5101,7 +5122,7 @@ function startWalkoffGame() {
   const cost1      = parseInt(document.getElementById('wo-c1').value) || 20;
   const cost2      = parseInt(document.getElementById('wo-c2').value) || 10;
   const strokeMode = document.getElementById('wo-stroke').value;
-  const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, strokeMode === 'low');
   // Build pairs — each pair gets its own independent matches array
   const basePairs = fsBuildNassauPairs(players, window._teamState); // reuse same pair builder
   const pairMatches = basePairs.map(() => [{ startHole:1, cost:cost1, closed:false, winner:null, closedOnHole:null }]);
@@ -5115,7 +5136,7 @@ function startWalkoffGame() {
     teams: n === 4 ? { A:[...window._teamState.A], B:[...window._teamState.B] } : null,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
     chs, rawChs, scores:{},
-    nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true
+    nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -5511,7 +5532,7 @@ function startWolfGame() {
   const course = fsGetActiveCourse(); if (!course) return;
   const ptValue    = parseFloat(document.getElementById('wolf-val')?.value) || 1;
   const strokeMode = document.getElementById('wolf-stroke')?.value || 'field';
-  const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, strokeMode === 'low');
   const n = getActiveHoles(course, window._fsNineMode||'all').length;
   const g = {
     id: uid(), type: 'foursome', gameType: 'wolf', date: Date.now(), status: 'active',
@@ -5524,7 +5545,7 @@ function startWolfGame() {
     scores: Object.fromEntries(players.map(p => [p.id, {}])),
     wolfHoles: {},   // keyed by hole number: { mode, captainPid, partnerPid, winner, base, value }
     wolfCarry: 0,    // consecutive tied holes carried forward
-    nineSide:(window._fsNineMode||'all'), _totalHoles: n,
+    nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles: n,
     _scoring: true,
   };
   fsSaveGame(g);
@@ -5878,13 +5899,13 @@ function startStablefordGame() {
   const players = fsGetActivePlayers();
   const strokeMode = document.getElementById('stab-stroke')?.value || 'field';
   const cfg = S.config.games?.individual?.stableford || {};
-  const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, strokeMode === 'low');
   const g = {
     id:uid(), type:'foursome', gameType:'stableford', date:Date.now(), status:'active',
     courseId:course.id, courseName:course.name,
     strokeMode, cfg,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -5989,13 +6010,13 @@ function startLowNetGame() {
   const course  = fsGetActiveCourse(); if (!course) return;
   const players = fsGetActivePlayers();
   const strokeMode = document.getElementById('lownet-stroke')?.value || 'field';
-  const { chs, rawChs } = fsBuildChs(players, course, strokeMode === 'low');
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, strokeMode === 'low');
   const g = {
     id:uid(), type:'foursome', gameType:'lownet', date:Date.now(), status:'active',
     courseId:course.id, courseName:course.name,
     strokeMode,
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -6097,7 +6118,7 @@ function startTwoScrambleGame() {
   const course  = fsGetActiveCourse(); if (!course) return;
   const players = fsGetActivePlayers();
   const { A, B } = window._teamState;
-  const { chs, rawChs } = fsBuildChs(players, course, false);
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, false);
   const g = {
     id:uid(), type:'foursome', gameType:'twoscramble', date:Date.now(), status:'active',
     courseId:course.id, courseName:course.name,
@@ -6105,7 +6126,7 @@ function startTwoScrambleGame() {
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
     chs, rawChs,
     scores:{ grp_0:{}, grp_1:{} },
-    nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
+    nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   fsSaveGame(g);
   renderTwoScrambleGame();
@@ -6282,13 +6303,13 @@ function startTwoShambleGame() {
   const players = fsGetActivePlayers();
   const { A, B } = window._teamState;
   const strokeMode = 'field'; // shamble always uses individual HCPs
-  const { chs, rawChs } = fsBuildChs(players, course, false);
+  const { chs, rawChs } = fsBuildChs(players.map(p=>withPlayerTee(p,{playerTees:window._fsPlayerTees},course)), course, false);
   const g = {
     id:uid(), type:'foursome', gameType:'twoshamble', date:Date.now(), status:'active',
     courseId:course.id, courseName:course.name,
     teams: { A, B },
     playerIds:players.map(p=>p.id), playerNames:players.map(p=>p.name),
-    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
+    chs, rawChs, scores:{}, nineSide:(window._fsNineMode||'all'), playerTees:{...(window._fsPlayerTees||{})}, _totalHoles:getActiveHoles(course,window._fsNineMode||'all').length, _scoring:true,
   };
   players.forEach(p => { g.scores[p.id] = {}; });
   fsSaveGame(g);
@@ -6881,6 +6902,7 @@ function outingRenderPlanPlayers() {
   const selected = new Set(o.playerIds||[]);
   const regulars = allPlayers.filter(p=>p.regular);
   const others   = allPlayers.filter(p=>!p.regular);
+  const _oc = fsGetCourse(o.courseId);
   const secHdr = lbl => `<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:8px 4px 4px;">${lbl}</div>`;
   const row = p => `<div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--surf3);">
     <input type="checkbox" ${selected.has(p.id)?'checked':''} style="width:18px;height:18px;accent-color:var(--gold);cursor:pointer;"
@@ -6888,6 +6910,7 @@ function outingRenderPlanPlayers() {
     <div style="flex:1;min-width:0;">
       <div style="font-size:13px;font-weight:600;">${esc(p.name)}</div>
     </div>
+    ${selected.has(p.id)?teePickerHtml(p.id, o.playerTees&&o.playerTees[p.id], _oc, 'outingSetPlayerTee'):''}
     <span style="font-size:11px;color:var(--muted);">HI ${fmtHcp(p.hcp)}</span>
   </div>`;
   let html = '';
@@ -7086,6 +7109,16 @@ function outingPlanToggleSkins(checked) {
   o.skins = checked; scheduleWrite(); outingRenderPlanFormat();
 }
 // Per-outing skins config (half-stroke, stroke off low man). Applied by outingComputeResults + outingScoringCtx.
+// Per-player tee override for an outing (default tee = the outing course). Carried to the active
+// game via window._outingPlayerTees so outingRefreshChs re-stamps handicaps from the tee.
+function outingSetPlayerTee(pid, courseId) {
+  const o=outingCurrent(); if(!o)return;
+  const def=fsGetCourse(o.courseId);
+  if(!o.playerTees) o.playerTees={};
+  if(!def||courseId===def.id) delete o.playerTees[pid]; else o.playerTees[pid]=courseId;
+  window._outingPlayerTees = o.playerTees;
+  scheduleWrite(); outingRenderPlanPlayers();
+}
 function outingSetSkinsCfg(key, val) {
   const o = outingCurrent(); if (!o) return;
   if (!o.skinsCfg) o.skinsCfg = {halfStroke:false, strokeOffBest:false};
@@ -7122,6 +7155,7 @@ function outingHubStartScoring() {
   window._outingGameType    = o.gameType;
   window._outingSkins       = o.skins||false;
   window._outingSkinsCfg    = o.skinsCfg||{halfStroke:false,strokeOffBest:false};
+  window._outingPlayerTees  = o.playerTees||{};
   window._outingGroupMethod = o.groupMethod||'random';
   window._outingResultMethod= o.resultMethod||null;
   window._outingGroups      = (o.groups||[]).length ? o.groups.map(g=>({...g})) : null;
@@ -8202,6 +8236,7 @@ function _outingDoStart(rawPlayers, course, gameType) {
     g={id:uid(),type:'outing',status:'active',_scoring:true,date:Date.now(),
       courseId:course.id,courseName:course.name,gameType,skins:!!(window._outingSkins),nineSide,
       skinsCfg:window._outingSkinsCfg||{halfStroke:false,strokeOffBest:false},
+      playerTees:window._outingPlayerTees||{},
       groupMethod:method,abcdTiers,resultMethod:window._outingResultMethod||null,
       playerIds:pids,playerNames:players.map(p=>p.name),players,groups:rawGroups,scores:{},phase:'scoring'};
     fsSaveGame(g);
@@ -11055,11 +11090,22 @@ function tripGetPairingRound(){
 }
 
 // ── Round groups screen ───────────────────────────────────────
+// Per-player tee override for a trip round (default tee = the round course). Trip handicaps are
+// computed live, so the next render reflects the tee.
+function tripSetPlayerTee(pid, courseId) {
+  const t=tripActive(); if(!t)return;
+  const r=tripGetPairingRound(); if(!r)return;
+  const def=tripCourseById(t,r.courseId);
+  if(!r.playerTees) r.playerTees={};
+  if(!def||courseId===def.id) delete r.playerTees[pid]; else r.playerTees[pid]=courseId;
+  scheduleWrite(); tripRenderRoundGroupsScreen();
+}
 function tripRenderRoundGroupsScreen(){
   const t=tripActive();if(!t){tripGoScreen('list');return;}
   const r=tripGetPairingRound();if(!r){tripGoScreen('pairings');return;}
   const{dayIdx,rndIdx}=_tripPairingCtx;
   const players=tripPlayers(t);const groups=r.groups||[];const tts=r.teeTimes||[];
+  const _tc=tripCourseById(t,r.courseId);
   const hasScores=r.scores&&Object.values(r.scores).some(h=>h&&Object.keys(h).length>0);
   const genDisabled=hasScores||(r.championship&&r.championshipMode==='manual');
   const allAssigned=new Set(groups.flatMap(gr=>gr.playerIds||[]));
@@ -11076,7 +11122,7 @@ function tripRenderRoundGroupsScreen(){
     const gp=(grp.playerIds||[]).map(id=>players.find(p=>p.id===id)).filter(Boolean);
     body+=`<div class="card" style="margin-bottom:8px;"><div style="font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--g800);letter-spacing:1px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;"><span>${grpLabel(gi)}</span><span style="font-size:11px;color:var(--muted);">${gp.length}/4</span></div>`;
     if(!gp.length){body+='<div style="font-size:12px;color:var(--muted);">Empty</div>';}
-    else{gp.forEach(p=>{body+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--surf3);"><span style="flex:1;font-size:13px;">${esc(p.name)}${managerSet.has(p.id)?' &#9733;':''}</span><select data-pid="${p.id}" data-gi="${gi}" data-action="move" style="font-size:11px;border:1px solid var(--surf3);border-radius:6px;padding:3px 5px;"><option value="">Move&hellip;</option>${groups.map((og,oi)=>{if(oi===gi)return'';if((og.playerIds||[]).length>=4)return'';return`<option value="${oi}">${grpLabel(oi)}</option>`;}).join('')}<option value="unassign">Unassign</option></select></div>`;});}
+    else{gp.forEach(p=>{body+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--surf3);"><span style="flex:1;font-size:13px;">${esc(p.name)}${managerSet.has(p.id)?' &#9733;':''}</span>${teePickerHtml(p.id, r.playerTees&&r.playerTees[p.id], _tc, 'tripSetPlayerTee')}<select data-pid="${p.id}" data-gi="${gi}" data-action="move" style="font-size:11px;border:1px solid var(--surf3);border-radius:6px;padding:3px 5px;"><option value="">Move&hellip;</option>${groups.map((og,oi)=>{if(oi===gi)return'';if((og.playerIds||[]).length>=4)return'';return`<option value="${oi}">${grpLabel(oi)}</option>`;}).join('')}<option value="unassign">Unassign</option></select></div>`;});}
     body+='</div>';
   });
   if(!groups.length)body+='<div style="font-size:13px;color:var(--muted);text-align:center;padding:16px;">Tap Generate to create groups.</div>';
@@ -12914,6 +12960,7 @@ function leagueShowGroups() {
 function leagueRenderGroups() {
   const lg=leagueCurrent();if(!lg)return;
   const s=leagueSessionById(lg,_leagueSessionId);if(!s)return;
+  const _sc=leagueSessionCourse(lg,s);
   const pool=leagueBuildPool(lg,s);
   const groups=s.groups||[];
   const _lgSeason=(lg.seasons||[]).find(x=>x.id===s.seasonId)||leagueActiveSeason(lg);
@@ -12949,6 +12996,7 @@ function leagueRenderGroups() {
       const tierBadge=tier?`<span style="color:${['A','B'].includes(tier)?'var(--gold)':'var(--muted)'};font-weight:800;font-size:11px;">${tier}-</span>`:'';
       gHtml+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--surf3);">
         <span style="flex:1;font-size:13px;">${tierBadge}${esc(p.name)}</span>
+        ${teePickerHtml(p.id, s.playerTees&&s.playerTees[p.id], _sc, 'leagueSetPlayerTee')}
         <select onchange="if(this.value){const from=${gi};if(this.value==='unassign')leagueUnassignPlayer('${p.id}',from);else leagueMovePlayer('${p.id}',parseInt(this.value),from);this.value=''}" style="font-size:11px;border:1px solid var(--surf3);border-radius:6px;padding:3px 6px;">
           <option value="">Move…</option>
           ${groups.map((og,oi)=>{if(oi===gi||(og.playerIds||[]).length>=4)return'';return`<option value="${oi}">${grpLabel(oi)}</option>`;}).join('')}
@@ -13179,6 +13227,16 @@ function leagueDealAbcd(pool,numGroups) {
   return (best||[]).map(g=>g.map(p=>p.id));
 }
 let _leagueGrpTimer=null;
+// Per-player tee override for a league session (default tee = the session course). Live handicaps
+// recompute from the tee on the next render.
+function leagueSetPlayerTee(pid, courseId) {
+  const lg=leagueCurrent(); if(!lg)return;
+  const s=leagueSessionById(lg,_leagueSessionId); if(!s)return;
+  const def=leagueSessionCourse(lg,s);
+  if(!s.playerTees) s.playerTees={};
+  if(!def||courseId===def.id) delete s.playerTees[pid]; else s.playerTees[pid]=courseId;
+  scheduleWrite(); leagueRenderGroups();
+}
 function leagueMovePlayer(pid,toGi,fromGi){
   const lg=leagueCurrent();if(!lg)return;const s=leagueSessionById(lg,_leagueSessionId);if(!s)return;
   const to=s.groups[toGi];if(!to)return;if((to.playerIds||[]).length>=4)return toast('Group full');
