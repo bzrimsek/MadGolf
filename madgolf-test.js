@@ -7089,7 +7089,7 @@ smoke('leagueCurrentSession returns session', () => {
   // both scoring-context engines must use the shared function (no drift back to divergent hcp math)
   expect('buildScoringCtx uses courseHandicap', html.includes('courseHcp: courseHandicap('), true);
   expect('tripScoringCtx uses courseHandicap',  html.includes('courseHcp: courseHandicap(hi'), true);
-  expect('league scoring uses courseHandicap',   html.includes('courseHcp:courseHandicap(p.hcp||0,c.slope') && html.includes('courseHcp: courseHandicap(p.hcp||0, course.slope'), true);
+  expect('league scoring uses courseHandicap',   html.includes('courseHcp:courseHandicap(p.hcp||0,pt.teeSlope') && html.includes('courseHcp: courseHandicap(p.hcp||0, pt.teeSlope'), true);
 }
 
 // ── 120. LEAGUE + OUTING HC ADJUSTMENT (allowance) ───────────
@@ -8464,6 +8464,38 @@ smoke('leagueCurrentSession returns session', () => {
   expect('remote data + local DIRTY → keep local',  fbShouldTakeRemote(true,  true),  false);
   expect('no remote data → keep local',             fbShouldTakeRemote(false, false), false);
   expect('no remote + dirty → keep local',          fbShouldTakeRemote(false, true),  false);
+}
+
+// ── 162. Per-player TEES — handicap from the player's own tee ─────────────────
+// A "tee" is another course entry of the same course. ev.playerTees[pid] overrides the default tee;
+// each player's course handicap is computed from THEIR tee (slope/rating/par), so nets stay comparable.
+{
+  const { withPlayerTee, fsBuildChs, buildScoringCtx, coursePar } = sandbox;
+  const H18 = n => Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}));
+  const BLUE  = { id:'blue',  name:'Walden', teeColor:'Blue',  slope:130, rating:72, par:72, holes:H18() };
+  const WHITE = { id:'white', name:'Walden', teeColor:'White', slope:113, rating:68, par:72, holes:H18() };
+  vmSetS('courses', [BLUE, WHITE]);
+
+  // withPlayerTee: default-tee player unchanged; overridden player carries tee slope/rating/par.
+  const ev = { playerTees:{ p2:'white' } };
+  expect('default tee → no override', withPlayerTee({id:'p1'}, ev, BLUE).teeSlope, undefined);
+  const p2t = withPlayerTee({id:'p2'}, ev, BLUE);
+  expect('override tee slope', p2t.teeSlope, 113);
+  expect('override tee rating', p2t.teeRating, 68);
+  expect('override tee par', p2t.teePar, 72);
+
+  // Same index, different tees → different course handicap (fsBuildChs).
+  const p1 = {id:'p1', hcp:10};                                   // default Blue
+  const p2 = {id:'p2', hcp:10, teeSlope:113, teeRating:68, teePar:72};  // White
+  const chs = fsBuildChs([p1,p2], BLUE, false, 'all').chs;
+  expect('Blue tee CH (10 idx, 130/72)', chs.p1, 12);            // 10*130/113 + 0 → 11.5 → 12
+  expect('White tee CH (10 idx, 113/68)', chs.p2, 6);            // 10*113/113 + (68-72) → 6
+
+  // Same through the shared scoring context (Outing/League/Trip path).
+  const ctx = buildScoringCtx([p1,p2], BLUE, 'all', {}, [{playerIds:['p1','p2']}], 'lownet', {strokeAllowance:100});
+  const chFor = id => ctx.players.find(p=>p.id===id).courseHcp;
+  expect('ctx Blue CH', chFor('p1'), 12);
+  expect('ctx White CH', chFor('p2'), 6);
 }
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
