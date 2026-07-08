@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.93  Build 2026-07-07 05:06 PM ET
+     Version : v0.90.94  Build 2026-07-08 07:44 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.94  2026-07-08  Per-player TEES — phase 1 COMPLETE (all modules) + phase 2 picker infrastructure. Tee-aware course handicaps now cover every module: added to Trip (tripScoringCtx, per round — r.playerTees) and Outing (outingRefreshChs + creation in _outingDoStart), on top of Foursome (fsRefreshChs) and League (leagueSessionCtx + _leagueDoScoring) from v0.90.93. Every player's course handicap is computed from THEIR tee via ev.playerTees[pid] (default = the event course); with no override set it is byte-identical to before. Phase 2 infrastructure added: teeOptions(defaultCourse) (alternate tees = course entries sharing the name, sorted by slope, longest first) and teePickerHtml (a compact per-player tee select that renders only when the course actually has 2+ tees). Totals unchanged (2737). PROCEEDING next (rule 31): wire the picker + per-module setters into each player/groups screen (Foursome player-select, Outing groups, League groups, Trip round groups), then phase 3 — show each player's tee on the scorecard.
 // v0.90.93  2026-07-07  Per-player TEES — phase 1 foundation (handicaps from each player's own tee). A "tee" is already a separate course entry of the same course (teeColor), and calcRawCourseHcp includes (CR − Par), so computing each player's handicap from THEIR tee makes net scores directly comparable across tees — no separate tee-differential adjustment. New: per-event override ev.playerTees[pid] (default = the event course); playerTeeCourse(ev,pid,default) resolver; withPlayerTee(p,ev,default) stamps a player's tee slope/rating/par (default-tee players returned unchanged). fsBuildChs (Foursome) and buildScoringCtx (Outing/League/Trip) now read p.teeSlope/teeRating/teePar with fallback to the event course, so each player's course handicap comes from their own tee. Stamp wired at fsRefreshChs (foursome reopen) and both league CH paths (leagueSessionCtx + _leagueDoScoring live scoring). With no tee overrides set every handicap is byte-identical to before (regression-safe). +8 tests (§162): withPlayerTee stamping, and same-index players on Blue (130/72 → CH 12) vs White (113/68 → CH 6) through both fsBuildChs and the shared context. Totals 2729 -> 2737. TRACKED (rule 31): phase 1 completion — stamp Outing + Trip + foursome creation-time (inert until the UI exists); phase 2 — per-player tee picker (grouped by course name, sorted by slope) + event default tee; phase 3 — show each player's tee on the scorecard (paper-card model).
 // v0.90.92  2026-07-07  Per-instance skins — checkpoint 2 of 2 (League + Trip), completing the feature. League and Trip now expose Half-stroke and "Stroke off low man" controls in their OWN skins settings: League under the SKINS On/Off in the GAME & SCORING section (writing lg.skins), Trip in a new SKINS section on the Handicaps/Settings screen (writing t.settings.skins). Both flow through computeSkins → skinsEffHcp, so the setting actually applies (confirmed: leagueSessionCtx feeds lg.skins, tripScoringCtx feeds t.settings.skins). Setters leagueSetSkinsCfg, tripSetSkinsCfg. RETIRED the global "Skins / Strokes" settings screen (its GAME_DEFS entry) and removed the dead config.games.skins default — nothing read it after Outing moved to per-instance in v0.90.90, so the old strokeOffLow / hcpPct variant is gone and all three modules are unified on strokeOffBest / hcpAdj (rule 6). Removed 3 now-obsolete tests that asserted the global skins config existed; the shared application is still covered by skinsEffHcp (§160). Totals 2732 -> 2729 (only the removed-feature tests went; no coverage lost). This closes the per-instance skins feature across Foursome (by game), League, Outing and Trip.
 // v0.90.91  2026-07-07  CRITICAL FIX: entered scores could be lost when the app was backgrounded mid-round. Root cause: fbLoad replaced local state with the remote Firebase snapshot UNCONDITIONALLY (S = normalized whenever remote had data), and onVisibilityChange only ran on becoming VISIBLE — there was no flush when the app went to the background. So scores entered within the 1.5s debounce window before backgrounding lived only in localStorage; on return or cold start, fbLoad overwrote them with the stale remote (e.g. a par-5 hole left blank for three players after a real round). Fixes: (1) new fbShouldTakeRemote(hasRemoteData, localDirty) — take the remote snapshot ONLY when it has data AND local has no unsaved edits (the dirty flag, persisted in localStorage); otherwise keep local and flush it up (last-write-wins = local). fbLoad now gates its overwrite on this and pushes the kept-local edits to Firebase after load. (2) new flushWrite() cancels the debounce and writes immediately. (3) onVisibilityChange flushes on HIDDEN (backgrounding) and, on return, flushes any unsaved edits before reloading. Normal sync (clean local, remote wins) is unchanged. +4 tests (§161). Totals 2726 -> 2730. Still tracked (rule 31): per-instance skins checkpoint 2 — League/Trip controls + retire the global Skins/Strokes screen.
@@ -1161,8 +1162,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.93';
-const BUILD_TIME = '2026-07-07 05:06 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.94';
+const BUILD_TIME = '2026-07-08 07:45 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3424,6 +3425,21 @@ function withPlayerTee(p, ev, defaultCourse) {
   const tc = playerTeeCourse(ev, p.id, defaultCourse);
   if (!tc || !defaultCourse || tc.id === defaultCourse.id) return p;
   return { ...p, teeSlope: tc.slope, teeRating: tc.rating, teePar: coursePar(tc), teeColor: tc.teeColor || '', teeCourseId: tc.id };
+}
+/** Alternate tees for an event's course = every course entry sharing its name, longest first (slope desc). */
+function teeOptions(defaultCourse) {
+  if (!defaultCourse) return [];
+  return (S.courses||[]).filter(c => c.name === defaultCourse.name).sort((a,b) => (b.slope||0) - (a.slope||0));
+}
+/** Compact per-player tee <select>. Renders nothing unless the course actually has multiple tees.
+ *  setterCall is a JS expression string receiving the picked courseId via this.value. */
+function teePickerHtml(pid, curCourseId, defaultCourse, setterFn) {
+  const tees = teeOptions(defaultCourse);
+  if (tees.length < 2) return '';
+  const cur = curCourseId || (defaultCourse && defaultCourse.id);
+  return `<select onchange="${setterFn}('${pid}',this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 6px;border-radius:6px;background:var(--surf2);color:var(--fg);border:1px solid var(--surf3);">`
+    + tees.map(t=>`<option value="${t.id}" ${t.id===cur?'selected':''}>${esc(t.teeColor||t.name)}${t.id===(defaultCourse&&defaultCourse.id)?' •':''}</option>`).join('')
+    + `</select>`;
 }
 /** First name for a player id, '?' if unknown. Replaces the repeated
  *  firstName(id) pattern (was duplicated 40+ times). */
@@ -8132,8 +8148,9 @@ function outingRefreshChs(g) {
   g.players.forEach(gp => {
     const p = fsPlayerById(gp.id);
     const hcp = p ? (p.hcp || 0) : (gp.hcp || 0);
-    const ch = courseHandicap(hcp, course.slope, course.rating, fullPar, allowance, false);
-    if (gp.courseHcp !== ch || gp.hcp !== hcp) { gp.hcp = hcp; gp.courseHcp = ch; changed = true; }
+    const pt = withPlayerTee({id:gp.id}, g, course);
+    const ch = courseHandicap(hcp, pt.teeSlope??course.slope, pt.teeRating??course.rating, pt.teePar??fullPar, allowance, false);
+    if (gp.courseHcp !== ch || gp.hcp !== hcp || gp.teeColor !== (pt.teeColor||'')) { gp.hcp = hcp; gp.courseHcp = ch; gp.teeColor = pt.teeColor||''; changed = true; }
   });
   if (changed) fsSaveGame(g);
 }
@@ -8143,8 +8160,9 @@ function _outingDoStart(rawPlayers, course, gameType) {
   const fullPar  = coursePar(course);
   const allowance = (outingCurrent() && outingCurrent().strokeAllowance) || 100;
   const players  = rawPlayers.map(p=>{
-    const ch=courseHandicap(p.hcp||0,course.slope,course.rating,fullPar,allowance,false);
-    return {id:p.id,name:p.name,hcp:p.hcp||0,courseHcp:ch,isGuest:!!p.isGuest};
+    const pt=withPlayerTee(p,{playerTees:window._outingPlayerTees},course);
+    const ch=courseHandicap(p.hcp||0,pt.teeSlope??course.slope,pt.teeRating??course.rating,pt.teePar??fullPar,allowance,false);
+    return {id:p.id,name:p.name,hcp:p.hcp||0,courseHcp:ch,teeColor:pt.teeColor||'',isGuest:!!p.isGuest};
   });
   const method    = window._outingGroupMethod || 'random';
   const planning = outingCurrent();
@@ -11298,9 +11316,10 @@ function tripScoringCtx(t,r){
   const locked = t.lockedHcps || {};
   const strokeAllowance=(t.settings&&t.settings.strokeAllowance)||100;
   const players=allPlayers.map(p=>{
+    const pt = withPlayerTee(p, r, c);
     const hi = locked[p.id]!=null ? locked[p.id] : p.hcp;
-    return {...p, hcp: hi,
-      courseHcp: courseHandicap(hi||0, c.slope||113, c.rating||72, coursePar(c), strokeAllowance, is9)};
+    return {...pt, hcp: hi,
+      courseHcp: courseHandicap(hi||0, pt.teeSlope??(c.slope||113), pt.teeRating??(c.rating||72), pt.teePar??coursePar(c), strokeAllowance, is9)};
   });
   return{players,course:c,activeHoles,hcpScale,is9,nineMode,scores:r.scores||{},groups:(r.groups||[]).map((gr,i)=>({playerIds:gr.playerIds||[],label:gr.teetime||('Group '+(i+1))})),format:r.format||'stroke',settings:{scramblePcts:pcts,strokeAllowance:(t.settings&&t.settings.strokeAllowance)||100,skins:(t.settings&&t.settings.skins)||{},sfCfg:S.config.games?.individual?.stableford||{},resultMethod:r.resultMethod||'best2',borrows:r.borrows||[]}};
 }
