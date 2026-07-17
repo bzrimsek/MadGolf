@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.95  Build 2026-07-08 07:57 AM ET
+     Version : v0.90.99  Build 2026-07-17 07:06 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,10 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.90.99  2026-07-17  Correction to the v0.90.98 DOC diagnosis (no code change to the fix). I mis-attributed the stale-snapshot symptom to Mink's 19 placing a SECOND stroke on hole 9 — wrong: Mink's 2nd stroke correctly lands on #4 (the index-1 hole) and was never the issue. The accurate mechanism: the drifted snapshot dropped a stroke from the Brian/Scott side. It bites most naturally at hole 8, whose live stroke index (13) equals Zrimsek's course handicap — a handicap-equals-index boundary, exactly where a drifted index removes a stroke — halving a hole they won and turning 1-up into All Square. The v0.90.97 fix (every match scores against the live course) is unchanged and still resolves it. §166 updated to encode the correct mechanism (h8 boundary drift, Mink untouched) instead of the earlier Mink-on-h9 story. Tests unchanged in count (2758); index logic unchanged.
+// v0.90.98  2026-07-17  Regression test for the reported DOC Match 2 bug, now root-caused. Real game (DOC Walden, Zrimsek 13 / Mink 19 / Ferrando 17 / Parks 9): Match 2 (Opposites, Brian/Scott vs John/Jarrod) showed All Square when it was 1 up. Cause: the game's stored segment snapshot had hole 9's stroke index drifted to a harder value than the live course, so Mink's 19 (an over-18 handicap) placed his SECOND stroke on hole 9 and halved a hole Brian/Scott had won — exactly the 'Mink got 2' detail the player flagged. The v0.90.97 fix (score every match against the live course, not the creation snapshot) resolves it: with the live hole-9 index, Mink gets one stroke there and the hole — and the match — go to Brian/Scott. §166 encodes the player's own hole-by-hole (h7 J/J, h8 B/S, h9 B/S, h10 B/S, h11 J/J, h12 halved → Brian/Scott 1↑) against the drifted snapshot, so this exact failure can't return. +8 tests. Totals 2750 -> 2758. To see it on-device: reopen the DOC game (refreshes handicaps + reads the live course) and tap the Match 2 banner for the hole-by-hole.
+// v0.90.97  2026-07-17  FIX: DOC/Walkoff/Nassau match scoring read each hole's stroke index from the SNAPSHOT stored in g.segs at game creation, not the live course — so after a course re-import (which happens during multi-tee setup) the snapshot went stale while the scorecard kept reading the current course. When a hole's stroke index changed, a player was denied (or given) a stroke the card showed differently, flipping a hole and the segment result. This is the reported bug: a live DOC Match 2 showed All Square when the card made it 1 up — a stale index on one hole halved a hole that should have been won. fsGetStrokesForSc now resolves the hole's stroke index from the current course by hole number (no-op when nothing changed), so every match (DOC, Walk-off, Nassau, and all better-ball nets that route through it) stays consistent with the displayed card. §165 reproduces the exact failure (a DOC game with a stale seg stroke index on hole 9 → All Square under the old code) and proves the fix (→ Brian/Scott 1↑). +2 tests. Totals 2748 -> 2750. The v0.90.96 tap-to-expand banner breakdown stays — it now confirms the corrected per-hole result.
+// v0.90.96  2026-07-17  DOC match breakdown — tap any Match banner to see that segment's per-hole better-ball nets and who won each hole. Investigating a report that Match 2 showed All Square when it should be 1 up: I reproduced the exact scorecard and fsCalcDOCMatch returns the correct result (Brian/Scott 1↑), and both the first paint and the in-place updater (fired on every score entry, same DOM as the scorecard) use that one function — so the engine is correct by inspection and test. Rather than blind-fix (rule 12), added fsDOCMatchBreakdown(g,segIdx,defs) (pure: per-hole {t1,t2,win} + tally, same net logic as fsCalcDOCMatch) and fsShowDOCBreakdown surfaced by tapping the banner (matchBanner gained an optional onclick), so the exact diverging hole is visible on-device. +6 tests (§164) pin the breakdown and re-assert the segment is 1 up, not all square. Totals 2742 -> 2748. If the live banner still shows All Square, the breakdown will show which hole's net differs — pointing at stored chs/segs rather than the algorithm.
 // v0.90.95  2026-07-08  Per-player TEES — phases 2 & 3 COMPLETE (feature done). PHASE 2 (assignment UI): a per-player tee picker (teePickerHtml, renders only when the course has 2+ tees) is wired into every module's player screen — League groups, Trip round groups, Outing player list, and the Foursome game-type screen — each with a setter (leagueSetPlayerTee, tripSetPlayerTee, outingSetPlayerTee, fsSetPlayerTee) that writes ev.playerTees[pid] (deleting it when the pick is the default tee). playerTees is carried onto created games: Foursome creators stamp fsBuildChs at creation and store g.playerTees (via window._fsPlayerTees) so fsRefreshChs re-stamps on open; Outing carries window._outingPlayerTees → g.playerTees for outingRefreshChs; League and Trip recompute live so need nothing extra. PHASE 3 (scorecard, paper-card model): a player on a non-default tee now shows their tee colour on the card — the Foursome chLabel and the shared group-card default label both render it (in gold, above/beside the handicap), driven by the teeColor the withPlayerTee stamp already carries. +5 tests (§163: teeOptions same-name filter + slope-desc sort, picker renders/select-marks with 2+ tees, single-tee course → no picker). Totals 2737 -> 2742. The per-player tees feature is complete end to end: assign in any module, handicaps compute from each player's tee, nets stay comparable, and the card reflects a non-default tee.
 // v0.90.94  2026-07-08  Per-player TEES — phase 1 COMPLETE (all modules) + phase 2 picker infrastructure. Tee-aware course handicaps now cover every module: added to Trip (tripScoringCtx, per round — r.playerTees) and Outing (outingRefreshChs + creation in _outingDoStart), on top of Foursome (fsRefreshChs) and League (leagueSessionCtx + _leagueDoScoring) from v0.90.93. Every player's course handicap is computed from THEIR tee via ev.playerTees[pid] (default = the event course); with no override set it is byte-identical to before. Phase 2 infrastructure added: teeOptions(defaultCourse) (alternate tees = course entries sharing the name, sorted by slope, longest first) and teePickerHtml (a compact per-player tee select that renders only when the course actually has 2+ tees). Totals unchanged (2737). PROCEEDING next (rule 31): wire the picker + per-module setters into each player/groups screen (Foursome player-select, Outing groups, League groups, Trip round groups), then phase 3 — show each player's tee on the scorecard.
 // v0.90.93  2026-07-07  Per-player TEES — phase 1 foundation (handicaps from each player's own tee). A "tee" is already a separate course entry of the same course (teeColor), and calcRawCourseHcp includes (CR − Par), so computing each player's handicap from THEIR tee makes net scores directly comparable across tees — no separate tee-differential adjustment. New: per-event override ev.playerTees[pid] (default = the event course); playerTeeCourse(ev,pid,default) resolver; withPlayerTee(p,ev,default) stamps a player's tee slope/rating/par (default-tee players returned unchanged). fsBuildChs (Foursome) and buildScoringCtx (Outing/League/Trip) now read p.teeSlope/teeRating/teePar with fallback to the event course, so each player's course handicap comes from their own tee. Stamp wired at fsRefreshChs (foursome reopen) and both league CH paths (leagueSessionCtx + _leagueDoScoring live scoring). With no tee overrides set every handicap is byte-identical to before (regression-safe). +8 tests (§162): withPlayerTee stamping, and same-index players on Blue (130/72 → CH 12) vs White (113/68 → CH 6) through both fsBuildChs and the shared context. Totals 2729 -> 2737. TRACKED (rule 31): phase 1 completion — stamp Outing + Trip + foursome creation-time (inert until the UI exists); phase 2 — per-player tee picker (grouped by course name, sorted by slope) + event default tee; phase 3 — show each player's tee on the scorecard (paper-card model).
@@ -1163,8 +1167,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.95';
-const BUILD_TIME = '2026-07-08 07:58 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.90.99';
+const BUILD_TIME = '2026-07-17 07:06 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -4133,7 +4137,15 @@ function finalizeBBBGame() {
 
 /** Adapter: get strokes for a player on a hole using the game's pre-built chs */
 function fsGetStrokesForSc(g, pid, hole) {
-  return strokesOnHole((g.chs && g.chs[pid]) || 0, hole.hcp, g._totalHoles || 18);
+  // Resolve the hole's stroke index from the CURRENT course by number. DOC/Walkoff/Nassau snapshot
+  // their hole objects into g.segs at creation; if the course is later re-imported or re-rated (e.g.
+  // during multi-tee setup) the snapshot goes stale and the match would score against a different
+  // stroke index than the scorecard shows — flipping a hole and a match result. Scoring against the
+  // live course keeps every match consistent with the displayed card. No-op when nothing changed.
+  const course = fsGetCourse(g.courseId);
+  const live = course && course.holes && course.holes.find(h => +h.num === +hole.num);
+  const hcp = (live && live.hcp != null) ? live.hcp : hole.hcp;
+  return strokesOnHole((g.chs && g.chs[pid]) || 0, hcp, g._totalHoles || 18);
 }
 
 /**
@@ -4572,6 +4584,39 @@ function fsDocMatchDefs(g) {
   ];
 }
 
+// Per-hole breakdown for a DOC segment (diagnostic + tap-to-expand). Same net logic as
+// fsCalcDOCMatch, exposed hole-by-hole so a wrong result is inspectable rather than a black box.
+function fsDOCMatchBreakdown(g, segIdx, defs) {
+  const seg = g.segs[segIdx], def = defs[segIdx], sc = g.scores;
+  const teamNet = (team, h) => Math.min(...team.map(pid => { const gr=sc[pid]?.[+h.num]; return gr!=null ? gr - fsGetStrokesForSc(g,pid,h) : Infinity; }));
+  let t1w=0, t2w=0; const rows=[];
+  seg.forEach(h => {
+    const t1=teamNet(def.team1,h), t2=teamNet(def.team2,h);
+    if (!isFinite(t1) && !isFinite(t2)) { rows.push({num:h.num, t1:null, t2:null, win:''}); return; }
+    let win='Halved';
+    if (t1<t2) { t1w++; win=def.t1lbl; } else if (t2<t1) { t2w++; win=def.t2lbl; }
+    rows.push({num:h.num, t1:isFinite(t1)?t1:null, t2:isFinite(t2)?t2:null, win});
+  });
+  return { rows, t1w, t2w, t1lbl:def.t1lbl, t2lbl:def.t2lbl };
+}
+// Tap-to-expand: shows a DOC segment's per-hole better-ball nets and hole winners, so a result can
+// be checked hole by hole against the card.
+function fsShowDOCBreakdown(segIdx) {
+  const g = fsActiveGame(); if (!g || g.gameType !== 'doc') return;
+  const defs = fsDocMatchDefs(g);
+  const bd = fsDOCMatchBreakdown(g, segIdx, defs);
+  const lines = [`${bd.t1lbl}  vs  ${bd.t2lbl}`, ''];
+  bd.rows.forEach(r => {
+    if (r.t1==null && r.t2==null) { lines.push(`H${r.num}:  —`); return; }
+    const mark = r.win==='Halved' ? '½' : (r.win===bd.t1lbl ? '◀ '+r.win : r.win+' ▶');
+    lines.push(`H${r.num}:  ${r.t1==null?'–':r.t1}  vs  ${r.t2==null?'–':r.t2}   ${mark}`);
+  });
+  const diff = bd.t1w - bd.t2w;
+  lines.push('');
+  lines.push(diff===0 ? `All Square  (${bd.t1w}–${bd.t2w})`
+    : `${diff>0?bd.t1lbl:bd.t2lbl} ${Math.abs(diff)} up  (${bd.t1w}–${bd.t2w})`);
+  toast(lines.join('\n'));
+}
 function fsCalcDOCMatch(g, segIdx, defs) {
   const seg = g.segs[segIdx], def = defs[segIdx], sc = g.scores;
   let t1w=0, t2w=0;
@@ -4608,7 +4653,7 @@ function renderDOCGame() {
     cls: st.cls, id: `doc-banner-${i}`,
     label: ['Drivers v Pass.','Opposites','Cart Partners'][i],
     sub: fsDOCSegLabel(g.segs[i]),
-    score: st.display, scoreId: `doc-banner-score-${i}`, color: st.color
+    score: st.display, scoreId: `doc-banner-score-${i}`, color: st.color, onclick: `fsShowDOCBreakdown(${i})`
   })).join('');
   fsRender(`
     <div class="card">
@@ -4627,10 +4672,11 @@ function renderDOCGame() {
 }
 
 /** Shared match-status banner (DOC / Nassau / Walk-off) — one markup source so all three match. */
-function matchBanner({ cls, id, label, sub, score, scoreId, color, lblId, subId }) {
+function matchBanner({ cls, id, label, sub, score, scoreId, color, lblId, subId, onclick }) {
   const lblAttr = lblId ? ' id="' + lblId + '"' : '';
   const subAttr = subId ? ' id="' + subId + '"' : '';
-  return `<div class="match-banner ${cls}" id="${id}">
+  const clickAttr = onclick ? ` onclick="${onclick}" style="cursor:pointer;"` : '';
+  return `<div class="match-banner ${cls}" id="${id}"${clickAttr}>
       <div>
         <div class="mb-lbl"${lblAttr}>${label}</div>
         <div class="mb-sub"${subAttr}>${sub}</div>

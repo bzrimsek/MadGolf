@@ -8520,6 +8520,87 @@ smoke('leagueCurrentSession returns session', () => {
   const single = teePickerHtml('p1', null, sandbox.fsGetCourse('pebble'), 'leagueSetPlayerTee');
   expect('single tee → no picker', single, '');
 }
+
+// ── 164. DOC match breakdown (tap-to-expand diagnostic) ───────────────────────
+{
+  const HCP=[5,9,15,1,7,11,17,13,3, 8,10,2,18,6,16,14,12,4];
+  const PAR=[4,3,5,4,4,5,4,3,4, 4,4,4,3,5,5,4,3,4];
+  const holes=HCP.map((h,i)=>({num:i+1,par:PAR[i],hcp:h}));
+  vmSetS('players',[{id:'Z',name:'Brian Zrimsek'},{id:'M',name:'Jarrod Mink'},{id:'F',name:'John Ferrando'},{id:'P',name:'Scott Parks'}]);
+  vmSetS('courses',[{id:'w',name:'Walden',slope:113,rating:72,par:72,holes}]);
+  const seg=(a,b)=>holes.slice(a,b);
+  const G={ Z:{7:3,8:2,9:5,10:6,11:6,12:5}, M:{7:3,8:3,9:5,10:6,11:4,12:5},
+            F:{7:3,8:3,9:7,10:6,11:5,12:5}, P:{7:3,8:3,9:4,10:4,11:5,12:5} };
+  const g={id:'d',type:'foursome',gameType:'doc',courseId:'w',_totalHoles:18,chs:{Z:13,M:19,F:17,P:9},
+    carts:{cart1:{driver:'Z',passenger:'M'},cart2:{driver:'F',passenger:'P'}},
+    segs:[seg(0,6),seg(6,12),seg(12,18)], scores:G };
+  const defs=sandbox.fsDocMatchDefs(g);
+  const bd=sandbox.fsDOCMatchBreakdown(g,1,defs);      // Match 2 = Brian/Scott vs John/Jarrod
+  expect('breakdown: Brian/Scott wins 3 holes', bd.t1w, 3);
+  expect('breakdown: John/Jarrod wins 2 holes', bd.t2w, 2);
+  // per-hole better-ball nets (matches fsCalcDOCMatch's 1-up)
+  expect('h7 nets 3v2 → T2', JSON.stringify([bd.rows[0].t1,bd.rows[0].t2,bd.rows[0].win]), JSON.stringify([3,2,'John/Jarrod']));
+  expect('h9 nets 3v4 → T1', JSON.stringify([bd.rows[2].t1,bd.rows[2].t2,bd.rows[2].win]), JSON.stringify([3,4,'Brian/Scott']));
+  expect('h12 nets 4v4 → Halved', JSON.stringify([bd.rows[5].t1,bd.rows[5].t2,bd.rows[5].win]), JSON.stringify([4,4,'Halved']));
+  // and the segment result is 1-up (not all square)
+  expect('segment result 1 up', sandbox.fsCalcDOCMatch(g,1,defs).display, 'Brian/Scott 1↑');
+}
+
+// ── 165. DOC scores against the LIVE course, not a stale snapshot ─────────────
+// Repro of the reported bug: a DOC game's g.segs snapshot a hole's stroke index; after a course
+// re-import the snapshot goes stale and the match flips (1-up → all-square). fsGetStrokesForSc now
+// resolves the stroke index from the current course by hole number.
+{
+  const HCP=[5,9,15,1,7,11,17,13,3, 8,10,2,18,6,16,14,12,4];   // LIVE course: h9 = hcp 3
+  const PAR=[4,3,5,4,4,5,4,3,4, 4,4,4,3,5,5,4,3,4];
+  const holes=HCP.map((h,i)=>({num:i+1,par:PAR[i],hcp:h}));
+  vmSetS('players',[{id:'Z',name:'Brian Zrimsek'},{id:'M',name:'Jarrod Mink'},{id:'F',name:'John Ferrando'},{id:'P',name:'Scott Parks'}]);
+  vmSetS('courses',[{id:'w',name:'Walden',slope:113,rating:72,par:72,holes}]);
+  const G={ Z:{7:3,8:2,9:5,10:6,11:6,12:5}, M:{7:3,8:3,9:5,10:6,11:4,12:5},
+            F:{7:3,8:3,9:7,10:6,11:5,12:5}, P:{7:3,8:3,9:4,10:4,11:5,12:5} };
+  // STALE snapshot: seg holes carry an out-of-date stroke index for h9 (hcp 10, not the live 3),
+  // which without the fix would deny Parks (ch 9) his stroke and halve h9 → All Square.
+  const staleSeg=(a,b)=>holes.slice(a,b).map(h=>h.num===9?{...h,hcp:10}:{...h});
+  const g={id:'d',type:'foursome',gameType:'doc',courseId:'w',_totalHoles:18,chs:{Z:13,M:19,F:17,P:9},
+    carts:{cart1:{driver:'Z',passenger:'M'},cart2:{driver:'F',passenger:'P'}},
+    segs:[staleSeg(0,6),staleSeg(6,12),staleSeg(12,18)], scores:G };
+  const staleH9={num:9,par:5,hcp:10};
+  expect('strokes resolve from LIVE course (Parks gets h9 stroke)', sandbox.fsGetStrokesForSc(g,'P',staleH9), 1);
+  const defs=sandbox.fsDocMatchDefs(g);
+  expect('DOC Match 2 = 1 up despite stale snapshot', sandbox.fsCalcDOCMatch(g,1,defs).display, 'Brian/Scott 1↑');
+}
+
+// ── 166. Regression: reported DOC Match 2 "all square, should be 1 up" ─────────
+// Real game (v0.90.95): DOC Walden, Zrimsek(13)/Mink(19)/Ferrando(17)/Parks(9). Match 2 = Opposites
+// (Brian/Scott vs John/Jarrod). The stored seg's stroke index had drifted so that a Brian/Scott
+// stroke was dropped — illustrated here at hole 8, whose live index (13) equals Zrimsek's handicap,
+// a boundary where a drifted index drops his stroke and halves a hole they won → All Square. (Mink's
+// 19 correctly puts his 2nd stroke on #4, unrelated.) Fix (v0.90.97): score against the live course.
+{
+  const HCP=[5,9,15,1,7,11,17,13,3, 8,10,2,18,6,16,14,12,4];   // live: h9 index 3
+  const PAR=[4,3,5,4,4,5,4,3,4, 4,4,4,3,5,5,4,3,4];
+  const holes=HCP.map((h,i)=>({num:i+1,par:PAR[i],hcp:h}));
+  vmSetS('players',[{id:'Z',name:'Brian Zrimsek'},{id:'M',name:'Jarrod Mink'},{id:'F',name:'John Ferrando'},{id:'P',name:'Scott Parks'}]);
+  vmSetS('courses',[{id:'w',name:'Walden',slope:113,rating:72,par:72,holes}]);
+  const G={ Z:{7:3,8:2,9:5,10:6,11:6,12:5}, M:{7:3,8:3,9:5,10:6,11:4,12:5},
+            F:{7:3,8:3,9:7,10:6,11:5,12:5}, P:{7:3,8:3,9:4,10:4,11:5,12:5} };
+  const seg=(a,b)=>holes.slice(a,b).map(h=>h.num===8?{...h,hcp:14}:{...h});   // drift: h8 index above Zrimsek's 13
+  const g={id:'d',type:'foursome',gameType:'doc',courseId:'w',_totalHoles:18,chs:{Z:13,M:19,F:17,P:9},
+    carts:{cart1:{driver:'Z',passenger:'M'},cart2:{driver:'F',passenger:'P'}},
+    segs:[seg(0,6),seg(6,12),seg(12,18)], scores:G };
+  const defs=sandbox.fsDocMatchDefs(g);
+  // The dropped stroke is restored from the live course (Zrimsek keeps his h8 stroke at live idx 13).
+  expect('Zrimsek keeps h8 stroke via live course', sandbox.fsGetStrokesForSc(g,'Z',{num:8,hcp:14}), 1);
+  const bd=sandbox.fsDOCMatchBreakdown(g,1,defs);
+  const winOf=n=>bd.rows.find(r=>r.num===n).win;
+  expect('h7 John/Jarrod', winOf(7), 'John/Jarrod');
+  expect('h8 Brian/Scott', winOf(8), 'Brian/Scott');
+  expect('h9 Brian/Scott', winOf(9), 'Brian/Scott');
+  expect('h10 Brian/Scott', winOf(10), 'Brian/Scott');
+  expect('h11 John/Jarrod', winOf(11), 'John/Jarrod');
+  expect('h12 Halved', winOf(12), 'Halved');
+  expect('Match 2 = Brian/Scott 1 up', sandbox.fsCalcDOCMatch(g,1,defs).display, 'Brian/Scott 1↑');
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
