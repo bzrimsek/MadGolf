@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.90.99  Build 2026-07-17 07:06 PM ET
+     Version : v0.91.0  Build 2026-07-19 02:42 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.0  2026-07-19  Tee MODEL refactor (option A): a course now holds its holes ONCE and carries an optional tees:[{{id,color,slope,rating,holes?}}] list — a tee needs only color/slope/rating since hole indexes and par are shared. New courseTees(course) returns every tee as a uniform record (the base course is itself a tee, id === course.id), courseTeeById resolves one; withPlayerTee/teeOptions/teePickerHtml/the scorecard tee tag all route through it. Values are tee ids now (base tee id = course id). BACKWARD COMPATIBLE with no migration: courseTees also surfaces legacy same-name course entries, so old imports and in-progress games (whose courseId/playerTees point at separate tee-courses) keep resolving — the per-player pickers in Foursome/League/Outing/Trip work unchanged. Importer rewritten: one BlueGolf import now creates ONE course (longest tee = base) + a tees list instead of N duplicate courses; per-tee holes are stored only when a tee's indexes/par actually differ from the base (the drift that caused the DOC bug is now structurally impossible for the common shared case). New lightweight Add Tee modal (color + slope + rating; holes shared) on each course row + openAddTee/saveTee; course rows show a tee count. +10 tests (§167). Totals 2758 -> 2767. Known follow-ups: a tee's own stroke-index override is stored but stroke PLACEMENT still reads the course's base indexes (fine for the shared case, the rare per-tee-index case needs allocation wiring); no event-level default-tee picker yet (base tee is the default, per-player overrides handle the rest).
 // v0.90.99  2026-07-17  Correction to the v0.90.98 DOC diagnosis (no code change to the fix). I mis-attributed the stale-snapshot symptom to Mink's 19 placing a SECOND stroke on hole 9 — wrong: Mink's 2nd stroke correctly lands on #4 (the index-1 hole) and was never the issue. The accurate mechanism: the drifted snapshot dropped a stroke from the Brian/Scott side. It bites most naturally at hole 8, whose live stroke index (13) equals Zrimsek's course handicap — a handicap-equals-index boundary, exactly where a drifted index removes a stroke — halving a hole they won and turning 1-up into All Square. The v0.90.97 fix (every match scores against the live course) is unchanged and still resolves it. §166 updated to encode the correct mechanism (h8 boundary drift, Mink untouched) instead of the earlier Mink-on-h9 story. Tests unchanged in count (2758); index logic unchanged.
 // v0.90.98  2026-07-17  Regression test for the reported DOC Match 2 bug, now root-caused. Real game (DOC Walden, Zrimsek 13 / Mink 19 / Ferrando 17 / Parks 9): Match 2 (Opposites, Brian/Scott vs John/Jarrod) showed All Square when it was 1 up. Cause: the game's stored segment snapshot had hole 9's stroke index drifted to a harder value than the live course, so Mink's 19 (an over-18 handicap) placed his SECOND stroke on hole 9 and halved a hole Brian/Scott had won — exactly the 'Mink got 2' detail the player flagged. The v0.90.97 fix (score every match against the live course, not the creation snapshot) resolves it: with the live hole-9 index, Mink gets one stroke there and the hole — and the match — go to Brian/Scott. §166 encodes the player's own hole-by-hole (h7 J/J, h8 B/S, h9 B/S, h10 B/S, h11 J/J, h12 halved → Brian/Scott 1↑) against the drifted snapshot, so this exact failure can't return. +8 tests. Totals 2750 -> 2758. To see it on-device: reopen the DOC game (refreshes handicaps + reads the live course) and tap the Match 2 banner for the hole-by-hole.
 // v0.90.97  2026-07-17  FIX: DOC/Walkoff/Nassau match scoring read each hole's stroke index from the SNAPSHOT stored in g.segs at game creation, not the live course — so after a course re-import (which happens during multi-tee setup) the snapshot went stale while the scorecard kept reading the current course. When a hole's stroke index changed, a player was denied (or given) a stroke the card showed differently, flipping a hole and the segment result. This is the reported bug: a live DOC Match 2 showed All Square when the card made it 1 up — a stale index on one hole halved a hole that should have been won. fsGetStrokesForSc now resolves the hole's stroke index from the current course by hole number (no-op when nothing changed), so every match (DOC, Walk-off, Nassau, and all better-ball nets that route through it) stays consistent with the displayed card. §165 reproduces the exact failure (a DOC game with a stale seg stroke index on hole 9 → All Square under the old code) and proves the fix (→ Brian/Scott 1↑). +2 tests. Totals 2748 -> 2750. The v0.90.96 tap-to-expand banner breakdown stays — it now confirms the corrected per-hole result.
@@ -874,6 +875,24 @@ input:checked+.slider:before{transform:translateX(20px);}
   </div>
 </div>
 
+<!-- Add Tee modal (lightweight: color + slope + rating; hole indexes/par shared with the course) -->
+<div class="modal-overlay" id="addTeeModal" onclick="if(event.target===this)closeModal('addTeeModal')">
+  <div class="modal">
+    <h2>Add Tee</h2>
+    <div id="addTeeCourseName" style="font-size:13px;color:var(--muted);margin-bottom:12px;"></div>
+    <div class="field"><label>Tee Color</label><input type="text" id="atColor" placeholder="e.g. White, Gold, Red"></div>
+    <div class="field-row">
+      <div class="field"><label>Slope</label><input type="number" id="atSlope" min="55" max="155" inputmode="numeric" placeholder="113"></div>
+      <div class="field"><label>Rating</label><input type="number" id="atRating" step="0.1" inputmode="numeric" placeholder="70.0"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin:2px 2px 12px;">Hole handicaps and par are shared with the course.</div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('addTeeModal')">Cancel</button>
+      <button class="btn btn-gold" onclick="saveTee()">Add Tee</button>
+    </div>
+  </div>
+</div>
+
 <!-- Guest player modal -->
 <div class="modal-overlay" id="guestModal" onclick="if(event.target===this)closeModal('guestModal')">
   <div class="modal">
@@ -1167,8 +1186,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.90.99';
-const BUILD_TIME = '2026-07-17 07:06 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.91.0';
+const BUILD_TIME = '2026-07-19 02:42 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3418,32 +3437,40 @@ function fsPlayerById(id) {
   return S.players.find(p => p.id === id) || (window._fsGuests||[]).find(p => p.id === id) || null;
 }
 function fsGetCourse(id) { return (S.courses||[]).find(c => c.id === id) || null; }
-/** The course (tee) a player is assigned for an event via ev.playerTees[pid], defaulting to the
- *  event's own course. A "tee" is just another course entry of the same physical course. */
-function playerTeeCourse(ev, pid, defaultCourse) {
-  const tid = ev && ev.playerTees && ev.playerTees[pid];
-  return (tid && fsGetCourse(tid)) || defaultCourse;
+/** A course carries its holes once (index + par) and an optional tees:[{id,color,slope,rating,holes?}]
+ *  list — a tee needs only color/slope/rating since hole indexes are shared. courseTees returns every
+ *  tee as a uniform record {id,color,slope,rating,holes,par}, longest first. The base course is itself
+ *  a tee (id === course.id). Legacy imports that stored each tee as a separate same-name course still
+ *  appear here, so old and new data both work with no migration of in-progress games. */
+function courseTees(course) {
+  if (!course) return [];
+  const base = { id: course.id, color: course.teeColor || 'Tees', slope: course.slope, rating: course.rating, holes: course.holes, par: coursePar(course) };
+  const extra = (course.tees || []).map(t => ({ id: t.id, color: t.color, slope: t.slope, rating: t.rating,
+    holes: t.holes || course.holes, par: t.holes ? coursePar({ holes: t.holes }) : coursePar(course) }));
+  const legacy = (S.courses || []).filter(c => c.id !== course.id && c.name === course.name)
+    .map(c => ({ id: c.id, color: c.teeColor || c.name, slope: c.slope, rating: c.rating, holes: c.holes, par: coursePar(c) }));
+  return [base, ...extra, ...legacy].sort((a, b) => (b.slope || 0) - (a.slope || 0));
 }
-/** Stamp a player's tee slope/rating/par so downstream course-handicap math uses THEIR tee. Players
- *  on the event's default tee are returned unchanged (no override), keeping behavior identical. */
+function courseTeeById(course, teeId) { return courseTees(course).find(t => t.id === teeId) || null; }
+/** Stamp a player's tee slope/rating/par so downstream course-handicap math uses THEIR tee. Players on
+ *  the event's base/default tee are returned unchanged (no override), keeping behavior identical. */
 function withPlayerTee(p, ev, defaultCourse) {
-  const tc = playerTeeCourse(ev, p.id, defaultCourse);
-  if (!tc || !defaultCourse || tc.id === defaultCourse.id) return p;
-  return { ...p, teeSlope: tc.slope, teeRating: tc.rating, teePar: coursePar(tc), teeColor: tc.teeColor || '', teeCourseId: tc.id };
+  const tid = ev && ev.playerTees && ev.playerTees[p.id];
+  if (!tid || !defaultCourse || tid === defaultCourse.id) return p;   // base/default tee
+  const tee = courseTeeById(defaultCourse, tid);
+  if (!tee) return p;
+  return { ...p, teeSlope: tee.slope, teeRating: tee.rating, teePar: tee.par, teeColor: tee.color, teeCourseId: tid };
 }
-/** Alternate tees for an event's course = every course entry sharing its name, longest first (slope desc). */
-function teeOptions(defaultCourse) {
-  if (!defaultCourse) return [];
-  return (S.courses||[]).filter(c => c.name === defaultCourse.name).sort((a,b) => (b.slope||0) - (a.slope||0));
-}
+/** Alternate tees for an event's course, uniform records, longest first. */
+function teeOptions(defaultCourse) { return defaultCourse ? courseTees(defaultCourse) : []; }
 /** Compact per-player tee <select>. Renders nothing unless the course actually has multiple tees.
- *  setterCall is a JS expression string receiving the picked courseId via this.value. */
-function teePickerHtml(pid, curCourseId, defaultCourse, setterFn) {
+ *  Values are tee ids (the base tee's id is the course id); setterFn receives (pid, teeId). */
+function teePickerHtml(pid, curTeeId, defaultCourse, setterFn) {
   const tees = teeOptions(defaultCourse);
   if (tees.length < 2) return '';
-  const cur = curCourseId || (defaultCourse && defaultCourse.id);
+  const cur = curTeeId || (defaultCourse && defaultCourse.id);
   return `<select onchange="${setterFn}('${pid}',this.value)" onclick="event.stopPropagation()" style="font-size:11px;padding:2px 6px;border-radius:6px;background:var(--surf2);color:var(--fg);border:1px solid var(--surf3);">`
-    + tees.map(t=>`<option value="${t.id}" ${t.id===cur?'selected':''}>${esc(t.teeColor||t.name)}${t.id===(defaultCourse&&defaultCourse.id)?' •':''}</option>`).join('')
+    + tees.map(t=>`<option value="${t.id}" ${t.id===cur?'selected':''}>${esc(t.color)}${t.id===(defaultCourse&&defaultCourse.id)?' •':''}</option>`).join('')
     + `</select>`;
 }
 /** First name for a player id, '?' if unknown. Replaces the repeated
@@ -4168,9 +4195,9 @@ function fsRenderScorecard(g, players) {
     const rawCh = g.rawChs?.[p.id] ?? (g.chs && g.chs[p.id]) ?? '?';
     const adjCh = (g.chs && g.chs[p.id]) ?? '?';
     const teeId = g.playerTees && g.playerTees[p.id];
-    const tee   = teeId && fsGetCourse(teeId);
-    const teeTag = (tee && tee.teeColor && teeId !== g.courseId)
-      ? `<span style="font-size:8px;color:var(--gold);font-weight:700;display:block;letter-spacing:.3px;">${esc(tee.teeColor)}</span>` : '';
+    const tee   = teeId && courseTeeById(fsGetCourse(g.courseId), teeId);
+    const teeTag = (tee && tee.color && teeId !== g.courseId)
+      ? `<span style="font-size:8px;color:var(--gold);font-weight:700;display:block;letter-spacing:.3px;">${esc(tee.color)}</span>` : '';
     return teeTag + `<span onclick="toast(fsHcpBreakdown('${g.id}','${p.id}'))" style="font-size:9px;font-weight:${offLow?400:700};color:${offLow?'var(--muted)':'var(--text)'};cursor:pointer;">${rawCh}</span><span style="font-size:9px;color:var(--muted);"> · </span><span style="font-size:9px;font-weight:${offLow?700:400};color:${offLow?'var(--text)':'var(--muted)'};">${adjCh}</span>`;
   };
   return renderScorecardGroup(ctx, 0,
@@ -9618,23 +9645,57 @@ async function fetchBluegolf(existingUrl) {
 function saveImportedTees() {
   const checks = document.querySelectorAll('#cImportList input[type=checkbox]:checked');
   if (!checks.length) { toast('Select at least one tee'); return; }
-  let saved = 0;
-  checks.forEach(cb => {
-    const t = _importedTees[parseInt(cb.dataset.idx)];
-    if (!t) return;
-    // BlueGolf imports default to tripCourse:true — away courses
-    S.courses.push({ id: uid(), name: t.courseName, teeColor: t.teeName, slope: t.slope,
-      rating: t.rating, par: t.par, nineHole: t.nineHole || false, sourceUrl: t.sourceUrl || '',
-      tripCourse: true, homeCourse: false, favorite: false,
-      holes: t.holes.map(h => ({ num: h.num, par: h.par, hcpRating: h.hcp, hcp: h.hcp })) });
-    saved++;
+  const sel = [...checks].map(cb => _importedTees[parseInt(cb.dataset.idx)]).filter(Boolean);
+  if (!sel.length) return;
+  // One physical course = one entry: the longest (highest-slope) tee is the base, the rest go in a
+  // tees list. Hole indexes/par are shared unless a tee genuinely differs, so no per-tee duplication.
+  const byCourse = {};
+  sel.forEach(t => { (byCourse[t.courseName] = byCourse[t.courseName] || []).push(t); });
+  const asHoles = t => t.holes.map(h => ({ num: h.num, par: h.par, hcpRating: h.hcp, hcp: h.hcp }));
+  let savedTees = 0;
+  Object.values(byCourse).forEach(tees => {
+    tees.sort((a, b) => (b.slope || 0) - (a.slope || 0));
+    const base = tees[0];
+    const sameAsBase = t => t.holes.length === base.holes.length &&
+      t.holes.every((h, i) => h.hcp === base.holes[i].hcp && h.par === base.holes[i].par);
+    S.courses.push({
+      id: uid(), name: base.courseName, teeColor: base.teeName, slope: base.slope, rating: base.rating,
+      par: base.par, nineHole: base.nineHole || false, sourceUrl: base.sourceUrl || '',
+      tripCourse: true, homeCourse: false, favorite: false, holes: asHoles(base),
+      tees: tees.slice(1).map(t => {
+        const tee = { id: uid(), color: t.teeName, slope: t.slope, rating: t.rating };
+        if (!sameAsBase(t)) tee.holes = asHoles(t);   // rare: different stroke indexes / par
+        return tee;
+      })
+    });
+    savedTees += tees.length;
   });
   scheduleWrite();
   closeModal('courseModal');
   renderCourses();
-  toast(saved + ' tee' + (saved>1?'s':'') + ' saved ✓');
+  toast(savedTees + ' tee' + (savedTees > 1 ? 's' : '') + ' saved ✓');
 }
 
+// Add a tee to an existing course with just color/slope/rating — hole indexes and par are shared.
+let _addTeeCourseId = null;
+function openAddTee(courseId) {
+  const c = fsGetCourse(courseId); if (!c) return;
+  _addTeeCourseId = courseId;
+  document.getElementById('addTeeCourseName').textContent = c.name + (c.teeColor ? ` — base tee ${c.teeColor}` : '');
+  ['atColor','atSlope','atRating'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  openModal('addTeeModal');
+}
+function saveTee() {
+  const c = fsGetCourse(_addTeeCourseId); if (!c) return;
+  const color = (document.getElementById('atColor').value || '').trim();
+  const slope = +document.getElementById('atSlope').value;
+  const rating = +document.getElementById('atRating').value;
+  if (!color || !slope || !rating) { toast('Color, slope and rating are required'); return; }
+  if (!c.tees) c.tees = [];
+  c.tees.push({ id: uid(), color, slope, rating });
+  scheduleWrite(); closeModal('addTeeModal'); renderCourses();
+  toast('Tee added ✓');
+}
 function openImportForSource(url) {
   openCourseModal();
   setTimeout(() => { switchCourseTab('import'); document.getElementById('cImportUrl').value = url; fetchBluegolf(url); }, 80);
@@ -9697,12 +9758,13 @@ function renderCourses() {
     return `<div class="list-item">
       <div style="flex:1;min-width:0;">
         <div class="li-main">${isHome ? '🏠 ' : ''}${esc(c.name)}${c.teeColor ? ` <span style="font-size:11px;color:var(--muted)">${esc(c.teeColor)}</span>` : ''}</div>
-        <div class="li-sub">Slope ${c.slope || '—'} · Rating ${c.rating || '—'} · Par ${par} · ${c.nineHole ? '9' : '18'} holes</div>
+        <div class="li-sub">Slope ${c.slope || '—'} · Rating ${c.rating || '—'} · Par ${par} · ${c.nineHole ? '9' : '18'} holes${(()=>{const n=courseTees(c).length;return n>1?` · ${n} tees`:'';})()}</div>
       </div>
       <div class="li-actions">
         <button class="btn btn-sm btn-outline" title="${isTrip ? 'Remove from Trip Courses' : 'Mark as Trip Course'}" onclick="toggleTripCourse('${c.id}')" style="${isTrip ? 'background:var(--gold);border-color:var(--gold);color:var(--g800);font-weight:700;' : ''}">✈️</button>
         <button class="btn btn-sm btn-outline" title="${isHome ? 'Remove home course' : 'Set as home course'}" onclick="setHomeCourse('${c.id}')" style="${isHome ? 'background:var(--gold);border-color:var(--gold);color:var(--g800);font-weight:700;' : ''}">🏠</button>
         <button class="btn btn-sm btn-outline" title="${isFav ? 'Remove from My Courses' : 'Add to My Courses'}" onclick="toggleFavorite('${c.id}')" style="${isFav ? 'background:var(--gold);border-color:var(--gold);color:var(--g800);font-weight:700;' : ''}">★</button>
+        <button class="btn btn-sm btn-outline" title="Add a tee (slope/rating only)" onclick="openAddTee('${c.id}')">+Tee</button>
         <button class="btn btn-sm btn-outline" onclick="editCourse('${c.id}')">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="deleteCourse('${c.id}')">✕</button>
       </div>

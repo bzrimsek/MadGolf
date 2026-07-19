@@ -8601,6 +8601,34 @@ smoke('leagueCurrentSession returns session', () => {
   expect('h12 Halved', winOf(12), 'Halved');
   expect('Match 2 = Brian/Scott 1 up', sandbox.fsCalcDOCMatch(g,1,defs).display, 'Brian/Scott 1↑');
 }
+
+// ── 167. Tees-list course model (one course, holes shared, tees = {color,slope,rating}) ──────
+{
+  const { courseTees, courseTeeById, withPlayerTee, fsBuildChs } = sandbox;
+  const H18 = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));   // par 72, shared by all tees
+  const W = { id:'w', name:'Walden', teeColor:'Blue', slope:130, rating:72, holes:H18,
+              tees:[ { id:'w-white', color:'White', slope:113, rating:68 },
+                     { id:'w-red',   color:'Red',   slope:105, rating:66 } ] };
+  vmSetS('courses',[W]);
+
+  const tees = courseTees(W);
+  expect('base + 2 tees = 3, longest first', JSON.stringify(tees.map(t=>[t.color,t.slope])),
+    JSON.stringify([['Blue',130],['White',113],['Red',105]]));
+  expect('base tee id === course id', tees[0].id, 'w');
+  expect('tees share holes → par 72', courseTeeById(W,'w-white').par, 72);
+
+  // Resolution: base player unchanged, White player carries the tee's slope/rating + shared par.
+  const ev = { playerTees:{ p2:'w-white' } };
+  expect('base tee → no override', withPlayerTee({id:'p1'}, ev, W).teeSlope, undefined);
+  const p2 = withPlayerTee({id:'p2', hcp:10}, ev, W);
+  expect('white slope/rating/par', JSON.stringify([p2.teeSlope,p2.teeRating,p2.teePar,p2.teeColor]),
+    JSON.stringify([113,68,72,'White']));
+
+  // Same index, different tee → different course handicap (as with separate-course tees).
+  const chs = fsBuildChs([{id:'p1',hcp:10}, p2], W, false, 'all').chs;
+  expect('Blue CH 12', chs.p1, 12);
+  expect('White CH 6', chs.p2, 6);
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
