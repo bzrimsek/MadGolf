@@ -8728,6 +8728,19 @@ smoke('leagueCurrentSession returns session', () => {
   expect('picked standard = Blue', cm.teeColor, 'Blue');
   expect('other two tees listed', JSON.stringify(cm.tees.map(t=>t.color).sort()), JSON.stringify(['Black','White']));
 }
+
+// ── 172. Location helpers for course search (parse coords + haversine) ─────────
+{
+  const { parseCoords, haversineMiles } = sandbox;
+  expect('parse "(lat, lng)"', JSON.stringify(parseCoords('(33.506107, -82.018967)')), JSON.stringify({lat:33.506107,lng:-82.018967}));
+  expect('bad coord → null', parseCoords('n/a'), null);
+  expect('empty → null', parseCoords(''), null);
+  // Augusta National (33.5, -82.0) → Aurora OH (41.3, -81.3): ~540 miles
+  const d = haversineMiles({lat:33.506107,lng:-82.018967}, {lat:41.317,lng:-81.345});
+  expect('Augusta→Aurora ~540mi', Math.round(d/10)*10, 540);
+  expect('zero distance', Math.round(haversineMiles({lat:40,lng:-80},{lat:40,lng:-80})), 0);
+  expect('null point → null', haversineMiles(null, {lat:40,lng:-80}), null);
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
