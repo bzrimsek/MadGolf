@@ -8654,6 +8654,80 @@ smoke('leagueCurrentSession returns session', () => {
   expect('cumulative net = 160', board[0].totalNet, 160);
   expect('no NaN / null nets', board.every(e=>Number.isFinite(e.totalNet)), true);
 }
+
+// ── 169. Event default tee (group tee, per-player override on top) ─────────────
+{
+  const { withPlayerTee } = sandbox;
+  const H18 = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));
+  const W = { id:'w', name:'Walden', teeColor:'Blue', slope:130, rating:72, holes:H18,
+              tees:[ { id:'w-white', color:'White', slope:113, rating:68 },
+                     { id:'w-red',   color:'Red',   slope:105, rating:66 } ] };
+  vmSetS('courses',[W]);
+  // Default tee applies to everyone with no override.
+  expect('default tee → player plays it', withPlayerTee({id:'p1'}, {defaultTee:'w-white'}, W).teeSlope, 113);
+  // Default = base → no override stamped (identical to no default).
+  expect('default = base → no override', withPlayerTee({id:'p1'}, {defaultTee:'w'}, W).teeSlope, undefined);
+  // Per-player override beats the default.
+  const ev = { defaultTee:'w-white', playerTees:{ p2:'w-red' } };
+  expect('override beats default (Red 105)', withPlayerTee({id:'p2'}, ev, W).teeSlope, 105);
+  expect('un-overridden player follows default (White 113)', withPlayerTee({id:'p1'}, ev, W).teeSlope, 113);
+  // No default, no override → base.
+  expect('no default/override → base', withPlayerTee({id:'p1'}, {}, W).teeSlope, undefined);
+}
+
+// ── 170. buildCourseFromTees — user picks the standard (base) tee, not the longest ──────
+{
+  const { buildCourseFromTees } = sandbox;
+  const H = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));
+  const tees = [
+    { color:'Black', slope:135, rating:74, par:72, holes:H },   // tips
+    { color:'Blue',  slope:128, rating:72, par:72, holes:H },   // ← chosen standard
+    { color:'White', slope:120, rating:70, par:72, holes:H },   // forward
+  ];
+  const c = buildCourseFromTees(tees, 1, { name:'Walden' });    // pick Blue
+  expect('base tee = the picked standard (Blue)', c.teeColor, 'Blue');
+  expect('base slope from Blue', c.slope, 128);
+  expect('base rating from Blue', c.rating, 72);
+  expect('base holes carry stroke indexes', JSON.stringify([c.holes[2].hcp, c.holes[0].hcp]), JSON.stringify([3,1]));
+  // the other two tees (tips + forward) go in the list, color/slope/rating only
+  expect('other tees listed', JSON.stringify(c.tees.map(t=>[t.color,t.slope])), JSON.stringify([['Black',135],['White',120]]));
+  expect('listed tees carry no holes (share base)', c.tees.every(t=>!t.holes), true);
+  // default/fallback: no valid index → first tee
+  expect('no index → first tee is base', buildCourseFromTees(tees, -1, {}).teeColor, 'Black');
+}
+
+// ── 171. golfcourseapi (RapidAPI) course → app model mapping ──────────────────
+{
+  const { courseFromApiCourse } = sandbox;
+  const api = {
+    name: 'Augusta National Golf Club', website: 'www.augusta.com',
+    courseRating: null, slopeRating: null, holes: '18',
+    scorecard: [
+      {Hole:1,Par:4,Handicap:9},{Hole:2,Par:5,Handicap:1},{Hole:3,Par:4,Handicap:13},
+      {Hole:4,Par:3,Handicap:15},{Hole:5,Par:4,Handicap:5},{Hole:6,Par:3,Handicap:17},
+      {Hole:7,Par:4,Handicap:11},{Hole:8,Par:5,Handicap:3},{Hole:9,Par:4,Handicap:7},
+      {Hole:10,Par:4,Handicap:6},{Hole:11,Par:4,Handicap:8},{Hole:12,Par:3,Handicap:16},
+      {Hole:13,Par:5,Handicap:4},{Hole:14,Par:4,Handicap:12},{Hole:15,Par:5,Handicap:2},
+      {Hole:16,Par:3,Handicap:18},{Hole:17,Par:4,Handicap:14},{Hole:18,Par:4,Handicap:10}
+    ],
+    teeBoxes: [ { tee:'Members', slope:135, handicap:72.2 } ]
+  };
+  const c = courseFromApiCourse(api, 0);
+  expect('course name', c.name, 'Augusta National Golf Club');
+  expect('base tee = Members', c.teeColor, 'Members');
+  expect('slope from teeBox', c.slope, 135);
+  expect('rating from teeBox handicap field', c.rating, 72.2);
+  expect('18 holes', c.holes.length, 18);
+  expect('hole 2 par/index (par 5, index 1)', JSON.stringify([c.holes[1].par, c.holes[1].hcp]), JSON.stringify([5,1]));
+  expect('par total 72', c.holes.reduce((a,h)=>a+h.par,0), 72);
+  expect('single tee → no extra tees', c.tees.length, 0);
+  // multi-tee: three teeBoxes share the scorecard indexes; user picks the middle as standard
+  const multi = { name:'Test', scorecard: api.scorecard,
+    teeBoxes:[{tee:'Black',slope:140,handicap:75},{tee:'Blue',slope:132,handicap:72},{tee:'White',slope:124,handicap:69}] };
+  const cm = courseFromApiCourse(multi, 1);   // pick Blue
+  expect('picked standard = Blue', cm.teeColor, 'Blue');
+  expect('other two tees listed', JSON.stringify(cm.tees.map(t=>t.color).sort()), JSON.stringify(['Black','White']));
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
