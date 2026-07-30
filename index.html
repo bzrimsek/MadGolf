@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.0  Build 2026-07-19 02:42 PM ET
+     Version : v0.91.1  Build 2026-07-30 09:04 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.1  2026-07-30  Two open-list items closed. (1) TIDY: window._fsPlayerTees is now cleared at every foursome setup lifecycle boundary — init, the 'end game / start new' entry, and all post-game teardowns — so a stale per-player tee override can't carry from one game's setup into the next (was harmless because only the game's own players are read, but untidy). (2) VOLUME (§168): tripLeaderboard's cross-round cumulative aggregation is now driven at 50 players; previously only its underlying computeRoundResults engine was tested at scale, not the trip's own accumulation loop. 50 players × 2 completed stroke rounds → all 50 present on the board, both rounds accumulated, cumulative net summed correctly (160), no NaN/null. +4 tests. Totals 2767 -> 2771. Still open on my list: event-level default-tee picker, and the per-tee stroke-index override wiring (both next).
 // v0.91.0  2026-07-19  Tee MODEL refactor (option A): a course now holds its holes ONCE and carries an optional tees:[{{id,color,slope,rating,holes?}}] list — a tee needs only color/slope/rating since hole indexes and par are shared. New courseTees(course) returns every tee as a uniform record (the base course is itself a tee, id === course.id), courseTeeById resolves one; withPlayerTee/teeOptions/teePickerHtml/the scorecard tee tag all route through it. Values are tee ids now (base tee id = course id). BACKWARD COMPATIBLE with no migration: courseTees also surfaces legacy same-name course entries, so old imports and in-progress games (whose courseId/playerTees point at separate tee-courses) keep resolving — the per-player pickers in Foursome/League/Outing/Trip work unchanged. Importer rewritten: one BlueGolf import now creates ONE course (longest tee = base) + a tees list instead of N duplicate courses; per-tee holes are stored only when a tee's indexes/par actually differ from the base (the drift that caused the DOC bug is now structurally impossible for the common shared case). New lightweight Add Tee modal (color + slope + rating; holes shared) on each course row + openAddTee/saveTee; course rows show a tee count. +10 tests (§167). Totals 2758 -> 2767. Known follow-ups: a tee's own stroke-index override is stored but stroke PLACEMENT still reads the course's base indexes (fine for the shared case, the rare per-tee-index case needs allocation wiring); no event-level default-tee picker yet (base tee is the default, per-player overrides handle the rest).
 // v0.90.99  2026-07-17  Correction to the v0.90.98 DOC diagnosis (no code change to the fix). I mis-attributed the stale-snapshot symptom to Mink's 19 placing a SECOND stroke on hole 9 — wrong: Mink's 2nd stroke correctly lands on #4 (the index-1 hole) and was never the issue. The accurate mechanism: the drifted snapshot dropped a stroke from the Brian/Scott side. It bites most naturally at hole 8, whose live stroke index (13) equals Zrimsek's course handicap — a handicap-equals-index boundary, exactly where a drifted index removes a stroke — halving a hole they won and turning 1-up into All Square. The v0.90.97 fix (every match scores against the live course) is unchanged and still resolves it. §166 updated to encode the correct mechanism (h8 boundary drift, Mink untouched) instead of the earlier Mink-on-h9 story. Tests unchanged in count (2758); index logic unchanged.
 // v0.90.98  2026-07-17  Regression test for the reported DOC Match 2 bug, now root-caused. Real game (DOC Walden, Zrimsek 13 / Mink 19 / Ferrando 17 / Parks 9): Match 2 (Opposites, Brian/Scott vs John/Jarrod) showed All Square when it was 1 up. Cause: the game's stored segment snapshot had hole 9's stroke index drifted to a harder value than the live course, so Mink's 19 (an over-18 handicap) placed his SECOND stroke on hole 9 and halved a hole Brian/Scott had won — exactly the 'Mink got 2' detail the player flagged. The v0.90.97 fix (score every match against the live course, not the creation snapshot) resolves it: with the live hole-9 index, Mink gets one stroke there and the hole — and the match — go to Brian/Scott. §166 encodes the player's own hole-by-hole (h7 J/J, h8 B/S, h9 B/S, h10 B/S, h11 J/J, h12 halved → Brian/Scott 1↑) against the drifted snapshot, so this exact failure can't return. +8 tests. Totals 2750 -> 2758. To see it on-device: reopen the DOC game (refreshes handicaps + reads the live course) and tap the Match 2 banner for the hole-by-hole.
@@ -1186,8 +1187,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.0';
-const BUILD_TIME = '2026-07-19 02:42 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.91.1';
+const BUILD_TIME = '2026-07-30 09:04 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3486,6 +3487,7 @@ function lastName(pid) { const n = fsPlayerById(pid)?.name; return n ? (lastName
 
 // ── Foursome session state (no persistence) ───────────────────
 window._fsGuests   = [];
+window._fsPlayerTees = {};
 window._fsPicked   = null;
 window._fsCourseId = null;
 window._fsNineMode = 'all';
@@ -3603,7 +3605,7 @@ function fsClose() { window._tripModeActive = false; fsHideGameTab(); showTab('h
 function fsAbandonAndStart() {
   confirmDo('End Game','End this game and start a new one? Scores will be lost.',()=>{
     const g=fsActiveGame(); if(g){g.status='abandoned';fsSaveGame(g);}
-    window._fsPicked=null; window._fsGuests=[]; fsShowPlayerSelect();
+    window._fsPicked=null; window._fsGuests=[]; window._fsPlayerTees={}; fsShowPlayerSelect();
   });
 }
 function fsConfirmAbandon(then) {
@@ -4772,7 +4774,7 @@ function finalizeDOCGame() {
   delete g.rawChs; // slim for archive
   delete g._scoring; // clear immediately so fsActiveGame returns null on re-render
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 
@@ -5141,7 +5143,7 @@ function finalizeNassauGame() {
   g.summary = fsNassauSummary(g);
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 
@@ -5416,7 +5418,7 @@ function finalizeWalkoffGame() {
   }).join(' | ');
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 
@@ -5943,7 +5945,7 @@ function finalizeWolfGame() {
     : 'All square';
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Wolf game saved!');
 }
 
@@ -6071,7 +6073,7 @@ function finalizeStablefordGame() {
   }
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 
@@ -6168,7 +6170,7 @@ function finalizeLowNetGame() {
   }
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 
@@ -6360,7 +6362,7 @@ function finalizeTwoScrambleGame() {
   }
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 
@@ -6493,7 +6495,7 @@ function finalizeTwoShambleGame() {
   }
   delete g.rawChs;
   fsEndGame(g);
-  window._fsPicked = null; window._fsGuests = [];
+  window._fsPicked = null; window._fsGuests = []; window._fsPlayerTees = {};
   fsClose(); toast('Game saved!');
 }
 

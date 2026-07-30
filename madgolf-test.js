@@ -8629,6 +8629,31 @@ smoke('leagueCurrentSession returns session', () => {
   expect('Blue CH 12', chs.p1, 12);
   expect('White CH 6', chs.p2, 6);
 }
+
+// ── 168. VOLUME: tripLeaderboard cumulative aggregation at 50 players ─────────
+// computeRoundResults is tested at 50, but the trip's cross-round accumulation loop wasn't driven
+// at scale. 50 players × 2 completed stroke rounds → every player present, nets summed, no NaN.
+{
+  const H18 = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));   // par 72
+  const course = { id:'c', name:'VolCourse', slope:113, rating:72, holes:H18 };
+  const players = Array.from({length:50},(_,i)=>({ id:'p'+i, name:'P'+i, hcp:10 }));
+  vmSetS('players', players); vmSetS('courses', [course]);
+  const mkScores = () => { const s={}; players.forEach(p=>{ s[p.id]={}; H18.forEach(h=>{ s[p.id][h.num]=5; }); }); return s; };
+  const day='2026-08-01';
+  const trip = { id:'t', type:'trip', name:'Vol', startDate:day, endDate:day,
+    players: players.map(p=>({id:p.id})), settings:{},
+    days:{ [day]:{ rounds:[
+      { id:'r1', courseId:'c', format:'stroke', completed:true, scores:mkScores(), groups:[] },
+      { id:'r2', courseId:'c', format:'stroke', completed:true, scores:mkScores(), groups:[] } ] } } };
+  vmSetS('events', [trip]); vmSetS('activeTripId', 't');
+
+  const board = sandbox.tripLeaderboard();
+  expect('all 50 players on the board', board.length, 50);
+  expect('both rounds accumulated', board.every(e=>e.rounds===2), true);
+  // per round: gross 18×5=90, CH=calcCourseHcp(10,113,72,72)=10, net 80; two rounds → 160
+  expect('cumulative net = 160', board[0].totalNet, 160);
+  expect('no NaN / null nets', board.every(e=>Number.isFinite(e.totalNet)), true);
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
