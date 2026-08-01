@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.10  Build 2026-08-01 04:02 PM ET
+     Version : v0.91.11  Build 2026-08-01 04:09 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.11  2026-08-01  Phase A — live standings extended to TRIPS and OUTINGS. Added the '📡 Share live standings' button to the trip leaderboard and the outing (individual) results screen, alongside league. Fixed the event-scoping wrinkle flagged earlier: tripLeaderboard now takes the trip (defaults to tripActive() — no regression), so liveStandingsPayload('trip', ev) computes for EV, not the active trip — a backgrounded re-publish of a shared trip can't grab the active trip's numbers (§176 pins this with activeTripId=null). Outing was already event-scoped via outingComputeResults(ev). Setters tripShareLive/outingShareLive route through eventShareLive; the auto-republish (scheduleLiveRepublish), share sheet, SMS handoff, and live.html viewer all work unchanged for the new types. +3 tests. Totals 2822 -> 2825. Note: outing live standings map the INDIVIDUAL net leaderboard (playerData); team/partner outing formats would need format-specific rows (follow-up if you use those for a shared outing).
 // v0.91.10  2026-08-01  Cross-consistency sweep (phase B) — drift guards for two-path status rendering, the class the Nassau hole popup slipped through. Root lesson: the popup had its own green formatting test AND the banner had its own, but nothing drove BOTH from one state and compared them, so they disagreed silently. Codified a doctrine in the harness (rule 30 corollary): any fact rendered by more than one path — first paint / in-place updater / stored summary / live viewer — gets a cross-consistency test that drives each path from ONE game state and asserts they AGREE, not per-path formatting. Extended §148's recording-DOM pattern to the rest of the match-status games: §174 DOC (the in-place updater's banner == fsCalcDOCMatch engine for all 3 segments, the reported Match 2 = Brian/Scott 1↑ pinned through the REAL render path, and the recent-games summary == the live banner statuses) and §175 walk-off (in-place banner == fsCalcOneMatch). No index logic change — test hardening only. +12 tests. Totals 2808 -> 2820. Next up: phase A — extend live standings to trips and outings.
 // v0.91.9  2026-08-01  Removed the hole-completion popup entirely (was disabled for Nassau in v0.91.8; now off for all games per request). Deleted the trigger (the 200ms setTimeout fired after the 4th score on a hole), the whole fsHoleStatusPopup function (doc / walk-off / stableford / low-net / wolf branches), fsDismissHolePopup, the _fsPopupTimer var, and the holeComplete check that fed it — all self-contained, no test or other references (rule 6, no dead code). The per-game banners (the correct headers) are untouched and remain the live match/leaderboard status. No behavior change beyond the popup no longer appearing. Totals unchanged at 2808.
 // v0.91.8  2026-08-01  Disabled the Nassau hole-completion popup (reported wrong; not useful). The compact popup that flashed ~200ms after the 4th score on a hole ran a SEPARATE Nassau text path (fsHolePopupNassauText) from the banner, so it disagreed with the correct header. Removed the popup's Nassau branch in fsHoleStatusPopup — Nassau now produces no rows, so the existing `if(!rows) return` guard shows nothing — and deleted the now-dead fsHolePopupNassauText helper plus its 8 §149 tests (rule 6). The banner/header (fsNassauBannerParts) is unchanged and correct. The popup still fires for the other game types (DOC, walk-off, stableford, low-net, wolf). Totals 2816 -> 2808.
@@ -1227,8 +1228,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.10';
-const BUILD_TIME = '2026-08-01 04:02 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.91.11';
+const BUILD_TIME = '2026-08-01 04:09 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -8691,7 +8692,7 @@ function outingRenderResults(g, r) {
   const { playerData, grossSkins, netSkins, grossTally, netTally, activeHoles } = r;
 
   // ── Leaderboard ──
-  let lb = '';
+  let lb = '<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="outingShareLive()">📡 Share live standings</button>';
 
   if (isStab) {
     const sorted = [...playerData].sort((a,b)=>(b.totalPts-b.ptTarget)-(a.totalPts-a.ptTarget));
@@ -11631,8 +11632,8 @@ function tripCountback(pid, t) {
   return [back9, back6, back3, last1];
 }
 
-function tripLeaderboard() {
-  const t = tripActive(); if (!t) return [];
+function tripLeaderboard(t) {
+  t = t || tripActive(); if (!t) return [];
   const net={}, rnds={}, teamWins={};
   const players = tripPlayers(t);
   tripDays(t).forEach(d => {
@@ -11872,6 +11873,7 @@ function tripRenderResultsScreen(){
   let html='';
 
   // ── Trip leaderboard ──────────────────────────────────────────
+  html+=`<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="tripShareLive()">📡 Share live standings</button>`;
   html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;margin-bottom:10px;">Trip Leaderboard</div>`;
   const board=tripLeaderboard();
   if(board.length){
@@ -13904,9 +13906,8 @@ function liveStandingsPayload(kind, ev) {
     title = ev.name || 'League'; sub = 'Standings';
     st.rows.forEach((p, i) => rows.push({ pos: i + 1, name: p.name, primary: (st.points[p.id] || 0) + ' pts', secondary: (st.wins[p.id] || 0) + ' W' }));
   } else if (kind === 'trip') {
-    const t = tripActive();
-    title = (t && t.name) || 'Trip'; sub = 'Leaderboard';
-    tripLeaderboard().forEach((e, i) => rows.push({ pos: i + 1, name: (fsPlayerById(e.playerId) || {}).name || '?', primary: netStr(e.totalNet), secondary: (e.rounds || 0) + ' rds' }));
+    title = (ev && ev.name) || 'Trip'; sub = 'Leaderboard';
+    tripLeaderboard(ev).forEach((e, i) => rows.push({ pos: i + 1, name: (fsPlayerById(e.playerId) || {}).name || '?', primary: netStr(e.totalNet), secondary: (e.rounds || 0) + ' rds' }));
   } else if (kind === 'outing') {
     const r = outingComputeResults(ev), pd = r && r.playerData;
     title = ev.name || 'Outing'; sub = 'Leaderboard';
@@ -13966,6 +13967,8 @@ function liveStopSharing() {
   closeModal('liveShareModal');
 }
 function leagueShareLive() { const lg = leagueCurrent(); if (lg) eventShareLive(lg); }
+function tripShareLive()   { const t  = tripActive();   if (t)  eventShareLive(t); }
+function outingShareLive() { const o  = outingCurrent(); if (o)  eventShareLive(o); }
 function leagueComputeStandings(lg, showSeason) {
   const activeSeason = (lg.seasons||[]).find(s=>s.active);
   const useSeason = showSeason && activeSeason;

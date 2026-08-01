@@ -1,5 +1,5 @@
 // madgolf — Service Worker vtouch
-const CACHE_NAME = 'madgolf-v0.91.10';
+const CACHE_NAME = 'madgolf-v0.91.11';
 const ASSETS = ['./', './index.html', './manifest.json', './logo.webp'];
 
 self.addEventListener('install', e => {

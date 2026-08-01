@@ -8829,6 +8829,27 @@ smoke('leagueCurrentSession returns session', () => {
   expect('walkoff in-place colour matches engine', sc.style.color||'', expected.color);
   expect('walkoff in-place A is 2 up thru 2', expected.diff, 2);
 }
+
+// ── 176. Live standings are event-scoped (trip) ───────────────────────────────
+// tripLeaderboard now takes the trip, so liveStandingsPayload('trip', ev) computes for EV — not
+// tripActive(). Guards against a backgrounded re-publish of a shared trip grabbing the active trip's
+// numbers. (Outing was already event-scoped via outingComputeResults(ev).)
+{
+  const H18 = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));
+  const players = Array.from({length:5},(_,i)=>({id:'q'+i,name:'Q'+i,hcp:10}));
+  vmSetS('players', players); vmSetS('courses',[{id:'c2',name:'C2',slope:113,rating:72,holes:H18}]);
+  const mk=()=>{const s={};players.forEach(p=>{s[p.id]={};H18.forEach(h=>{s[p.id][h.num]=5;});});return s;};
+  const day='2026-08-02';
+  const tripA={ id:'tA', type:'trip', name:'Away Trip', startDate:day, endDate:day,
+    players:players.map(p=>({id:p.id})), settings:{},
+    days:{[day]:{rounds:[{id:'rA',courseId:'c2',format:'stroke',completed:true,scores:mk(),groups:[]}]}} };
+  vmSetS('events',[tripA]);
+  vmSetS('activeTripId', null);                       // NO active trip
+  const pl = sandbox.liveStandingsPayload('trip', tripA);
+  expect('trip payload computed from passed event (not active)', pl.rows.length, 5);
+  expect('trip payload title from passed event', pl.title, 'Away Trip');
+  expect('trip payload kind', pl.kind, 'trip');
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
