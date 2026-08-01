@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.9  Build 2026-08-01 11:17 AM ET
+     Version : v0.91.10  Build 2026-08-01 04:02 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.10  2026-08-01  Cross-consistency sweep (phase B) — drift guards for two-path status rendering, the class the Nassau hole popup slipped through. Root lesson: the popup had its own green formatting test AND the banner had its own, but nothing drove BOTH from one state and compared them, so they disagreed silently. Codified a doctrine in the harness (rule 30 corollary): any fact rendered by more than one path — first paint / in-place updater / stored summary / live viewer — gets a cross-consistency test that drives each path from ONE game state and asserts they AGREE, not per-path formatting. Extended §148's recording-DOM pattern to the rest of the match-status games: §174 DOC (the in-place updater's banner == fsCalcDOCMatch engine for all 3 segments, the reported Match 2 = Brian/Scott 1↑ pinned through the REAL render path, and the recent-games summary == the live banner statuses) and §175 walk-off (in-place banner == fsCalcOneMatch). No index logic change — test hardening only. +12 tests. Totals 2808 -> 2820. Next up: phase A — extend live standings to trips and outings.
 // v0.91.9  2026-08-01  Removed the hole-completion popup entirely (was disabled for Nassau in v0.91.8; now off for all games per request). Deleted the trigger (the 200ms setTimeout fired after the 4th score on a hole), the whole fsHoleStatusPopup function (doc / walk-off / stableford / low-net / wolf branches), fsDismissHolePopup, the _fsPopupTimer var, and the holeComplete check that fed it — all self-contained, no test or other references (rule 6, no dead code). The per-game banners (the correct headers) are untouched and remain the live match/leaderboard status. No behavior change beyond the popup no longer appearing. Totals unchanged at 2808.
 // v0.91.8  2026-08-01  Disabled the Nassau hole-completion popup (reported wrong; not useful). The compact popup that flashed ~200ms after the 4th score on a hole ran a SEPARATE Nassau text path (fsHolePopupNassauText) from the banner, so it disagreed with the correct header. Removed the popup's Nassau branch in fsHoleStatusPopup — Nassau now produces no rows, so the existing `if(!rows) return` guard shows nothing — and deleted the now-dead fsHolePopupNassauText helper plus its 8 §149 tests (rule 6). The banner/header (fsNassauBannerParts) is unchanged and correct. The popup still fires for the other game types (DOC, walk-off, stableford, low-net, wolf). Totals 2816 -> 2808.
 // v0.91.7  2026-07-31  LIVE STANDINGS — shareable, near-real-time viewer (Feature 1, first cut: league). New '📡 Share live standings' button on the league standings screen: publishes the computed standings to a PUBLIC Firebase path (bz-apps/golf/live/{{shareId}}, a random unguessable id) via the same authed REST PUT as the main sync, and hands you a link to a new read-only live.html viewer that polls every 10s. Re-publishes automatically as scores are entered (scheduleWrite now calls a debounced scheduleLiveRepublish, 4s, for every event flagged .live). Share sheet: Text link (sms: handoff, reusing the RSVP pattern) + Copy + Stop sharing. New liveStandingsPayload normalizer turns league/trip/outing standings into uniform {{pos,name,primary,secondary}} rows (§173) reusing the tested engines (leagueComputeStandings / tripLeaderboard / outingComputeResults). REQUIRES a Firebase rule allowing public READ on the live path + deploying live.html alongside index (walking BZ through both). Trip/outing share buttons and distributed one-scorer-per-group entry are the next increments. +4 tests. Totals 2812 -> 2816.
@@ -1226,8 +1227,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.9';
-const BUILD_TIME = '2026-08-01 11:17 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.91.10';
+const BUILD_TIME = '2026-08-01 04:02 PM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;

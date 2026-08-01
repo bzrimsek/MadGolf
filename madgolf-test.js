@@ -8752,6 +8752,83 @@ smoke('leagueCurrentSession returns session', () => {
   expect('rows sorted, pos 1..6', JSON.stringify(pl.rows.map(r=>r.pos)), JSON.stringify([1,2,3,4,5,6]));
   expect('leader net <= runner-up', pl.rows[0].primary !== '—', true);
 }
+
+// ═══ CROSS-CONSISTENCY DOCTRINE (rule 30 corollary) ═══════════════════════════
+// When the SAME fact (a match status, a leaderboard row, a settlement) is rendered by more than one
+// path — first paint, in-place updater, stored summary, live viewer — a per-path FORMATTING test is
+// not enough: two separately-green tests can still disagree (that is exactly how the Nassau hole
+// popup drifted from the banner). Every such fact gets a CROSS-CONSISTENCY test that drives each path
+// from ONE game state and asserts they AGREE (drive the real render via the recording DOM below;
+// compare its output to the shared engine). §148 = Nassau, §174 = DOC, §175 = walk-off.
+// ── 174. DOC consistency: in-place updater + summary share the engine (no drift) ─
+// §148's guard, extended to DOC. Drive the REAL fsUpdateStandingsInPlace through a recording DOM and
+// assert each banner it writes equals fsCalcDOCMatch (the engine the first paint + summary use), then
+// assert the recent-games summary reflects those same statuses. Catches a re-introduced divergent DOC
+// path — the class of the popup bug.
+{
+  const { fsCalcDOCMatch, fsDocMatchDefs, fsDOCResultSummary } = sandbox;
+  const HCP=[5,9,15,1,7,11,17,13,3, 8,10,2,18,6,16,14,12,4];
+  const PAR=[4,3,5,4,4,5,4,3,4, 4,4,4,3,5,5,4,3,4];
+  const holes=HCP.map((h,i)=>({num:i+1,par:PAR[i],hcp:h,hcpRating:h}));
+  smokeSetup();
+  vmSetS('players',[{id:'Z',name:'Brian Zrimsek'},{id:'M',name:'Jarrod Mink'},{id:'F',name:'John Ferrando'},{id:'P',name:'Scott Parks'}]);
+  vmSetS('courses',[{id:'w',name:'Walden',slope:113,rating:72,par:72,holes}]);
+  const G={ Z:{7:3,8:2,9:5,10:6,11:6,12:5}, M:{7:3,8:3,9:5,10:6,11:4,12:5},
+            F:{7:3,8:3,9:7,10:6,11:5,12:5}, P:{7:3,8:3,9:4,10:4,11:5,12:5} };
+  const seg=(a,b)=>holes.slice(a,b);
+  const g={ id:'doc1', type:'foursome', status:'active', _scoring:true, gameType:'doc', courseId:'w', _totalHoles:18,
+    playerIds:['Z','M','F','P'], chs:{Z:13,M:19,F:17,P:9},
+    carts:{cart1:{driver:'Z',passenger:'M'},cart2:{driver:'F',passenger:'P'}},
+    segs:[seg(0,6),seg(6,12),seg(12,18)], scores:G };
+  vmSetS('events',[g]);
+  const defs=fsDocMatchDefs(g);
+  const expected=[0,1,2].map(i=>fsCalcDOCMatch(g,i,defs));
+
+  const rec={};
+  const realGEBI=sandbox.document.getElementById;
+  sandbox.document.getElementById=(id)=>(rec[id]||(rec[id]={id,textContent:'',className:'',innerHTML:'',style:{}}));
+  try { vm.runInContext("fsUpdateStandingsInPlace(S.events.find(e=>e.gameType==='doc'))", sandbox); }
+  finally { sandbox.document.getElementById=realGEBI; }
+
+  [0,1,2].forEach(i=>{
+    const sc=rec['doc-banner-score-'+i];
+    expect('DOC in-place M'+(i+1)+' matches engine', sc && sc.textContent, expected[i].display);
+    expect('DOC in-place M'+(i+1)+' colour matches engine', sc && (sc.style.color||''), expected[i].color);
+  });
+  expect('DOC in-place Match 2 = 1 up through real render path', rec['doc-banner-score-1'].textContent, 'Brian/Scott 1↑');
+
+  const s0=expected[0].display, s1=expected[1].display, s2=expected[2].display;
+  expect('DOC summary equals banner statuses', fsDOCResultSummary(g, defs), 'Drv:'+s0+' | Opp:'+s1+' | Crt:'+s2);
+}
+
+// ── 175. WALK-OFF in-place updater shares the engine — no drift ───────────────
+// Completes the targeted match-status set (Nassau §148, DOC §174, walk-off here). Drive the real
+// fsUpdateStandingsInPlace through a recording DOM; assert the banner it writes equals fsCalcOneMatch.
+{
+  const { fsCalcOneMatch } = sandbox;
+  smokeSetup();
+  vmSetS('players',[{id:'p1',name:'Sam Snead'},{id:'p2',name:'Ben Hogan'}]);
+  vmSetS('courses',[{id:'wc',name:'WC',slope:113,rating:36,par:72,holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}))}]);
+  const g={ id:'wo1', type:'foursome', status:'active', _scoring:true, gameType:'walkoff', courseId:'wc', _totalHoles:18,
+    playerIds:['p1','p2'], chs:{p1:0,p2:0},
+    pairs:[{A:'p1',B:'p2',teamA:['p1'],teamB:['p2'],label:'A v B'}],
+    pairMatches:[[{startHole:1,cost:5}]],
+    scores:{ p1:{1:3,2:3}, p2:{1:5,2:5} } };
+  vmSetS('events',[g]);
+  const expected = fsCalcOneMatch(g, g.pairMatches[0][0], g.pairs[0]);
+
+  const rec={};
+  const realGEBI=sandbox.document.getElementById;
+  sandbox.document.getElementById=(id)=>(rec[id]||(rec[id]={id,textContent:'',className:'',innerHTML:'',style:{}}));
+  try { vm.runInContext("fsUpdateStandingsInPlace(S.events.find(e=>e.gameType==='walkoff'))", sandbox); }
+  finally { sandbox.document.getElementById=realGEBI; }
+
+  const sc=rec['wo-banner-score-0-0'];
+  expect('walkoff in-place banner written', !!sc && sc.textContent.length>0, true);
+  expect('walkoff in-place matches engine (no drift)', sc.textContent, expected.score);
+  expect('walkoff in-place colour matches engine', sc.style.color||'', expected.color);
+  expect('walkoff in-place A is 2 up thru 2', expected.diff, 2);
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
