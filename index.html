@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.6  Build 2026-07-30 10:36 AM ET
+     Version : v0.91.9  Build 2026-08-01 11:17 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,9 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.9  2026-08-01  Removed the hole-completion popup entirely (was disabled for Nassau in v0.91.8; now off for all games per request). Deleted the trigger (the 200ms setTimeout fired after the 4th score on a hole), the whole fsHoleStatusPopup function (doc / walk-off / stableford / low-net / wolf branches), fsDismissHolePopup, the _fsPopupTimer var, and the holeComplete check that fed it — all self-contained, no test or other references (rule 6, no dead code). The per-game banners (the correct headers) are untouched and remain the live match/leaderboard status. No behavior change beyond the popup no longer appearing. Totals unchanged at 2808.
+// v0.91.8  2026-08-01  Disabled the Nassau hole-completion popup (reported wrong; not useful). The compact popup that flashed ~200ms after the 4th score on a hole ran a SEPARATE Nassau text path (fsHolePopupNassauText) from the banner, so it disagreed with the correct header. Removed the popup's Nassau branch in fsHoleStatusPopup — Nassau now produces no rows, so the existing `if(!rows) return` guard shows nothing — and deleted the now-dead fsHolePopupNassauText helper plus its 8 §149 tests (rule 6). The banner/header (fsNassauBannerParts) is unchanged and correct. The popup still fires for the other game types (DOC, walk-off, stableford, low-net, wolf). Totals 2816 -> 2808.
+// v0.91.7  2026-07-31  LIVE STANDINGS — shareable, near-real-time viewer (Feature 1, first cut: league). New '📡 Share live standings' button on the league standings screen: publishes the computed standings to a PUBLIC Firebase path (bz-apps/golf/live/{{shareId}}, a random unguessable id) via the same authed REST PUT as the main sync, and hands you a link to a new read-only live.html viewer that polls every 10s. Re-publishes automatically as scores are entered (scheduleWrite now calls a debounced scheduleLiveRepublish, 4s, for every event flagged .live). Share sheet: Text link (sms: handoff, reusing the RSVP pattern) + Copy + Stop sharing. New liveStandingsPayload normalizer turns league/trip/outing standings into uniform {{pos,name,primary,secondary}} rows (§173) reusing the tested engines (leagueComputeStandings / tripLeaderboard / outingComputeResults). REQUIRES a Firebase rule allowing public READ on the live path + deploying live.html alongside index (walking BZ through both). Trip/outing share buttons and distributed one-scorer-per-group entry are the next increments. +4 tests. Totals 2812 -> 2816.
 // v0.91.6  2026-07-30  Location-aware course search. A '📍 Nearest first' button on the import results uses the device location (navigator.geolocation) plus the coordinates each result already carries to sort courses nearest-first and show the distance in miles on each row — the common case where a name like 'Walden' matches several courses and yours is simply the closest. parseCoords parses the API's '(lat, lng)' string; haversineMiles is the great-circle distance. Once located, later searches stay nearest-first. Degrades gracefully: no geolocation or a denied permission just leaves results in name order with a status note. No extra API calls — coordinates come back in the search response. +6 tests (§172). Totals 2799 -> 2806.
 // v0.91.5  2026-07-30  golfcourseapi (RapidAPI) course import — the structured replacement for the BlueGolf scrape. New search-by-name flow in the course Import tab: type a name → searchGolfCourses fetches through the Cloudflare worker (course-proxy) → pick a course from results → pick your STANDARD tee (std radio) → Import. Mapping courseFromApiCourse (§171, tested against the real Augusta response): scorecard[].{{Par,Handicap}} → shared per-hole par + stroke index (option B), teeBoxes[].{{tee,slope,handicap}} → the tees list (the teeBox 'handicap' field is the course RATING, not a handicap), routed through buildCourseFromTees so YOU pick the standard tee, not the auto-longest. Note the top-level courseRating/slopeRating come back null — the real ratings live per-tee in teeBoxes, which is what we read. Imported courses are normal entries: fully editable afterward (base + per-hole handicap via Edit; alternate tees via the tee manager). Search state clears on modal open; BlueGolf import kept below as a fallback. +12 tests. Totals 2795 -> 2799. Heads-up: the RapidAPI free tier is rate-limited ('Too many requests' when hammered), but searches are occasional and a course caches after import.
 // v0.91.4  2026-07-30  Course/tee editability + user-picked standard tee on import (prep for the golfcourseapi switch). (1) FIX: editing a course wiped its alternate tees — saveCourse now preserves course.tees and sourceUrl. Base course incl. per-hole par AND handicap is already editable via the Edit form, so imported data can be overridden exactly like today. (2) The Add Tee modal is now a full TEE MANAGER — add, edit, and delete alternate tees (fix or remove a tee with bad source data); modal stays open so you can manage several. (3) New reusable buildCourseFromTees(tees, stdIdx, meta): the USER picks which tee is the standard (base = default tee + shared stroke indexes, option B) rather than auto-taking the longest — you rarely play the tips, and other tees are usually forward of standard. The tips/forward tees go in the list. Wired into the BlueGolf import now (a 'std' radio per tee row) and ready to power the golfcourseapi import next. +8 tests (§170). Totals 2783 -> 2785.
@@ -912,6 +915,24 @@ input:checked+.slider:before{transform:translateX(20px);}
   </div>
 </div>
 
+<!-- Live standings share sheet -->
+<div class="modal-overlay" id="liveShareModal" onclick="if(event.target===this)closeModal('liveShareModal')">
+  <div class="modal">
+    <h2>📡 Live Standings</h2>
+    <div id="liveShareTitle" style="font-size:13px;font-weight:600;margin-bottom:8px;"></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Anyone with this link can watch the standings update live — no login:</div>
+    <div id="liveShareUrl" style="font-size:12px;word-break:break-all;background:var(--surf2);padding:8px;border-radius:6px;border:1px solid var(--surf3);margin-bottom:12px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-gold" style="flex:1;" onclick="liveTextLink()">Text link</button>
+      <button class="btn btn-outline" style="flex:1;" onclick="liveCopyLink()">Copy</button>
+    </div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn btn-outline" onclick="liveStopSharing()">Stop sharing</button>
+      <button class="btn btn-outline" onclick="closeModal('liveShareModal')">Done</button>
+    </div>
+  </div>
+</div>
+
 <!-- Guest player modal -->
 <div class="modal-overlay" id="guestModal" onclick="if(event.target===this)closeModal('guestModal')">
   <div class="modal">
@@ -1205,8 +1226,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.6';
-const BUILD_TIME = '2026-07-30 10:36 AM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.91.9';
+const BUILD_TIME = '2026-08-01 11:17 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1565,6 +1586,7 @@ function scheduleWrite() {
   _dirty = true;
   if (_writeTimer) clearTimeout(_writeTimer);
   _writeTimer = setTimeout(() => { fbWrite(S); _writeTimer = null; }, DEBOUNCE_MS);
+  scheduleLiveRepublish();
 }
 /** Take the remote snapshot only when it has data AND local has no unsaved edits — otherwise a stale
  *  remote would clobber scores entered just before the app backgrounded. Pure, so it's unit-tested. */
@@ -4268,9 +4290,6 @@ function fsUpdateGameScore(input) {
   fsUpdateScoreTotals(g, pid);
   fsUpdateStandingsInPlace(g);
 
-  // Popup when all players have scored this hole
-  const holeComplete = g.playerIds.every(id => g.scores[id]?.[hole] != null);
-  if (holeComplete) setTimeout(() => fsHoleStatusPopup(g, hole), 200);
 }
 
 function fsBuildHoleMajorIndex(container) {
@@ -4438,145 +4457,8 @@ function fsUpdateStandingsInPlace(g) {
   }
 } // end fsUpdateStandingsInPlace
 
-// Hole-completion popup — appears 200ms after 4th score on a hole, auto-dismisses 3s
-let _fsPopupTimer = null;
 let _woPendingPress = null; // persists across re-renders; not stored in Firebase
-// Pure hole-status popup Nassau text — extracted from fsHoleStatusPopup. This is the COMPACT
-// popup variant (own palette + short tally, no "wins"); intentionally distinct from the banner's
-// fsNassauBannerParts. Verbatim, so the popup looks identical.
-function fsHolePopupNassauText(r, pA, pB) {
-  const color = !r.winner ? '#d4a012' : r.winner==='tie' ? '#d4a012' : r.winner==='A' ? '#86efac' : '#dc2626';
-  const txt = !r.winner ? 'Even' : r.winner==='tie' ? 'TIE'
-    : r.winner==='A' ? `${pA}${r.aT!=null?` ${r.aT}–${r.bT}`:''}` : `${pB}${r.bT!=null?` ${r.bT}–${r.aT}`:''}`;
-  return { txt, color };
-}
 
-function fsHoleStatusPopup(g, hole) {
-  fsDismissHolePopup();
-  let rows = '';
-  if (g.gameType === 'doc') {
-    const defs = fsDocMatchDefs(g);
-    [0,1,2].forEach(i => {
-      const seg = g.segs[i];
-      const played = seg.filter(h => g.playerIds.every(id => g.scores[id]?.[+h.num] != null));
-      if (!played.length) return;
-      const st = fsCalcDOCMatch(g, i, defs);
-      rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.1);">
-        <span style="font-size:12px;color:rgba(255,255,255,.7);">${['Drv/Pass','Opposites','Cart Partners'][i]}</span>
-        <span style="font-size:14px;font-family:'Bebas Neue',sans-serif;color:${st.color};">${esc(st.display)}</span>
-      </div>`;
-    });
-  } else if (g.gameType === 'walkoff') {
-    const pairs = fsGetWalkoffPairs(g);
-    const pairMatches = fsGetPairMatches(g);
-    pairs.forEach((pair, pi) => {
-      (pairMatches[pi]||[]).forEach((m, idx) => {
-        const st = fsCalcOneMatch(g, m, pair); if (!st) return;
-        if (hole < m.startHole) return;
-        rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.1);">
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${esc(pair.label||'P'+(pi+1))} M${idx+1} ($${m.cost})</span>
-          <span style="font-size:14px;font-family:'Bebas Neue',sans-serif;color:${st.color};">${st.score}</span>
-        </div>`;
-      });
-    });
-  } else if (g.gameType === 'nassau') {
-    const course = fsGetCourse(g.courseId); if (!course) return;
-    const _nsHoles = fsHoles(g, course), _nsHalf = Math.ceil(_nsHoles.length/2), front = _nsHoles.slice(0, _nsHalf), back = _nsHoles.slice(_nsHalf), all = _nsHoles;
-    const pairs = fsGetNassauPairs(g);
-    pairs.forEach(pair => {
-      [[fsCalcNassauSeg(g,front,pair),'Front'],[fsCalcNassauSeg(g,back,pair),'Back'],[fsCalcNassauSeg(g,all,pair),'Total']].forEach(([r,lbl]) => {
-        if (r.played === 0) return;
-        const pA = (pair.teamA||[pair.A]).map(id=>lastName(id)).join('&');
-        const pB = (pair.teamB||[pair.B]).map(id=>lastName(id)).join('&');
-        const { txt, color } = fsHolePopupNassauText(r, pA, pB);
-        const label = pairs.length > 1 ? `${pair.label||''} ${lbl}` : lbl;
-        rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.1);">
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${label}</span>
-          <span style="font-size:16px;font-family:'Bebas Neue',sans-serif;color:${color};">${txt}</span>
-        </div>`;
-      });
-    });
-  }
-  if (g.gameType === 'stableford') {
-    const course = fsGetCourse(g.courseId);
-    if (course) {
-      const results = g.playerIds
-        .map(pid => fsCalcStablefordPlayer(g, pid, course))
-        .filter(r => r.entered > 0)
-        .sort((a,b) => b.vsQuota - a.vsQuota);
-      const name = firstName;
-      results.forEach((r,i) => {
-        const clr = r.vsQuota > 0 ? '#86efac' : r.vsQuota < 0 ? '#fca5a5' : 'rgba(255,255,255,.7)';
-        rows += `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.1);">
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${i===0?'🥇':i+1}. ${esc(name(r.pid))}</span>
-          <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:${clr};">${r.pts} pts (${r.vsQuota>=0?'+':''}${r.vsQuota})</span>
-        </div>`;
-      });
-    }
-  } else if (g.gameType === 'lownet') {
-    const course = fsGetCourse(g.courseId);
-    if (course) {
-      const results = g.playerIds
-        .map(pid => fsCalcLowNetPlayer(g, pid, course))
-        .filter(r => r.entered > 0)
-        .sort((a,b) => a.net - b.net);
-      const name = firstName;
-      results.forEach((r,i) => {
-        rows += `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.1);">
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${i===0?'🥇':i+1}. ${esc(name(r.pid))}</span>
-          <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;color:rgba(255,255,255,.9);">net ${r.net}</span>
-        </div>`;
-      });
-    }
-  } else if (g.gameType === 'wolf') {
-    const course = fsGetCourse(g.courseId);
-    if (course) {
-      const h = course.holes.find(hh => hh.num === hole);
-      const wh = g.wolfHoles?.[hole];
-      const name = firstName;
-      if (wh && wh.winner != null && h) {
-        const modeLabel = {partner:'2v2', lone:'Lone Wolf', blind:'Blind Wolf'}[wh.mode] || wh.mode;
-        const wolfTeam  = wh.partnerPid
-          ? `${name(wh.captainPid)} & ${name(wh.partnerPid)}`
-          : name(wh.captainPid);
-        const winTxt = wh.winner === 'wolf'   ? `🐺 ${wolfTeam} wins`
-                     : wh.winner === 'others' ? '👥 Others win'
-                     : '↩ Tied — carryover';
-        const winClr = wh.winner === 'wolf' ? '#86efac' : wh.winner === 'others' ? '#fca5a5' : 'var(--gold)';
-        rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.1);">
-          <span style="font-size:12px;color:rgba(255,255,255,.7);">${modeLabel} · ${wh.value} pt${wh.value>1?'s':''}</span>
-          <span style="font-size:14px;font-family:'Bebas Neue',sans-serif;color:${winClr};">${winTxt}</span>
-        </div>`;
-        // Show each player's net score
-        g.wolfOrder.forEach(pid => {
-          const net = wolfNetScore(g, pid, h);
-          if (net == null) return;
-          rows += `<div style="display:flex;justify-content:space-between;padding:3px 0;">
-            <span style="font-size:11px;color:rgba(255,255,255,.5);">${esc(name(pid))}</span>
-            <span style="font-size:11px;color:rgba(255,255,255,.7);">net ${net}</span>
-          </div>`;
-        });
-      }
-    }
-  }
-  if (!rows) return;
-  const popup = document.createElement('div');
-  popup.id = 'fs-hole-popup';
-  popup.onclick = () => fsDismissHolePopup();
-  popup.innerHTML = `<div style="background:var(--g900);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:14px 18px;min-width:220px;max-width:300px;box-shadow:0 8px 32px rgba(0,0,0,.5);">
-    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,.5);letter-spacing:.8px;margin-bottom:6px;">HOLE ${hole}</div>
-    ${rows}
-    <div style="font-size:10px;color:rgba(255,255,255,.3);text-align:center;margin-top:8px;">tap to dismiss</div>
-  </div>`;
-  Object.assign(popup.style, { position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',zIndex:'9999',cursor:'pointer' });
-  document.body.appendChild(popup);
-  _fsPopupTimer = setTimeout(() => fsDismissHolePopup(), 3000);
-}
-function fsDismissHolePopup() {
-  if (_fsPopupTimer) { clearTimeout(_fsPopupTimer); _fsPopupTimer = null; }
-  const el = document.getElementById('fs-hole-popup');
-  if (el) el.remove();
-}
 
 // ── DOC — Drivers, Opposites, Cart Partners ───────────────────
 // Game split into three 6-hole matches (Drivers v Passengers, Opposites,
@@ -14011,6 +13893,78 @@ function leagueCmpCountback(a, b) {
 // League standings across completed sessions: points (3/2/1 by finish rank), wins (1st place), and
 // net countback for tie-breaks. Extracted from leagueRenderStandings so the aggregation is testable
 // (rule 30). showSeason=true limits to the active season; false/undefined = all-time.
+// Normalize an event's standings into a compact, shareable payload for the live viewer (live.html).
+// Reuses the tested standings engines; the viewer just renders {pos,name,primary,secondary} rows.
+function liveStandingsPayload(kind, ev) {
+  const rows = []; let title = '', sub = '';
+  const netStr = n => (n == null ? '—' : (n > 0 ? '+' + n : '' + n));
+  if (kind === 'league') {
+    const st = leagueComputeStandings(ev, false);
+    title = ev.name || 'League'; sub = 'Standings';
+    st.rows.forEach((p, i) => rows.push({ pos: i + 1, name: p.name, primary: (st.points[p.id] || 0) + ' pts', secondary: (st.wins[p.id] || 0) + ' W' }));
+  } else if (kind === 'trip') {
+    const t = tripActive();
+    title = (t && t.name) || 'Trip'; sub = 'Leaderboard';
+    tripLeaderboard().forEach((e, i) => rows.push({ pos: i + 1, name: (fsPlayerById(e.playerId) || {}).name || '?', primary: netStr(e.totalNet), secondary: (e.rounds || 0) + ' rds' }));
+  } else if (kind === 'outing') {
+    const r = outingComputeResults(ev), pd = r && r.playerData;
+    title = ev.name || 'Outing'; sub = 'Leaderboard';
+    const arr = pd ? (Array.isArray(pd) ? pd : Object.values(pd)) : [];
+    arr.filter(p => (p.totalGross || 0) > 0).sort((a, b) => (a.totalNet ?? 1e9) - (b.totalNet ?? 1e9))
+       .forEach((p, i) => rows.push({ pos: i + 1, name: p.name, primary: netStr(p.totalNet), secondary: (p.totalGross || 0) + ' gr' }));
+  }
+  return { v: 1, kind, title, sub, updated: Date.now(), rows };
+}
+// ── Live standings publish (shareable, near-real-time via live.html) ──────────
+const LIVE_BASE = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';
+// A published event carries a random, unguessable shareId — the URL itself is the read capability.
+function liveShareId(ev) {
+  if (!ev.shareId) {
+    const b = (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(new Uint8Array(12)) : null;
+    ev.shareId = b ? Array.from(b).map(x => (x % 36).toString(36)).join('')
+      : (Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12));
+  }
+  return ev.shareId;
+}
+function liveShareUrl(shareId) { return location.origin + location.pathname.replace(/[^/]*$/, '') + 'live.html?id=' + shareId; }
+async function publishLive(ev) {
+  if (!ev || !window._currentUser) return null;
+  const shareId = liveShareId(ev);
+  try {
+    const token = await getIdToken();
+    const res = await fetchWithTimeout(`${LIVE_BASE}/${shareId}.json?auth=${token}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(liveStandingsPayload(ev.type, ev)) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return liveShareUrl(shareId);
+  } catch (e) { appLog('live publish failed: ' + e.message); return null; }
+}
+// Debounced re-publish of every event marked live, so a shared page tracks score entry.
+let _liveTimer = null;
+function scheduleLiveRepublish() {
+  if (_liveTimer || !window._currentUser || !(S.events || []).some(e => e.live)) return;
+  _liveTimer = setTimeout(() => { _liveTimer = null; (S.events || []).forEach(e => { if (e.live) publishLive(e); }); }, 4000);
+}
+// Share sheet: publish now, then offer the link via SMS or copy. Re-publishes automatically as scores change.
+let _liveShareEv = null, _liveShareUrl = '';
+async function eventShareLive(ev) {
+  if (!ev) return;
+  if (!window._currentUser) { toast('Sign in to share live standings'); return; }
+  ev.live = true;
+  const url = await publishLive(ev);
+  scheduleWrite();
+  if (!url) { ev.live = false; toast('Could not publish — check your connection'); return; }
+  _liveShareEv = ev; _liveShareUrl = url;
+  document.getElementById('liveShareTitle').textContent = ev.name || '';
+  document.getElementById('liveShareUrl').textContent = url;
+  openModal('liveShareModal');
+}
+function liveTextLink() { if (_liveShareUrl) window.location.href = 'sms:?body=' + encodeURIComponent((_liveShareEv && _liveShareEv.name ? _liveShareEv.name + ' — ' : '') + 'live standings: ' + _liveShareUrl); }
+function liveCopyLink() { if (_liveShareUrl && navigator.clipboard) { navigator.clipboard.writeText(_liveShareUrl); toast('Link copied ✓'); } }
+function liveStopSharing() {
+  if (_liveShareEv) { _liveShareEv.live = false; scheduleWrite(); toast('Live sharing stopped'); }
+  closeModal('liveShareModal');
+}
+function leagueShareLive() { const lg = leagueCurrent(); if (lg) eventShareLive(lg); }
 function leagueComputeStandings(lg, showSeason) {
   const activeSeason = (lg.seasons||[]).find(s=>s.active);
   const useSeason = showSeason && activeSeason;
@@ -14100,7 +14054,9 @@ function leagueRenderStandings(showSeason) {
   fsRender(`
     ${workflowNav('league','standings')}
     <div style="padding:6px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);">${completed.length} sessions completed</div>
-    <div class="fs-scr-body" style="padding:12px 12px 80px;">${html}</div>
+    <div class="fs-scr-body" style="padding:12px 12px 80px;">
+      <button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="leagueShareLive()">📡 Share live standings</button>
+      ${html}</div>
   `);
   fsShowGameTab('📋 League');
 }

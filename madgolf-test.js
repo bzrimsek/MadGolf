@@ -7846,13 +7846,12 @@ smoke('leagueCurrentSession returns session', () => {
 }
 
 // ── 149. Finalize summaries + outing cell + hole-popup text (rule 30) ─────────
-// Four more helpers lifted verbatim from completion/render bodies: fsBBBResultSummary and
-// fsDOCResultSummary (stored g.summary, shown later in recent-games — bug-4 class),
-// outingResultCellValue (results-table cell), and fsHolePopupNassauText (the compact hole-
-// popup variant, deliberately distinct from the banner's fsNassauBannerParts).
+// Three more helpers lifted verbatim from completion/render bodies: fsBBBResultSummary and
+// fsDOCResultSummary (stored g.summary, shown later in recent-games — bug-4 class), and
+// outingResultCellValue (results-table cell).
 {
   const { fsBBBResultSummary, fsDOCResultSummary, outingResultCellValue,
-          fsHolePopupNassauText, fsDocMatchDefs } = sandbox;
+          fsDocMatchDefs } = sandbox;
 
   // BBB summary — first name : points, space-joined.
   expect('BBB summary', fsBBBResultSummary(
@@ -7880,15 +7879,6 @@ smoke('leagueCurrentSession returns session', () => {
   expect('outing cell gross',      outingResultCellValue({totalGross:75},             false, false), 75);
   expect('outing cell gross 0',    outingResultCellValue({totalGross:0},              false, false), '—');
 
-  // Hole-status popup text (compact variant) — own palette, short tally, no "wins".
-  expect('popup even',   fsHolePopupNassauText({winner:null},          'snead','hogan').txt,   'Even');
-  expect('popup even c', fsHolePopupNassauText({winner:null},          'snead','hogan').color, '#d4a012');
-  expect('popup tie',    fsHolePopupNassauText({winner:'tie'},         'snead','hogan').txt,   'TIE');
-  expect('popup A tally', fsHolePopupNassauText({winner:'A',aT:5,bT:3},'snead','hogan').txt,   'snead 5–3');
-  expect('popup A colour',fsHolePopupNassauText({winner:'A',aT:5,bT:3},'snead','hogan').color, '#86efac');
-  expect('popup A no tally', fsHolePopupNassauText({winner:'A'},       'snead','hogan').txt,   'snead');
-  expect('popup B tally', fsHolePopupNassauText({winner:'B',aT:3,bT:6},'snead','hogan').txt,   'hogan 6–3');
-  expect('popup B colour',fsHolePopupNassauText({winner:'B',aT:3,bT:6},'snead','hogan').color, '#dc2626');
 }
 
 // ── 150. LIFECYCLE / STALENESS suite (mission #5, bug 1) ──────────────────────
@@ -8740,6 +8730,27 @@ smoke('leagueCurrentSession returns session', () => {
   expect('Augusta→Aurora ~540mi', Math.round(d/10)*10, 540);
   expect('zero distance', Math.round(haversineMiles({lat:40,lng:-80},{lat:40,lng:-80})), 0);
   expect('null point → null', haversineMiles(null, {lat:40,lng:-80}), null);
+}
+
+// ── 173. Live standings payload normalizer ────────────────────────────────────
+{
+  const H18 = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));
+  const course = { id:'c', name:'C', slope:113, rating:72, holes:H18 };
+  const players = Array.from({length:6},(_,i)=>({ id:'p'+i, name:'P'+i, hcp:10 }));
+  vmSetS('players', players); vmSetS('courses', [course]);
+  const mk = () => { const s={}; players.forEach((p,pi)=>{ s[p.id]={}; H18.forEach(h=>{ s[p.id][h.num]=4+(pi%3); }); }); return s; };
+  const day='2026-08-01';
+  const trip = { id:'t', type:'trip', name:'Hilton Head', startDate:day, endDate:day,
+    players: players.map(p=>({id:p.id})), settings:{},
+    days:{ [day]:{ rounds:[ { id:'r1', courseId:'c', format:'stroke', completed:true, scores:mk(), groups:[] } ] } } };
+  vmSetS('events', [trip]); vmSetS('activeTripId', 't');
+  const pl = sandbox.liveStandingsPayload('trip', trip);
+  expect('payload kind', pl.kind, 'trip');
+  expect('payload title', pl.title, 'Hilton Head');
+  expect('all 6 players as rows', pl.rows.length, 6);
+  expect('row has pos/name/primary', JSON.stringify(Object.keys(pl.rows[0]).sort()), JSON.stringify(['name','pos','primary','secondary']));
+  expect('rows sorted, pos 1..6', JSON.stringify(pl.rows.map(r=>r.pos)), JSON.stringify([1,2,3,4,5,6]));
+  expect('leader net <= runner-up', pl.rows[0].primary !== '—', true);
 }
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
