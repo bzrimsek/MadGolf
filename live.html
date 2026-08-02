@@ -3,20 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>MadGolf — Live Standings</title>
+<title>MadGolf — Live</title>
 <style>
   :root { --bg:#12261a; --surf:#1b3527; --surf2:#24402f; --fg:#f0f4f0; --muted:#9fb3a5; --gold:#e0b64a; --line:#2e4a38; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
   .wrap { max-width:560px; margin:0 auto; padding:22px 16px 48px; }
   h1 { font-size:22px; margin:0 0 2px; letter-spacing:.5px; }
-  .sub { color:var(--muted); font-size:13px; margin-bottom:6px; }
-  .live { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--gold); font-weight:700; letter-spacing:.5px; }
+  .live { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--gold); font-weight:700; letter-spacing:.5px; margin-bottom:12px; }
   .dot { width:7px; height:7px; border-radius:50%; background:var(--gold); animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.25;} }
-  table { width:100%; border-collapse:collapse; margin-top:14px; }
-  td,th { padding:10px 6px; border-bottom:1px solid var(--line); text-align:left; }
-  th { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+  .tabs { display:flex; gap:6px; margin-bottom:6px; }
+  .tab { flex:1; padding:8px 6px; text-align:center; font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase;
+         background:var(--surf); color:var(--muted); border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+  .tab.on { background:var(--surf2); color:var(--gold); border-color:var(--gold); }
+  table { width:100%; border-collapse:collapse; margin-top:10px; }
+  td { padding:10px 6px; border-bottom:1px solid var(--line); text-align:left; }
   .pos { width:36px; text-align:center; color:var(--muted); }
   .name { font-weight:600; }
   .pri { text-align:right; font-weight:700; color:var(--gold); font-size:15px; }
@@ -27,9 +29,9 @@
 </head>
 <body>
 <div class="wrap">
-  <h1 id="title">Live Standings</h1>
-  <div class="sub" id="sub"></div>
+  <h1 id="title">Live</h1>
   <div class="live"><span class="dot"></span>LIVE</div>
+  <div id="tabs" class="tabs"></div>
   <div id="board"></div>
   <div class="upd" id="upd"></div>
 </div>
@@ -38,23 +40,27 @@
   const id = new URLSearchParams(location.search).get('id');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
   const medal = p => p === 1 ? '\uD83E\uDD47' : p === 2 ? '\uD83E\uDD48' : p === 3 ? '\uD83E\uDD49' : esc(p);
+  let _data = null, _view = 0;
 
   async function load() {
-    if (!id) { msg('No standings id in this link.'); return; }
+    if (!id) { msg('No id in this link.'); return; }
     try {
       const res = await fetch(DB + '/' + encodeURIComponent(id) + '.json', { cache: 'no-store' });
       const d = await res.json();
-      if (!d) { msg('These standings are not available &mdash; they may not be shared, or sharing was stopped.'); return; }
-      render(d);
-    } catch (e) {
-      const u = document.getElementById('upd'); if (u) u.textContent = 'Reconnecting\u2026';
-    }
+      if (!d) { msg('This board is not available &mdash; it may not be shared, or sharing was stopped.'); return; }
+      _data = d; render();
+    } catch (e) { const u = document.getElementById('upd'); if (u) u.textContent = 'Reconnecting\u2026'; }
   }
-  function msg(html) { document.getElementById('board').innerHTML = '<div class="msg">' + html + '</div>'; }
-  function render(d) {
-    document.getElementById('title').textContent = d.title || 'Live Standings';
-    document.getElementById('sub').textContent = d.sub || '';
-    const rows = (d.rows || []).map(r =>
+  function msg(html) { document.getElementById('tabs').innerHTML = ''; document.getElementById('board').innerHTML = '<div class="msg">' + html + '</div>'; }
+  function views() { return _data.views || (_data.rows ? [{ id:'main', label:'', rows:_data.rows }] : []); }
+  function setView(i) { _view = i; render(); }
+  function render() {
+    const d = _data; document.getElementById('title').textContent = d.title || 'Live';
+    const vs = views(); if (_view >= vs.length) _view = 0;
+    document.getElementById('tabs').innerHTML = vs.length > 1
+      ? vs.map((v, i) => '<div class="tab ' + (i === _view ? 'on' : '') + '" onclick="setView(' + i + ')">' + esc(v.label) + '</div>').join('')
+      : '';
+    const rows = ((vs[_view] || {}).rows || []).map(r =>
       '<tr><td class="pos">' + medal(r.pos) + '</td><td class="name">' + esc(r.name) +
       '</td><td class="pri">' + esc(r.primary) + '</td><td class="sec">' + esc(r.secondary || '') + '</td></tr>'
     ).join('');

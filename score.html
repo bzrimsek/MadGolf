@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MadGolf — Score Entry</title>
+<style>
+  :root { --bg:#12261a; --surf:#1b3527; --surf2:#24402f; --fg:#f0f4f0; --muted:#9fb3a5; --gold:#e0b64a; --line:#2e4a38; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+  .wrap { max-width:520px; margin:0 auto; padding:16px 14px 40px; }
+  h1 { font-size:18px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .holenav { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .holenav button { background:var(--surf2); color:var(--fg); border:1px solid var(--line); border-radius:10px; font-size:20px; width:44px; height:44px; cursor:pointer; }
+  .holenav button:disabled { opacity:.35; }
+  .holemeta { flex:1; text-align:center; }
+  .holemeta .n { font-size:22px; font-weight:800; letter-spacing:.5px; }
+  .holemeta .pi { font-size:11px; color:var(--muted); }
+  .prow { display:flex; align-items:center; gap:12px; padding:12px; background:var(--surf); border:1px solid var(--line); border-radius:12px; margin-bottom:10px; }
+  .prow .who { flex:1; min-width:0; }
+  .prow .nm { font-size:15px; font-weight:600; }
+  .prow .ch { font-size:11px; color:var(--muted); }
+  .step { display:flex; align-items:center; gap:8px; }
+  .step button { width:40px; height:40px; border-radius:10px; border:1px solid var(--line); background:var(--surf2); color:var(--fg); font-size:22px; cursor:pointer; }
+  .step .val { width:44px; text-align:center; font-size:22px; font-weight:800; color:var(--gold); }
+  .saved { text-align:center; font-size:11px; color:var(--muted); margin-top:8px; height:14px; }
+  .msg { color:var(--muted); text-align:center; padding:44px 12px; line-height:1.5; }
+  .done { display:block; width:100%; margin-top:16px; padding:14px; border-radius:12px; border:1px solid var(--gold); background:transparent; color:var(--gold); font-size:14px; font-weight:700; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Score Entry</h1>
+  <div class="sub" id="sub"></div>
+  <div id="app"></div>
+  <div class="saved" id="saved"></div>
+</div>
+<script>
+  const API_KEY = 'AIzaSyDk1_QEihU-02Fyzs5LUYRNjcpmBYsRnCM';
+  const DB = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';
+  const params = new URLSearchParams(location.search);
+  const id = params.get('id'), gi = parseInt(params.get('g'), 10);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  let _token = null, _data = null, _group = null, _holes = [], _hole = 0, _scores = {};
+
+  function msg(html) { document.getElementById('app').innerHTML = '<div class="msg">' + html + '</div>'; }
+
+  async function anonToken() {
+    const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + API_KEY,
+      { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ returnSecureToken:true }) });
+    const d = await r.json();
+    if (!d.idToken) throw new Error(d.error ? d.error.message : 'auth failed');
+    return d.idToken;
+  }
+
+  async function boot() {
+    if (!id || !(gi >= 0)) { msg('This scoring link is incomplete.'); return; }
+    try {
+      const res = await fetch(DB + '/' + encodeURIComponent(id) + '.json', { cache:'no-store' });
+      _data = await res.json();
+      if (!_data || !_data.course || !_data.groups) { msg('This event is not available or not shared.'); return; }
+      _group = (_data.groups || [])[gi];
+      if (!_group) { msg('Group not found for this link.'); return; }
+      _holes = _data.course.holes || [];
+      try { const sr = await fetch(DB + '/' + encodeURIComponent(id) + '/scores.json', { cache:'no-store' }); _scores = (await sr.json()) || {}; } catch (e) { _scores = {}; }
+      try { _token = await anonToken(); } catch (e) { msg('Could not start scoring (auth). Ask the organizer if anonymous sign-in is enabled.'); return; }
+      document.getElementById('title').textContent = (_data.title || 'Score Entry');
+      document.getElementById('sub').textContent = (_group.label || 'Your group') + ' · ' + esc(_data.course.name || '');
+      render();
+    } catch (e) { msg('Could not load. Check the link and your connection.'); }
+  }
+
+  function getScore(pid, holeNum) { return (_scores[pid] && _scores[pid][holeNum] != null) ? _scores[pid][holeNum] : null; }
+
+  async function setScore(pid, holeNum, val) {
+    val = Math.max(1, Math.min(15, val));
+    _scores[pid] = _scores[pid] || {}; _scores[pid][holeNum] = val;
+    render(); flash('Saving…');
+    try {
+      const r = await fetch(DB + '/' + encodeURIComponent(id) + '/scores/' + encodeURIComponent(pid) + '/' + holeNum + '.json?auth=' + _token,
+        { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(val) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      flash('Saved \u2713');
+    } catch (e) { flash('Save failed — will retry on next tap'); }
+  }
+  let _flashT = null;
+  function flash(t) { const el = document.getElementById('saved'); el.textContent = t; if (_flashT) clearTimeout(_flashT); _flashT = setTimeout(() => { el.textContent = ''; }, 1500); }
+
+  function render() {
+    const h = _holes[_hole]; if (!h) { msg('No holes.'); return; }
+    const players = _group.players || [];
+    let html = '<div class="holenav">'
+      + '<button ' + (_hole === 0 ? 'disabled' : '') + ' onclick="go(-1)">\u2039</button>'
+      + '<div class="holemeta"><div class="n">HOLE ' + h.num + '</div><div class="pi">Par ' + (h.par || '-') + ' · SI ' + (h.hcp || '-') + '</div></div>'
+      + '<button ' + (_hole >= _holes.length - 1 ? 'disabled' : '') + ' onclick="go(1)">\u203A</button></div>';
+    players.forEach(p => {
+      const v = getScore(p.id, h.num);
+      html += '<div class="prow"><div class="who"><div class="nm">' + esc(p.name) + '</div><div class="ch">CH ' + (p.ch || 0) + '</div></div>'
+        + '<div class="step"><button onclick="bump(' + JSON.stringify(p.id) + ',' + h.num + ',-1)">\u2212</button>'
+        + '<div class="val">' + (v == null ? '\u2013' : v) + '</div>'
+        + '<button onclick="bump(' + JSON.stringify(p.id) + ',' + h.num + ',1)">+</button></div></div>';
+    });
+    if (_hole < _holes.length - 1) html += '<button class="done" onclick="go(1)">Next hole \u203A</button>';
+    document.getElementById('app').innerHTML = html;
+  }
+  function go(d) { _hole = Math.max(0, Math.min(_holes.length - 1, _hole + d)); render(); }
+  function bump(pid, holeNum, d) { const cur = getScore(pid, holeNum); setScore(pid, holeNum, (cur == null ? (_holes[_hole].par || 4) : cur) + d); }
+
+  window.go = go; window.bump = bump;
+  boot();
+</script>
+</body>
+</html>

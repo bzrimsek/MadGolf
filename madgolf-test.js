@@ -8732,34 +8732,6 @@ smoke('leagueCurrentSession returns session', () => {
   expect('null point → null', haversineMiles(null, {lat:40,lng:-80}), null);
 }
 
-// ── 173. Live standings payload normalizer ────────────────────────────────────
-{
-  const H18 = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1}));
-  const course = { id:'c', name:'C', slope:113, rating:72, holes:H18 };
-  const players = Array.from({length:6},(_,i)=>({ id:'p'+i, name:'P'+i, hcp:10 }));
-  vmSetS('players', players); vmSetS('courses', [course]);
-  const mk = () => { const s={}; players.forEach((p,pi)=>{ s[p.id]={}; H18.forEach(h=>{ s[p.id][h.num]=4+(pi%3); }); }); return s; };
-  const day='2026-08-01';
-  const trip = { id:'t', type:'trip', name:'Hilton Head', startDate:day, endDate:day,
-    players: players.map(p=>({id:p.id})), settings:{},
-    days:{ [day]:{ rounds:[ { id:'r1', courseId:'c', format:'stroke', completed:true, scores:mk(), groups:[] } ] } } };
-  vmSetS('events', [trip]); vmSetS('activeTripId', 't');
-  const pl = sandbox.liveStandingsPayload('trip', trip);
-  expect('payload kind', pl.kind, 'trip');
-  expect('payload title', pl.title, 'Hilton Head');
-  expect('all 6 players as rows', pl.rows.length, 6);
-  expect('row has pos/name/primary', JSON.stringify(Object.keys(pl.rows[0]).sort()), JSON.stringify(['name','pos','primary','secondary']));
-  expect('rows sorted, pos 1..6', JSON.stringify(pl.rows.map(r=>r.pos)), JSON.stringify([1,2,3,4,5,6]));
-  expect('leader net <= runner-up', pl.rows[0].primary !== '—', true);
-}
-
-// ═══ CROSS-CONSISTENCY DOCTRINE (rule 30 corollary) ═══════════════════════════
-// When the SAME fact (a match status, a leaderboard row, a settlement) is rendered by more than one
-// path — first paint, in-place updater, stored summary, live viewer — a per-path FORMATTING test is
-// not enough: two separately-green tests can still disagree (that is exactly how the Nassau hole
-// popup drifted from the banner). Every such fact gets a CROSS-CONSISTENCY test that drives each path
-// from ONE game state and asserts they AGREE (drive the real render via the recording DOM below;
-// compare its output to the shared engine). §148 = Nassau, §174 = DOC, §175 = walk-off.
 // ── 174. DOC consistency: in-place updater + summary share the engine (no drift) ─
 // §148's guard, extended to DOC. Drive the REAL fsUpdateStandingsInPlace through a recording DOM and
 // assert each banner it writes equals fsCalcDOCMatch (the engine the first paint + summary use), then
@@ -8830,7 +8802,7 @@ smoke('leagueCurrentSession returns session', () => {
   expect('walkoff in-place A is 2 up thru 2', expected.diff, 2);
 }
 
-// ── 176. Live standings are event-scoped (trip) ───────────────────────────────
+// ── 176. Live unit payload is event-scoped (trip round + tripLeaderboard) ───────────────────────────────
 // tripLeaderboard now takes the trip, so liveStandingsPayload('trip', ev) computes for EV — not
 // tripActive(). Guards against a backgrounded re-publish of a shared trip grabbing the active trip's
 // numbers. (Outing was already event-scoped via outingComputeResults(ev).)
@@ -8845,10 +8817,54 @@ smoke('leagueCurrentSession returns session', () => {
     days:{[day]:{rounds:[{id:'rA',courseId:'c2',format:'stroke',completed:true,scores:mk(),groups:[]}]}} };
   vmSetS('events',[tripA]);
   vmSetS('activeTripId', null);                       // NO active trip
-  const pl = sandbox.liveStandingsPayload('trip', tripA);
-  expect('trip payload computed from passed event (not active)', pl.rows.length, 5);
-  expect('trip payload title from passed event', pl.title, 'Away Trip');
-  expect('trip payload kind', pl.kind, 'trip');
+  const board = sandbox.tripLeaderboard(tripA);        // event-scoped: computes from the passed trip
+  expect('tripLeaderboard computed from passed trip (not active)', board.length, 5);
+  expect('every entry has a playerId', board.every(e=>!!e.playerId), true);
+  const pl = sandbox.liveUnitPayload('trip', tripA, tripA.days[day].rounds[0]);
+  expect('trip unit payload title from passed trip', pl.title.indexOf('Away Trip') >= 0, true);
+  expect('trip unit payload has Round + Trip views', JSON.stringify(pl.views.map(v=>v.id)), JSON.stringify(['round','trip']));
+}
+
+// ── 177. League championship flag: social sessions excluded from season standings ─
+// Step 0 of live scoring: a session declared social (championship:false) at calendar time does not
+// count toward the season, mirroring trip rounds. Undefined championship = competitive (counts).
+{
+  const players = Array.from({length:6},(_,i)=>({id:'lp'+i, name:'LP'+i, hcp:10, regular:true}));
+  vmSetS('players', players);
+  vmSetS('courses', [{ id:'lc', name:'LC', slope:113, rating:72, par:72,
+    holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+  const mkSess = (id, champ) => {
+    const sc={}, rsvp={};
+    players.forEach((p,i)=>{ sc[p.id]={}; for(let h=1;h<=18;h++) sc[p.id][h]=4+((i+h)%3); rsvp[p.id]={status:'in'}; });
+    const s = { id, seasonId:'sea', completed:true, courseId:'lc', gameType:'lownet', nineSide:'all',
+      groups:[{playerIds:players.map(p=>p.id), teetime:'8:00'}], scores:sc, rsvp };
+    if (champ === false) s.championship = false;
+    return s;
+  };
+  const seasons=[{id:'sea', active:true, strokeAllowance:100}];
+  const both   = { id:'lg', seasons, sessions:[mkSess('c1'), mkSess('c2')] };
+  const social = { id:'lg', seasons, sessions:[mkSess('c1'), mkSess('c2', false)] };
+  const sum = lg => Object.values(sandbox.leagueComputeStandings(lg, false).points).reduce((a,b)=>a+b,0);
+  const ptsBoth = sum(both), ptsSocial = sum(social);
+  expect('two competitive sessions produce points', ptsBoth > 0, true);
+  expect('social session excluded → exactly half', ptsSocial, ptsBoth/2);
+  expect('undefined championship still counts', ptsSocial > 0, true);
+}
+
+// ── 179. Live monitor merge: union shared (score.html) scores into the unit ────
+// The app is the compute hub; score.html writes only its group's holes. Merge must fold those in
+// without touching the organizer's natively-entered group, and be idempotent.
+{
+  const unit = { scores: { A: {1:4, 2:5} } };        // organizer's group A, scored natively
+  const shared = { B: {1:5, 2:6}, C: {1:4} };         // other foursomes via score.html
+  expect('merge reports changed', sandbox.liveMergeScores(unit, shared), true);
+  expect('native group A untouched', JSON.stringify(unit.scores.A), JSON.stringify({1:4,2:5}));
+  expect('shared group B merged', JSON.stringify(unit.scores.B), JSON.stringify({1:5,2:6}));
+  expect('shared group C merged', unit.scores.C['1'], 4);
+  expect('re-merge identical → no change (idempotent)', sandbox.liveMergeScores(unit, shared), false);
+  expect('null shared → no change', sandbox.liveMergeScores(unit, null), false);
+  const u2 = {}; sandbox.liveMergeScores(u2, {X:{7:3}});
+  expect('creates scores on a bare unit', u2.scores.X['7'], 3);
 }
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
