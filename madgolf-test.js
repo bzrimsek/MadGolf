@@ -8866,6 +8866,61 @@ smoke('leagueCurrentSession returns session', () => {
   const u2 = {}; sandbox.liveMergeScores(u2, {X:{7:3}});
   expect('creates scores on a bare unit', u2.scores.X['7'], 3);
 }
+
+// ── 180. Outing planning group assignment persists to o.groups (scorecard fix) ─
+// Regression: outingDoAssign in the planning path never committed window._outingGroups to o.groups,
+// so assigned foursomes vanished on the scorecard. It must now write them through.
+{
+  const o = { id:'o1', type:'outing', status:'planning', courseId:'oc', gameType:'stroke', playerIds:['x','y'], groups:[], scores:{} };
+  vmSetS('events',[o]); vmSetS('activeOutingId','o1');
+  vmSetS('courses',[{id:'oc',name:'OC',slope:113,rating:72,par:72,holes:Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}))}]);
+  vmSetS('players',[{id:'x',name:'X',hcp:10},{id:'y',name:'Y',hcp:12}]);
+  vm.runInContext("window._outingPicked=['x','y']; window._outingGroupMethod='random'; window._outingGroups=[{id:'g1',playerIds:[]}]; outingDoAssign(null);", sandbox);
+  const nGroups  = vm.runInContext("(S.events.find(e=>e.id==='o1').groups||[]).length", sandbox);
+  const nPlayers = vm.runInContext("(((S.events.find(e=>e.id==='o1').groups||[])[0]||{}).playerIds||[]).length", sandbox);
+  expect('planning assign commits to o.groups', nGroups, 1);
+  expect('committed group holds the dealt players', nPlayers, 2);
+}
+
+// ── 181. Live round rows: sorted leaderboard + skins folded in (no cop-out) ────
+{
+  const H = Array.from({length:9},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}));
+  const mk = base => { const o={}; for(let h=1;h<=9;h++) o[h]=base; return o; };
+  const ctx = {
+    players:[{id:'a',name:'A',courseHcp:0},{id:'b',name:'B',courseHcp:0},{id:'c',name:'C',courseHcp:0}],
+    course:{holes:H, slope:113, rating:36}, activeHoles:H, hcpScale:9, is9:true,
+    scores:{ a:mk(3), b:mk(4), c:mk(5) },
+    groups:[{playerIds:['a','b','c']}], format:'stroke',
+    settings:{ skins:{hcpAdj:100}, strokeAllowance:100, sfCfg:{} }
+  };
+  const rows = sandbox.liveRoundRows(ctx, true);
+  expect('3 individual rows', rows.length, 3);
+  expect('sorted — best net leads', rows[0].name, 'A');
+  expect('worst net last', rows[2].name, 'C');
+  expect('leader (wins every hole) shows skins', /skin/.test(rows[0].secondary), true);
+  const noSkins = sandbox.liveRoundRows(ctx, false);
+  expect('skinsOn=false → no skins shown', /skin/.test(noSkins[0].secondary), false);
+}
+
+// ── 182. Scorecard data prep for the shareable image ──────────────────────────
+{
+  const H = Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}));
+  vmSetS("courses",[{id:"sc",name:"SC",slope:113,rating:72,par:72,holes:H}]);
+  const players=[{id:"p1",name:"Snead, Sam"},{id:"p2",name:"Hogan"}];
+  vmSetS("players",players);
+  const g={ id:"g1", type:"foursome", status:"complete", gameType:"stroke", courseId:"sc", courseName:"SC",
+    playerIds:["p1","p2"], playerNames:["Snead","Hogan"], date:Date.now(), _totalHoles:18,
+    scores:{ p1:{}, p2:{} }, chs:{p1:0,p2:0} };
+  H.forEach(h=>{ g.scores.p1[h.num]=4; g.scores.p2[h.num]=5; });
+  const d = sandbox.fsScorecardData(g, players);
+  expect("18 holes", d.holes.length, 18);
+  expect("par total 72", d.parTotal, 72);
+  expect("2 player rows", d.rows.length, 2);
+  expect("name first word before comma", d.rows[0].name, "Snead");
+  expect("player 1 total 72", d.rows[0].total, 72);
+  expect("player 2 total 90", d.rows[1].total, 90);
+  expect("cells match hole count", d.rows[0].cells.length, 18);
+}
 }}}const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);

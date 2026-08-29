@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.14  Build 2026-08-01 08:52 PM ET
+     Version : v0.91.18  Build 2026-08-29 08:07 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,14 +10,18 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.18  2026-08-29  Leaderboard image share for outings + trips (foursome keeps the scorecard). New ‘Text leaderboard’ button on the outing results + trip leaderboard screens renders the final standings to a shareable PNG (fsLeaderboardCanvas, dark card matching live.html — medals, name, primary, secondary) and shares via the Web Share API so it texts inline, with a save fallback. Rows come from the already-tested engines: liveOutingRows (outing) and tripLeaderboard (trip). Refactored the scorecard share into a shared fsShareImage helper (DRY — scorecard + both leaderboards use it). Canvas draws aren’t harness-testable (verify look on device); the row data is engine-tested. +2 tests (handler scan). Totals 2848 -> 2850.
+// v0.91.17  2026-08-29  Scorecard view + share. A completed foursome game (History) now shows the full hole-by-hole SCORECARD (reusing fsRenderScorecard, horizontal-scroll on mobile) below the summary — previously only game results were shown. New ‘Text scorecard’ button renders the card to a clean white PNG (fsScorecardCanvas) and shares it via the Web Share API (navigator.share with the image file) so it texts inline in any messaging app; falls back to saving the PNG if Web Share files aren’t supported. Pure data prep (fsScorecardData: holes, per-player cells + totals, par total) is unit-tested (§182); the canvas draw is not (no canvas in the harness) — verify its look on device. +8 tests. Totals 2840 -> 2848.
+// v0.91.16  2026-08-07  Live board — the FULL game, no cop-out (open items 1-5). (1+2) Replaced the individual-only round-row builder with liveRoundRows: the Tonight/Round view now renders the ACTUAL game — individual (net or Stableford) OR team/scramble — sorted into a leaderboard, with SKINS folded into each row when the round plays them (league gated on lg.skins; trips always, matching the standings). (4) liveOutingRows handles TEAM outings (teamResults) as well as individual, and fixed a real gap found on the way: the outing live payload never published course/groups, so an outing's score.html links would have had no roster — now published via outingScoringCtx. (3) Trip Go Live opens an explicit round PICKER (pick which round to arm; completed rounds skipped; an already-live round is re-openable to resend links) instead of inferring the first non-completed round; tripLiveRound removed. (5a) Trip/outing buttons relabeled '📡 Go Live & share links' for consistency. +6 tests (§181: round rows sorted, skins folded in, skinsOn gate). Totals 2834 -> 2840. NOT done — (5b) the organizer's own in-app screen doesn't auto-refresh on incoming merged scores: the shared board updates live for everyone and the app reflects merges on the next interaction; a live in-app refresh needs a screen-tracking hook the app lacks, left rather than hacked in.
+// v0.91.15  2026-08-01  Two outing fixes from on-device testing. (1) The live/share features weren't reachable during an outing — the Go Live button only existed on the RESULTS screen. Added '📡 Go Live & share scoring links' to the outing GROUPS screen (shows once players are assigned to groups), matching league. (2) Groups weren't persisting to the outing scorecard: outingDoAssign saved to the game only when the outing was already active; in the PLANNING path it left the assigned foursomes in window._outingGroups and never wrote them to o.groups, so after navigating to the hub (which clears the working copy) and starting scoring, outingScoringCtx read an empty g.groups and the scorecard showed 'No players assigned.' Fix: the planning path now commits window._outingGroups -> o.groups (scheduleWrite), so assigned groups survive navigation and reach the scorecard. Pre-existing bug (not from the live-scoring work), surfaced while wiring outing live features. §180 pins it. +2 tests. Totals 2832 -> 2834.
 // v0.91.14  2026-08-01  Live-scoring STEPS 2 + 3 — web score entry (score.html) + monitor merge. score.html: a mobile score-entry page scoped to ONE foursome (score.html?id=&g=), reads the published roster + course, signs in via Firebase Anonymous Auth, and writes gross hole-by-hole to live/{{shareId}}/scores/{{pid}}/{{hole}}. The app (the compute hub, scoring its own group natively) polls those shared scores every 15s via liveMonitorPoll (self-gating on live units), folds them into the live unit with liveMergeScores — a UNION that never overwrites the organizer's natively-entered group, since score.html writes only its own group's holes — then the existing republish pushes full computed results (all views) to live.html. So the whole loop runs your tested engines end to end: score.html gross -> app merge -> computeRoundResults / leagueComputeStandings / tripLeaderboard / outingComputeResults -> live.html multi-view board. +7 tests (§179: merge unions without clobbering native, idempotent, handles null + bare unit). Totals 2825 -> 2832. ON BZ: enable Firebase Anonymous Auth (required for score.html writes); the existing live/{{shareId}} .write:auth!=null rule already covers anonymous score writes — optional tightening provided. Deploy score.html + live.html + this build.
 // v0.91.13  2026-08-01  Live-scoring STEP 1 — arm a session/round live + multi-view publish + per-group scoring links. New liveUnitPayload builds a pro-event multi-view board for a live UNIT: league session -> [Tonight, Season], trip round -> [Round, Trip], outing -> [Board], reusing computeRoundResults (Tonight/Round) and leagueComputeStandings / tripLeaderboard / outingComputeResults (cumulative). It also publishes roster + course + groups (players with course handicaps) so score.html (step 2) can render a foursome. publishLiveUnit PATCHes live/{{shareId}} so the sibling scores sub-path (score.html writes) survives a re-publish. Arm flow (unitShareLive): flip on -> publish -> share sheet with the live-board link + one scoring link per foursome, each textable via sms:. League Go Live moved to the GROUPS screen (where foursomes exist); trip arms the current round, outing arms itself. scheduleLiveRepublish now iterates liveUnits() (every armed session/round/outing). live.html rewritten to render the multi-view payload with view tabs. Removed the superseded single-view path (publishLive, liveStandingsPayload, liveShareId + §173) per Rule 6; §176 repointed to liveUnitPayload + tripLeaderboard scoping; +§178 (league multi-view: 2 views, roster, groups carry CH). Fixed a real ctx-shape bug caught in-session: tripScoringCtx returns the ctx directly while leagueSessionCtx wraps it as {{pool,ctx}} — liveRoster now takes explicit course+pool. Totals 2825. NEXT: step 2 score.html (web entry per foursome, writes gross to live/{{shareId}}/scores) — needs Anonymous Auth enabled + a scoped scores-write rule; step 3 monitor merge + live.html reading shared scores.
 // v0.91.12  2026-08-01  Live-scoring STEP 0 — competitive/social flag on league sessions (format/competitiveness becomes a calendar property the live board can trust, instead of sniffing game type per unit). A session can be declared Social at setup (new Competitive/Social toggle on the GAME TYPE screen) so a fun/scramble night doesn't count toward the season: leagueComputeStandings now excludes championship:false sessions. New sessions default championship:true; undefined = competitive, so existing sessions need no migration. Trip rounds already carried format + championship (reused as-is, Rule 2 — nothing added there). leagueSetChampionship setter. +4 tests (§177: social session excluded → exactly half the points; undefined still counts). Totals 2825 -> 2829. Next: step 1 — arm picker (pick which session/round goes live) + multi-view publish (Tonight/Season, Round/Trip, Board) + per-group scoring links; then step 2 score.html, step 3 monitor merge.
-// v0.91.11  2026-08-01  Phase A — live standings extended to TRIPS and OUTINGS. Added the '📡 Share live standings' button to the trip leaderboard and the outing (individual) results screen, alongside league. Fixed the event-scoping wrinkle flagged earlier: tripLeaderboard now takes the trip (defaults to tripActive() — no regression), so liveStandingsPayload('trip', ev) computes for EV, not the active trip — a backgrounded re-publish of a shared trip can't grab the active trip's numbers (§176 pins this with activeTripId=null). Outing was already event-scoped via outingComputeResults(ev). Setters tripShareLive/outingShareLive route through eventShareLive; the auto-republish (scheduleLiveRepublish), share sheet, SMS handoff, and live.html viewer all work unchanged for the new types. +3 tests. Totals 2822 -> 2825. Note: outing live standings map the INDIVIDUAL net leaderboard (playerData); team/partner outing formats would need format-specific rows (follow-up if you use those for a shared outing).
+// v0.91.11  2026-08-01  Phase A — live standings extended to TRIPS and OUTINGS. Added the '📡 Go Live & share links' button to the trip leaderboard and the outing (individual) results screen, alongside league. Fixed the event-scoping wrinkle flagged earlier: tripLeaderboard now takes the trip (defaults to tripActive() — no regression), so liveStandingsPayload('trip', ev) computes for EV, not the active trip — a backgrounded re-publish of a shared trip can't grab the active trip's numbers (§176 pins this with activeTripId=null). Outing was already event-scoped via outingComputeResults(ev). Setters tripShareLive/outingShareLive route through eventShareLive; the auto-republish (scheduleLiveRepublish), share sheet, SMS handoff, and live.html viewer all work unchanged for the new types. +3 tests. Totals 2822 -> 2825. Note: outing live standings map the INDIVIDUAL net leaderboard (playerData); team/partner outing formats would need format-specific rows (follow-up if you use those for a shared outing).
 // v0.91.10  2026-08-01  Cross-consistency sweep (phase B) — drift guards for two-path status rendering, the class the Nassau hole popup slipped through. Root lesson: the popup had its own green formatting test AND the banner had its own, but nothing drove BOTH from one state and compared them, so they disagreed silently. Codified a doctrine in the harness (rule 30 corollary): any fact rendered by more than one path — first paint / in-place updater / stored summary / live viewer — gets a cross-consistency test that drives each path from ONE game state and asserts they AGREE, not per-path formatting. Extended §148's recording-DOM pattern to the rest of the match-status games: §174 DOC (the in-place updater's banner == fsCalcDOCMatch engine for all 3 segments, the reported Match 2 = Brian/Scott 1↑ pinned through the REAL render path, and the recent-games summary == the live banner statuses) and §175 walk-off (in-place banner == fsCalcOneMatch). No index logic change — test hardening only. +12 tests. Totals 2808 -> 2820. Next up: phase A — extend live standings to trips and outings.
 // v0.91.9  2026-08-01  Removed the hole-completion popup entirely (was disabled for Nassau in v0.91.8; now off for all games per request). Deleted the trigger (the 200ms setTimeout fired after the 4th score on a hole), the whole fsHoleStatusPopup function (doc / walk-off / stableford / low-net / wolf branches), fsDismissHolePopup, the _fsPopupTimer var, and the holeComplete check that fed it — all self-contained, no test or other references (rule 6, no dead code). The per-game banners (the correct headers) are untouched and remain the live match/leaderboard status. No behavior change beyond the popup no longer appearing. Totals unchanged at 2808.
 // v0.91.8  2026-08-01  Disabled the Nassau hole-completion popup (reported wrong; not useful). The compact popup that flashed ~200ms after the 4th score on a hole ran a SEPARATE Nassau text path (fsHolePopupNassauText) from the banner, so it disagreed with the correct header. Removed the popup's Nassau branch in fsHoleStatusPopup — Nassau now produces no rows, so the existing `if(!rows) return` guard shows nothing — and deleted the now-dead fsHolePopupNassauText helper plus its 8 §149 tests (rule 6). The banner/header (fsNassauBannerParts) is unchanged and correct. The popup still fires for the other game types (DOC, walk-off, stableford, low-net, wolf). Totals 2816 -> 2808.
-// v0.91.7  2026-07-31  LIVE STANDINGS — shareable, near-real-time viewer (Feature 1, first cut: league). New '📡 Share live standings' button on the league standings screen: publishes the computed standings to a PUBLIC Firebase path (bz-apps/golf/live/{{shareId}}, a random unguessable id) via the same authed REST PUT as the main sync, and hands you a link to a new read-only live.html viewer that polls every 10s. Re-publishes automatically as scores are entered (scheduleWrite now calls a debounced scheduleLiveRepublish, 4s, for every event flagged .live). Share sheet: Text link (sms: handoff, reusing the RSVP pattern) + Copy + Stop sharing. New liveStandingsPayload normalizer turns league/trip/outing standings into uniform {{pos,name,primary,secondary}} rows (§173) reusing the tested engines (leagueComputeStandings / tripLeaderboard / outingComputeResults). REQUIRES a Firebase rule allowing public READ on the live path + deploying live.html alongside index (walking BZ through both). Trip/outing share buttons and distributed one-scorer-per-group entry are the next increments. +4 tests. Totals 2812 -> 2816.
+// v0.91.7  2026-07-31  LIVE STANDINGS — shareable, near-real-time viewer (Feature 1, first cut: league). New '📡 Go Live & share links' button on the league standings screen: publishes the computed standings to a PUBLIC Firebase path (bz-apps/golf/live/{{shareId}}, a random unguessable id) via the same authed REST PUT as the main sync, and hands you a link to a new read-only live.html viewer that polls every 10s. Re-publishes automatically as scores are entered (scheduleWrite now calls a debounced scheduleLiveRepublish, 4s, for every event flagged .live). Share sheet: Text link (sms: handoff, reusing the RSVP pattern) + Copy + Stop sharing. New liveStandingsPayload normalizer turns league/trip/outing standings into uniform {{pos,name,primary,secondary}} rows (§173) reusing the tested engines (leagueComputeStandings / tripLeaderboard / outingComputeResults). REQUIRES a Firebase rule allowing public READ on the live path + deploying live.html alongside index (walking BZ through both). Trip/outing share buttons and distributed one-scorer-per-group entry are the next increments. +4 tests. Totals 2812 -> 2816.
 // v0.91.6  2026-07-30  Location-aware course search. A '📍 Nearest first' button on the import results uses the device location (navigator.geolocation) plus the coordinates each result already carries to sort courses nearest-first and show the distance in miles on each row — the common case where a name like 'Walden' matches several courses and yours is simply the closest. parseCoords parses the API's '(lat, lng)' string; haversineMiles is the great-circle distance. Once located, later searches stay nearest-first. Degrades gracefully: no geolocation or a denied permission just leaves results in name order with a status note. No extra API calls — coordinates come back in the search response. +6 tests (§172). Totals 2799 -> 2806.
 // v0.91.5  2026-07-30  golfcourseapi (RapidAPI) course import — the structured replacement for the BlueGolf scrape. New search-by-name flow in the course Import tab: type a name → searchGolfCourses fetches through the Cloudflare worker (course-proxy) → pick a course from results → pick your STANDARD tee (std radio) → Import. Mapping courseFromApiCourse (§171, tested against the real Augusta response): scorecard[].{{Par,Handicap}} → shared per-hole par + stroke index (option B), teeBoxes[].{{tee,slope,handicap}} → the tees list (the teeBox 'handicap' field is the course RATING, not a handicap), routed through buildCourseFromTees so YOU pick the standard tee, not the auto-longest. Note the top-level courseRating/slopeRating come back null — the real ratings live per-tee in teeBoxes, which is what we read. Imported courses are normal entries: fully editable afterward (base + per-hole handicap via Edit; alternate tees via the tee manager). Search state clears on modal open; BlueGolf import kept below as a fallback. +12 tests. Totals 2795 -> 2799. Heads-up: the RapidAPI free tier is rate-limited ('Too many requests' when hammered), but searches are occasional and a course caches after import.
 // v0.91.4  2026-07-30  Course/tee editability + user-picked standard tee on import (prep for the golfcourseapi switch). (1) FIX: editing a course wiped its alternate tees — saveCourse now preserves course.tees and sourceUrl. Base course incl. per-hole par AND handicap is already editable via the Edit form, so imported data can be overridden exactly like today. (2) The Add Tee modal is now a full TEE MANAGER — add, edit, and delete alternate tees (fix or remove a tee with bad source data); modal stays open so you can manage several. (3) New reusable buildCourseFromTees(tees, stdIdx, meta): the USER picks which tee is the standard (base = default tee + shared stroke indexes, option B) rather than auto-taking the longest — you rarely play the tips, and other tees are usually forward of standard. The tips/forward tees go in the list. Wired into the BlueGolf import now (a 'std' radio per tee row) and ready to power the golfcourseapi import next. +8 tests (§170). Totals 2783 -> 2785.
@@ -920,6 +924,16 @@ input:checked+.slider:before{transform:translateX(20px);}
   </div>
 </div>
 
+<!-- Live round picker (trip: which round to arm) -->
+<div class="modal-overlay" id="liveRoundPicker" onclick="if(event.target===this)closeModal('liveRoundPicker')">
+  <div class="modal">
+    <h2>📡 Go Live — pick a round</h2>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Upcoming rounds you can arm. A round already live is marked — pick it to resend its links.</div>
+    <div id="liveRoundPickerList"></div>
+    <div class="modal-actions" style="margin-top:12px;"><button class="btn btn-outline" onclick="closeModal('liveRoundPicker')">Cancel</button></div>
+  </div>
+</div>
+
 <!-- Live standings share sheet -->
 <div class="modal-overlay" id="liveShareModal" onclick="if(event.target===this)closeModal('liveShareModal')">
   <div class="modal">
@@ -1232,8 +1246,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.14';
-const BUILD_TIME = '2026-08-01 08:52 PM ET'; // Eastern Time — hard-coded, update when deploying
+const APP_VERSION = '0.91.18';
+const BUILD_TIME = '2026-08-29 08:07 AM ET'; // Eastern Time — hard-coded, update when deploying
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -6464,18 +6478,106 @@ function renderFoursomeHome(){
 }
 function fsSViewHistory(id){
   const g=(S.events||[]).find(x=>x.id===id); if(!g) return;
+  const players=(g.playerIds||[]).map(pid=>fsPlayerById(pid)||{id:pid,name:pid}).filter(Boolean);
   document.getElementById('historyModalTitle').textContent=fsGameTypeLabel(g.gameType);
   document.getElementById('historyModalBody').innerHTML=`
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${fsDate(g.date)} · ${esc(g.courseName||'—')}</div>
     <div style="font-size:14px;margin-bottom:8px;">${(g.playerNames||[]).join(', ')}</div>
-    ${(()=>{const d=fsGameSummary(g);return d?`<div style="font-size:14px;font-weight:600;">${esc(d)}</div>`:'';})()}
+    ${(()=>{const d=fsGameSummary(g);return d?`<div style="font-size:14px;font-weight:600;margin-bottom:6px;">${esc(d)}</div>`:'';})()}
+    <div style="overflow-x:auto;margin:8px -6px;-webkit-overflow-scrolling:touch;">${fsRenderScorecard(g, players)}</div>
     <div class="modal-actions">
+      <button class="btn btn-gold" onclick="fsShareScorecard('${id}')">📤 Text scorecard</button>
       <button class="btn btn-outline" onclick="closeModal('historyModal')">Close</button>
       <button class="btn btn-danger btn-sm" onclick="closeModal('historyModal');fsDeleteHistory('${id}')">Delete</button>
     </div>`;
   openModal('historyModal');
 }
 function fsDeleteHistory(id){confirmDo('Delete Game','Remove this game from history?',()=>{S.events=(S.events||[]).filter(e=>e.id!==id);scheduleWrite();renderHome();renderHistory();toast('Deleted');});}
+// Scorecard data for the shareable image — pure, so the numbers are unit-tested (the canvas draw isn't).
+function fsScorecardData(g, players) {
+  const course = fsGetCourse(g.courseId);
+  const holes = course ? fsHoles(g, course) : [];
+  const parTotal = holes.reduce((a,h)=>a+(h.par||0),0);
+  const rows = players.map(p => {
+    const sc = (g.scores && g.scores[p.id]) || {};
+    const cells = holes.map(h => (sc[h.num]!=null ? sc[h.num] : ''));
+    const total = holes.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
+    return { name: (p.name||'').split(',')[0] || p.name || '?', cells, total };
+  });
+  return { title: fsGameTypeLabel(g.gameType), course: g.courseName||'', date: fsDate(g.date), holes, parTotal, rows };
+}
+// Draw the scorecard to a canvas (traditional white card) for sharing as an image.
+function fsScorecardCanvas(g, players) {
+  const d = fsScorecardData(g, players), nH = d.holes.length;
+  const labelW = 104, cellW = 42, totW = 58, rowH = 34, titleH = 46;
+  const W = labelW + nH*cellW + totW, H = titleH + (2 + d.rows.length)*rowH + 8;
+  const cv = document.createElement('canvas'), scale = 2;
+  cv.width = W*scale; cv.height = H*scale;
+  const ctx = cv.getContext('2d'); ctx.scale(scale, scale); ctx.textBaseline='middle';
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#0a3d2c'; ctx.font='bold 18px -apple-system,sans-serif'; ctx.textAlign='left';
+  ctx.fillText(d.title+' · '+d.course, 10, titleH/2);
+  ctx.font='12px -apple-system,sans-serif'; ctx.fillStyle='#556'; ctx.textAlign='right';
+  ctx.fillText(d.date, W-10, titleH/2);
+  let y = titleH;
+  const row = (label, cells, tot, o={}) => {
+    if (o.bg){ ctx.fillStyle=o.bg; ctx.fillRect(0,y,W,rowH); }
+    ctx.strokeStyle='#e2e8e4'; ctx.lineWidth=1; ctx.strokeRect(0.5,y+0.5,W-1,rowH);
+    ctx.fillStyle=o.color||'#14281d'; ctx.font=(o.bold?'bold ':'')+'13px -apple-system,sans-serif';
+    ctx.textAlign='left'; ctx.fillText(label, 8, y+rowH/2);
+    ctx.textAlign='center';
+    cells.forEach((c,i)=>ctx.fillText(String(c), labelW+i*cellW+cellW/2, y+rowH/2));
+    ctx.font='bold 13px -apple-system,sans-serif';
+    ctx.fillText(String(tot), labelW+nH*cellW+totW/2, y+rowH/2);
+    ctx.textAlign='left'; y+=rowH;
+  };
+  row('Hole', d.holes.map(h=>h.num), 'Tot', {bg:'#0a3d2c', color:'#ffffff', bold:true});
+  row('Par',  d.holes.map(h=>h.par), d.parTotal, {bg:'#eef3f0', bold:true});
+  d.rows.forEach(r => row(r.name, r.cells, r.total||''));
+  return cv;
+}
+// Shared: turn a canvas into a shareable image — Web Share inline (texts in any app), or save as fallback.
+function fsShareImage(cv, filename, title, text) {
+  cv.toBlob(async blob => {
+    if (!blob) { toast('Could not build image'); return; }
+    const file = new File([blob], filename, { type:'image/png' });
+    if (navigator.canShare && navigator.canShare({ files:[file] })) {
+      try { await navigator.share({ files:[file], title, text }); } catch(e){}
+    } else {
+      const url=URL.createObjectURL(blob), a=document.createElement('a'); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+      toast('Image saved — attach it to a text');
+    }
+  }, 'image/png');
+}
+async function fsShareScorecard(id) {
+  const g=(S.events||[]).find(x=>x.id===id); if(!g) return;
+  const players=(g.playerIds||[]).map(pid=>fsPlayerById(pid)||{id:pid,name:pid}).filter(Boolean);
+  let cv; try { cv = fsScorecardCanvas(g, players); } catch(e){ toast('Could not build scorecard'); return; }
+  fsShareImage(cv, 'scorecard.png', 'Scorecard', `${fsGameTypeLabel(g.gameType)} · ${g.courseName||''}`);
+}
+// Leaderboard image (outings + trips) — final standings as a shareable card. Rows: {pos,name,primary,secondary}.
+function fsLeaderboardCanvas(title, sub, rows) {
+  const rowH=38, headH=56, W=440, H=headH + rows.length*rowH + 10;
+  const cv=document.createElement('canvas'), scale=2;
+  cv.width=W*scale; cv.height=H*scale;
+  const ctx=cv.getContext('2d'); ctx.scale(scale,scale); ctx.textBaseline='middle';
+  ctx.fillStyle='#12261a'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#f0f4f0'; ctx.font='bold 19px -apple-system,sans-serif'; ctx.textAlign='left'; ctx.fillText(String(title), 14, 24);
+  ctx.font='12px -apple-system,sans-serif'; ctx.fillStyle='#9fb3a5'; ctx.fillText(String(sub||''), 14, 44);
+  let y=headH;
+  rows.forEach(r=>{
+    ctx.strokeStyle='#2e4a38'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,y+rowH-0.5); ctx.lineTo(W,y+rowH-0.5); ctx.stroke();
+    const medal = r.pos===1?'\uD83E\uDD47':r.pos===2?'\uD83E\uDD48':r.pos===3?'\uD83E\uDD49':String(r.pos);
+    ctx.textAlign='center'; ctx.fillStyle='#9fb3a5'; ctx.font='14px -apple-system,sans-serif'; ctx.fillText(medal, 26, y+rowH/2);
+    ctx.textAlign='left'; ctx.fillStyle='#f0f4f0'; ctx.font='15px -apple-system,sans-serif'; ctx.fillText(String(r.name), 50, y+rowH/2);
+    ctx.textAlign='right'; ctx.fillStyle='#e0b64a'; ctx.font='bold 15px -apple-system,sans-serif'; ctx.fillText(String(r.primary), W-72, y+rowH/2);
+    ctx.fillStyle='#9fb3a5'; ctx.font='12px -apple-system,sans-serif'; ctx.fillText(String(r.secondary||''), W-14, y+rowH/2);
+    y+=rowH;
+  });
+  return cv;
+}
+function outingShareLeaderboard(){ const o=outingCurrent(); if(!o)return; const rows=liveOutingRows(o); if(!rows.length){toast('No results yet');return;} fsShareImage(fsLeaderboardCanvas(o.name||'Outing','Final Leaderboard',rows),'leaderboard.png','Leaderboard',o.name||'Outing'); }
+function tripShareLeaderboard(){ const t=tripActive(); if(!t)return; const nz=n=>n==null?'\u2014':(n>0?'+'+n:''+n); const rows=tripLeaderboard(t).map((e,i)=>({pos:i+1,name:(fsPlayerById(e.playerId)||{}).name||'?',primary:nz(e.totalNet),secondary:(e.rounds||0)+' rds'})); if(!rows.length){toast('No results yet');return;} fsShareImage(fsLeaderboardCanvas(t.name||'Trip','Trip Leaderboard',rows),'leaderboard.png','Trip Leaderboard',t.name||'Trip'); }
 function saveMyPlayer(id){S.config.myPlayerId=id||null;scheduleWrite();}
 function saveMyPlayerAuto(checked){S.config.myPlayerAuto=checked;scheduleWrite();}
 function renderMyPlayerSettings(){
@@ -7899,6 +8001,7 @@ function outingDoAssign(activeGame) {
     });
   }
   if(isActive) fsSaveGame(activeGame);
+  else { const o = outingCurrent(); if (o) { o.groups = (window._outingGroups||[]).map(g=>({...g})); scheduleWrite(); } }
 }
 
 function outingHasScores(g) {
@@ -8069,6 +8172,7 @@ function outingRenderGroupAssign(activeGame) {
       </div>
     </div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">${players.length} players · ${course?.name||'—'}</div>
+    ${groups.some(gr=>(gr.playerIds||[]).length>0)?`<button class="btn btn-sm btn-outline" style="width:100%;margin-bottom:10px;" onclick="outingShareLive()">📡 Go Live &amp; share scoring links</button>`:''}
     ${unassignedHtml}
     ${groupHtml}
   </div>`);
@@ -8696,7 +8800,7 @@ function outingRenderResults(g, r) {
   const { playerData, grossSkins, netSkins, grossTally, netTally, activeHoles } = r;
 
   // ── Leaderboard ──
-  let lb = '<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="outingShareLive()">📡 Share live standings</button>';
+  let lb = '<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="outingShareLive()">📡 Go Live & share links</button><button class="btn btn-sm btn-outline" style="margin-bottom:10px;margin-left:8px;" onclick="outingShareLeaderboard()">📤 Text leaderboard</button>';
 
   if (isStab) {
     const sorted = [...playerData].sort((a,b)=>(b.totalPts-b.ptTarget)-(a.totalPts-a.ptTarget));
@@ -11877,7 +11981,7 @@ function tripRenderResultsScreen(){
   let html='';
 
   // ── Trip leaderboard ──────────────────────────────────────────
-  html+=`<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="tripShareLive()">📡 Share live standings</button>`;
+  html+=`<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="tripShareLive()">📡 Go Live & share links</button><button class="btn btn-sm btn-outline" style="margin-bottom:10px;margin-left:8px;" onclick="tripShareLeaderboard()">📤 Text leaderboard</button>`;
   html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;margin-bottom:10px;">Trip Leaderboard</div>`;
   const board=tripLeaderboard();
   if(board.length){
@@ -13922,12 +14026,38 @@ function leagueCmpCountback(a, b) {
 // + groups so score.html can render a foursome. Reuses the tested engines (computeRoundResults for the
 // live round via the session/round ctx; leagueComputeStandings / tripLeaderboard / outingComputeResults
 // for the cumulative view). unit = the session/round/outing being played.
-function liveIndivRows(res) {
-  const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n)), rows=[];
-  if (res && res.type === 'individual') res.entries.forEach((e,i)=>rows.push({
-    pos:i+1, name:e.name, primary: res.isSF?(e.pts+' pts'):netStr(e.net),
-    secondary: res.isSF?netStr(e.net):((e.gross||0)+' gr') }));
+function liveRoundRows(ctx, skinsOn) {
+  const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
+  const res = computeRoundResults(ctx);
+  if (!res || !res.entries) return [];
+  const skins = skinsOn ? computeSkins(ctx) : { anyWins:false, wins:{}, type:'individual' };
+  const skinStr = (key,kind) => (skins.anyWins && skins.type===kind && skins.wins[key]) ? (' \u00b7 '+skins.wins[key]+' skin'+(skins.wins[key]>1?'s':'')) : '';
+  const es = res.entries.filter(Boolean), rows = [];
+  if (res.type === 'individual') {
+    const sorted = es.slice().sort((a,b)=> res.isSF ? ((b.pts||0)-(a.pts||0)) : ((a.net??1e9)-(b.net??1e9)));
+    sorted.forEach((e,i)=>rows.push({ pos:i+1, name:e.name,
+      primary: res.isSF ? ((e.pts||0)+' pts') : netStr(e.net),
+      secondary: (res.isSF ? netStr(e.net) : ((e.gross||0)+' gr')) + skinStr(e.playerId,'individual') }));
+  } else {
+    const net = e => (e.netVsPar!=null?e.netVsPar:(e.net!=null?e.net:e.teamNet));
+    es.slice().sort((a,b)=>net(a)-net(b)).forEach((e,i)=>rows.push({ pos:i+1, name: e.names||e.label||('Team '+(i+1)),
+      primary: netStr(net(e)),
+      secondary: (e.gross!=null?(e.gross+' gr'):'') + skinStr(e.gi,'team') }));
+  }
   return rows;
+}
+// Outing board rows — individual OR team/scramble, sorted, from the outing's own result engine.
+function liveOutingRows(o) {
+  const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
+  const r = outingComputeResults(o); if (!r) return [];
+  if (r.isTeam && r.teamResults) {
+    const netOf = t => (t.netVsPar!=null?t.netVsPar:(t.teamNet!=null?t.teamNet:t.net));
+    return r.teamResults.filter(Boolean).slice().sort((a,b)=>netOf(a)-netOf(b))
+      .map((t,i)=>({ pos:i+1, name:t.names||('Team '+(i+1)), primary:netStr(netOf(t)), secondary:(t.gross!=null?(t.gross+' gr'):'') }));
+  }
+  const pd = r.playerData, arr = pd?(Array.isArray(pd)?pd:Object.values(pd)):[];
+  return arr.filter(p=>(p.totalGross||0)>0).sort((a,b)=>(a.totalNet??1e9)-(b.totalNet??1e9))
+    .map((p,i)=>({ pos:i+1, name:p.name, primary:netStr(p.totalNet), secondary:(p.totalGross||0)+' gr' }));
 }
 function liveRoster(course, pool, groupsSrc) {
   const c = { name: course.name, holes: course.holes.map(h=>({num:h.num,par:h.par,hcp:h.hcp})) };
@@ -13944,7 +14074,7 @@ function liveUnitPayload(kind, ev, unit) {
     title = fsDate(s.date) + (lg.name?(' \u00b7 '+lg.name):'');
     const cw = leagueSessionCtx(lg, s);
     if (cw) {
-      views.push({ id:'night', label:'Tonight', rows: liveIndivRows(computeRoundResults(cw.ctx)) });
+      views.push({ id:'night', label:'Tonight', rows: liveRoundRows(cw.ctx, !!lg.skins) });
       ({course, groups} = liveRoster(cw.course, cw.pool, s.groups));
     }
     const st = leagueComputeStandings(lg, false);
@@ -13954,15 +14084,15 @@ function liveUnitPayload(kind, ev, unit) {
     title = (r.label||'Round') + (t.name?(' \u00b7 '+t.name):'');
     const cw = tripScoringCtx(t, r);
     if (cw) {
-      views.push({ id:'round', label:(r.label||'Round'), rows: liveIndivRows(computeRoundResults(cw)) });
+      views.push({ id:'round', label:(r.label||'Round'), rows: liveRoundRows(cw, true) });
       ({course, groups} = liveRoster(cw.course, cw.players, r.groups));
     }
     views.push({ id:'trip', label:'Trip', rows: tripLeaderboard(t).map((e,i)=>({pos:i+1, name:(fsPlayerById(e.playerId)||{}).name||'?', primary:netStr(e.totalNet), secondary:(e.rounds||0)+' rds'})) });
   } else if (kind === 'outing') {
     const o=unit; title = o.name || 'Outing';
-    const r = outingComputeResults(o), pd = r && r.playerData;
-    const arr = pd ? (Array.isArray(pd)?pd:Object.values(pd)) : [];
-    views.push({ id:'board', label:'Leaderboard', rows: arr.filter(p=>(p.totalGross||0)>0).sort((a,b)=>(a.totalNet??1e9)-(b.totalNet??1e9)).map((p,i)=>({pos:i+1, name:p.name, primary:netStr(p.totalNet), secondary:(p.totalGross||0)+' gr'})) });
+    views.push({ id:'board', label:'Leaderboard', rows: liveOutingRows(o) });
+    const octx = outingScoringCtx(o);
+    if (octx) ({course, groups} = liveRoster(octx.course, octx.players, o.groups));
   }
   return { v:2, kind, title, updated:Date.now(), views, course, groups };
 }
@@ -14075,10 +14205,27 @@ function liveStopSharing() {
   if (_liveShareUnit && _liveShareUnit.unit) { _liveShareUnit.unit.live = false; scheduleWrite(); toast('Live event off (board stays up)'); }
   closeModal('liveShareModal');
 }
-// Arm the unit you have open — league session, current trip round, or the outing (no inference: you pick by opening it).
-function tripLiveRound(t) { let r=null; Object.values((t&&t.days)||{}).forEach(d=>(d.rounds||[]).forEach(rr=>{ if(!r && !rr.completed) r=rr; })); return r; }
+// Trip: pick which round goes live (skip completed; a round already live is re-openable to resend links).
+function tripArmableRounds(t) {
+  const out = []; Object.keys((t&&t.days)||{}).sort().forEach(d => (t.days[d].rounds||[]).forEach(r => { if (!r.completed) out.push(r); }));
+  return out;
+}
+let _liveRoundPick = null;
+function liveShowRoundPicker(t, rounds) {
+  _liveRoundPick = { t, rounds };
+  document.getElementById('liveRoundPickerList').innerHTML = rounds.map((r,i) =>
+    `<button class="btn btn-outline" style="width:100%;margin-bottom:8px;text-align:left;" onclick="livePickRound(${i})">${esc(r.label||('Round '+(i+1)))}${r.live?'  ·  🟢 LIVE':''}</button>`).join('');
+  openModal('liveRoundPicker');
+}
+function livePickRound(i) { const c=_liveRoundPick; if(!c)return; closeModal('liveRoundPicker'); unitShareLive('trip', c.t, c.rounds[i]); }
 function leagueShareLive() { const lg = leagueCurrent(); unitShareLive('league', lg, leagueCurrentSession()); }
-function tripShareLive()   { const t  = tripActive();   unitShareLive('trip', t, tripLiveRound(t)); }
+function tripShareLive() {
+  const t = tripActive(); if (!t) return;
+  const rounds = tripArmableRounds(t);
+  if (!rounds.length) return toast('No upcoming rounds to arm');
+  if (rounds.length === 1) return unitShareLive('trip', t, rounds[0]);
+  liveShowRoundPicker(t, rounds);
+}
 function outingShareLive() { const o  = outingCurrent(); unitShareLive('outing', o, o); }
 function leagueComputeStandings(lg, showSeason) {
   const activeSeason = (lg.seasons||[]).find(s=>s.active);
