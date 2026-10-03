@@ -1,0 +1,1 @@
+["adminSelfRegister:PUT", "adminSetDisabled:PUT", "adminRemoveUser:DELETE", "fbWrite:PUT", "fetchGhinHI:POST", "fsRefreshIndexes:POST", "ghinLookup:POST", "rosterRefreshGhin:POST", "rsvpPublishSession:PUT", "rsvpProcessInbox:PATCH", "publishLiveUnit:PATCH"]

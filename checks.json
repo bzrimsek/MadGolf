@@ -1,0 +1,79 @@
+{
+  "_why": [
+    "ONE TABLE, TWO READERS. gate.py runs the checks in the cloud and check.js",
+    "runs them here, and both must agree about which check a change can break.",
+    "Written twice they drift, and the one that drifts is the one that stops",
+    "running - so it is written once, here, and consistency.js fails if it stops",
+    "covering every harness gate.py runs or push.py sends.",
+    "",
+    "`reaches` is what a check can be broken BY. MadGolf's index.html has no",
+    "engine/screens split (Bottlefolio's has), so a change to it is one kind,",
+    "`app`, and reaches every app check.",
+    "",
+    "ALWAYS means run it whatever changed: the cheap structural ones.",
+    "`secs` was measured on BZ's PC on 2026-10-03.",
+    "",
+    "NO RULES CHECK YET (2026-10-03). rulestest.js and rules.js deploy wait on a",
+    "MadGolf admin key, which BZ makes; until then firebase-rules.json is not in",
+    "the repo and the live rules are managed in the console. Open item in CLAUDE.md."
+  ],
+  "kinds": {
+    "app": "index.html, live.html, score.html, rsvp.html, manifest.json, logo.webp",
+    "worker": "sw.js",
+    "rules": "firebase-rules.json",
+    "harness": "a check's own file - it runs itself"
+  },
+  "checks": [
+    {
+      "name": "audit",
+      "harness": "audit.py",
+      "args": [
+        "index.html"
+      ],
+      "secs": 1,
+      "always": true,
+      "note": "the named lock matches index.html, versions agree, changelog filled in"
+    },
+    {
+      "name": "lint",
+      "harness": "lint.js",
+      "secs": 2,
+      "always": true
+    },
+    {
+      "name": "consistency",
+      "harness": "consistency.js",
+      "secs": 2,
+      "always": true
+    },
+    {
+      "name": "tests",
+      "harness": "madgolf-test.js",
+      "args": [
+        "index.html"
+      ],
+      "secs": 2,
+      "reaches": [
+        "app"
+      ]
+    },
+    {
+      "name": "walk",
+      "harness": "browser.js",
+      "secs": 45,
+      "reaches": [
+        "app",
+        "worker"
+      ]
+    },
+    {
+      "name": "ios",
+      "harness": "ios.js",
+      "secs": 45,
+      "reaches": [
+        "app",
+        "worker"
+      ]
+    }
+  ]
+}

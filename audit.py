@@ -14,7 +14,7 @@ Checks:
   8. No adminMode references
   9. sw.js CACHE_NAME matches APP_VERSION
 """
-import sys, re, os, subprocess
+import sys, re, os, subprocess, tempfile
 
 def fail(msg):
     print(f'  ✖ FAIL: {msg}')
@@ -36,8 +36,8 @@ def run_audit(html_path):
     # ── 1. Extract JS and syntax check ───────────────────────────
     blocks = re.findall(r'<script(?![^>]*\bsrc\b)(?![^>]*type=["\']module["\'])[^>]*>([\s\S]*?)<\/script>', html)
     raw_js = '\n'.join(blocks)
-    js_tmp = '/tmp/audit_madgolf.js'
-    with open(js_tmp, 'w') as f:
+    js_tmp = os.path.join(tempfile.gettempdir(), 'audit_madgolf.js')
+    with open(js_tmp, 'w', encoding='utf-8') as f:
         f.write(raw_js)
     result = subprocess.run(['node', '--check', js_tmp], capture_output=True, text=True)
     if result.returncode != 0:
@@ -108,7 +108,7 @@ def run_audit(html_path):
 
     # ── 9. sw.js version match ────────────────────────────────────
     if os.path.exists(sw_path):
-        with open(sw_path) as f:
+        with open(sw_path, encoding='utf-8') as f:
             sw = f.read()
         sw_m = re.search(r"madgolf-v([\d.]+)", sw)
         if sw_m and m:
@@ -121,6 +121,33 @@ def run_audit(html_path):
     else:
         failures += 1; fail(f'sw.js not found at {sw_path}')
 
+    # ── 10. The named lock pair IS what was tested (rule 25) ──────
+    # A delivery is index.html + sw.js + madgolf-vX.html + madgolf-vX-sw.js,
+    # and a lock that differs from the working file is a lock of something
+    # nobody tested. bump.py cuts them; this proves nothing moved since.
+    base = os.path.dirname(os.path.abspath(html_path))
+    if m:
+        for lock, live in (('madgolf-v%s.html' % version, html_path),
+                           ('madgolf-v%s-sw.js' % version, sw_path)):
+            lp = os.path.join(base, lock)
+            if not os.path.exists(lp):
+                failures += 1; fail(f'{lock} missing - run bump.py')
+            elif open(lp, 'rb').read() != open(live, 'rb').read():
+                failures += 1; fail(f'{lock} differs from {os.path.basename(live)} - edit after bump? bump again')
+            else:
+                ok(f'{lock} matches {os.path.basename(live)}')
+
+    # ── 11. CHANGELOG.md carries this version in full ────────────
+    # Once the header points at CHANGELOG.md, an entry missing there is lost.
+    cl = os.path.join(base, 'CHANGELOG.md')
+    if m and (os.path.exists(cl) or 'Older entries are in CHANGELOG.md' in html):
+        body = open(cl, encoding='utf-8').read() if os.path.exists(cl) else ''
+        sec = re.search(r'^## v' + re.escape(version) + r'\b.*\n\n(.+)', body, re.M)
+        if not sec or len(sec.group(1).strip()) < 5 or '[describe changes here]' in sec.group(1):
+            failures += 1; fail(f'CHANGELOG.md has no filled-in entry for v{version}')
+        else:
+            ok(f'CHANGELOG.md entry for v{version}')
+
     # ── Summary ───────────────────────────────────────────────────
     print()
     if failures == 0:
@@ -130,6 +157,6 @@ def run_audit(html_path):
     return failures == 0
 
 if __name__ == '__main__':
-    path = sys.argv[1] if len(sys.argv) > 1 else '/mnt/user-data/outputs/madgolf/index.html'
+    path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
     ok = run_audit(path)
     sys.exit(0 if ok else 1)

@@ -1,38 +1,277 @@
-# MadGolf ship gate — runs on GitHub's servers on every push and pull request.
-# A red ✗ appears on the commit if audit.py or the test suite fails. No terminal, nothing
-# to install on your computer, works even when you edit on github.com.
+# THE CLOUD GATE. Ported from Bottlefolio's on 2026-10-03.
 #
-# INSTALL (one time):
-#   1. In your repo, create the folders  .github/workflows/  if they don't exist.
-#   2. Put THIS file there and name it  gate.yml   →  .github/workflows/gate.yml
-#   3. Make sure these four files are committed to the repo (same folder as index.html):
-#         index.html   sw.js   ship.py   audit.py   madgolf-test.js
-#      (index.html + sw.js you already commit; ship.py / audit.py / madgolf-test.js are the
-#       tooling I deliver each time — commit them too so the server can run the gate.)
-#   4. Commit and push. From then on, every push runs the gate automatically.
+# push.py sends a finished build to the `build` branch as ONE commit. This
+# runs the whole gate on GitHub's servers against that commit, and only a
+# green gate deploys anything:
+#
+#   gate  ->  main not moved since the push  ->  Firebase rules (only if
+#   firebase-rules.json changed)  ->  the site
+#
+# Before 2026-10-03 MadGolf's "Ship Gate" ran on every push to main AFTER
+# the files were already live, so a red gate was a report on a site that
+# had already changed. Now red means nothing moved.
 
-name: Ship Gate
+name: Gate and publish
 
 on:
   push:
-  pull_request:
+    branches: [build]
+  workflow_dispatch:
+
+concurrency:
+  group: gate-and-publish
+  cancel-in-progress: false
+
+# Read-only unless a job says otherwise.
+permissions:
+  contents: read
 
 jobs:
   gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # fast-forward main to the gated build, and nothing else
+      pages: read       # read how Pages is configured
+    outputs:
+      version: ${{ steps.version.outputs.app }}
+      pages_source: ${{ steps.pagessrc.outputs.build_type }}
     steps:
-      - name: Check out the code
+      - name: Check out this build
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Set up Python (for audit + ship)
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Set up Node (for the test suite)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Install the gate's tools (exact versions from package-lock.json)
+        run: npm ci --no-audit --no-fund
 
-      - name: Run ship gate — audit + all tests
-        run: python3 ship.py index.html
+      - name: Which Playwright is installed
+        id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # The browsers come from a cache keyed on the exact Playwright version.
+      # Headless Chromium for the walk, WebKit for ios.js.
+      - name: Chromium and WebKit from the cache
+        id: pwcache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-headless-shell-webkit
+
+      # A step that only PREPARES something cannot stop a green build; the
+      # check that uses it does, by name (Bottlefolio lost five runs to a slow
+      # apt mirror here on 2026-10-01).
+      - name: Install the browsers for the browser checks
+        if: steps.pwcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          npx playwright install --only-shell chromium
+          npx playwright install webkit
+
+      - name: Both browsers' system libraries, started in the background
+        run: |
+          nohup sh -c 'npx playwright install-deps chromium-headless-shell;
+                       npx playwright install-deps webkit' \
+            > /tmp/browser-deps.log 2>&1 &
+          echo $! > /tmp/browser-deps.pid
+
+      - name: The gate's timing history, from the last run
+        uses: actions/cache/restore@v4
+        with:
+          path: .gatetimes.json
+          key: gatetimes-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: gatetimes-
+
+      # firebase-tools refuses any Java before 21; the runner's default is 17.
+      - name: Java 21, for the rules emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: The rules emulator, from the cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('package-lock.json') }}
+
+      # In pieces, so push.py has something to report while it runs.
+      - name: The gate - audit, tests, lint, consistency
+        run: python3 gate.py --fast
+
+      - name: Wait for the browsers' libraries
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          if [ -f /tmp/browser-deps.pid ]; then
+            pid=$(cat /tmp/browser-deps.pid)
+            while kill -0 "$pid" 2>/dev/null; do sleep 2; done
+          fi
+          tail -5 /tmp/browser-deps.log || true
+
+      - name: The gate - the walk, WebKit, the rules
+        run: python3 gate.py --slow
+
+      - name: Keep the timing history for the next run
+        if: always() && hashFiles('.gatetimes.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .gatetimes.json
+          key: gatetimes-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # MAIN MUST NOT HAVE MOVED UNDER THIS BUILD, checked before anything is
+      # deployed, so a stale build stops while everything live still belongs
+      # to one build.
+      - name: Is this build still a fast-forward of main?
+        run: |
+          git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "::error::main moved to $(git rev-parse --short origin/main) after this build was made, so it cannot publish. Nothing was deployed. Push again: python push.py"
+            exit 1
+          fi
+          echo "main $(git rev-parse --short origin/main) is an ancestor of this build - safe to deploy."
+
+      # THE FIREBASE RULES, only when firebase-rules.json changed. rules.js
+      # swaps in bz-apps/golf and nothing else, refuses if the live rules carry
+      # comments a rewrite would lose, and reads the result back. Before the
+      # site: a page that needs a new rule must not arrive before the rule.
+      - name: Did the Firebase rules change?
+        id: rules
+        run: |
+          if [ ! -f firebase-rules.json ] || git diff --quiet origin/main HEAD -- firebase-rules.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "firebase-rules.json unchanged - the live rules are left alone."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat origin/main HEAD -- firebase-rules.json
+          fi
+
+      - name: Deploy the Firebase rules (bz-apps/golf only)
+        if: steps.rules.outputs.changed == 'true'
+        env:
+          FIREBASE_SA: ${{ secrets.FIREBASE_SA }}
+        run: node rules.js deploy
+
+      - name: Which version is this build
+        id: version
+        run: echo "app=$(grep -m1 -oP "const APP_VERSION\s*=\s*'\K[\d.]+" index.html)" >> "$GITHUB_OUTPUT"
+
+      - name: How is GitHub Pages configured
+        id: pagessrc
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          t=$(gh api "repos/${{ github.repository }}/pages" --jq .build_type 2>/dev/null || echo unknown)
+          echo "build_type=$t" >> "$GITHUB_OUTPUT"
+          echo "Pages build_type is $t"
+
+      # WHAT THE SITE ACTUALLY SERVES, AND NOTHING ELSE. Every same-origin
+      # file index.html, sw.js and the manifest name, read out of them on
+      # 2026-10-03, plus the three pages strangers open from a text message.
+      # consistency.js fails if this line and push.py's APP list disagree, so
+      # keep the marker comment directly above the cp.
+      - name: The site, and only the site
+        run: |
+          mkdir -p site
+          # SITE-FILES
+          cp index.html sw.js manifest.json logo.webp live.html score.html rsvp.html site/
+          touch site/.nojekyll
+          ls -la site
+          du -sh site
+
+      - name: Package the site as a Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      # LAST. Everything above can fail without changing anything live; below
+      # it, main is the record of what is published. Fast-forward only.
+      - name: Publish - move main to this build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
+
+  # TWO PUBLISH JOBS, ONE PER PAGES SOURCE. The github-pages environment is
+  # only grantable when the Pages source IS GitHub Actions, so a single job
+  # with `environment:` is refused while the source is a branch.
+  publish:
+    needs: gate
+    if: needs.gate.outputs.pages_source == 'workflow'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+      actions: read
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy the artifact (Pages source is GitHub Actions)
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Wait until the live site serves this version
+        run: |
+          want="${{ needs.gate.outputs.version }}"
+          url="https://bzrimsek.github.io/MadGolf/index.html"
+          for i in $(seq 1 120); do
+            got=$(curl -fsSL "$url?nocache=$(date +%s%N)" \
+              | grep -m1 -oP "const APP_VERSION\s*=\s*'\K[\d.]+" || true)
+            echo "live site says v${got:-?}, this build is v$want"
+            if [ "$got" = "$want" ]; then
+              echo "LIVE: v$want at https://bzrimsek.github.io/MadGolf/"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The gate passed and main moved, but the site did not show v$want within 10 minutes."
+          exit 1
+
+  # UNTIL THE SETTING IS SWITCHED to GitHub Actions. Moving main triggers a
+  # branch build on its own; this asks for it and waits for the version.
+  publish-from-branch:
+    needs: gate
+    if: needs.gate.outputs.pages_source != 'workflow'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+    steps:
+      - name: Ask Pages to rebuild the branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Pages build_type is '${{ needs.gate.outputs.pages_source }}', not 'workflow'."
+          gh api -X POST "repos/${{ github.repository }}/pages/builds" --silent \
+            || echo "Pages refused the explicit request; the push to main normally triggers a build on its own."
+
+      - name: Wait until the live site serves this version
+        run: |
+          want="${{ needs.gate.outputs.version }}"
+          url="https://bzrimsek.github.io/MadGolf/index.html"
+          for i in $(seq 1 120); do
+            got=$(curl -fsSL "$url?nocache=$(date +%s%N)" \
+              | grep -m1 -oP "const APP_VERSION\s*=\s*'\K[\d.]+" || true)
+            echo "live site says v${got:-?}, this build is v$want"
+            if [ "$got" = "$want" ]; then
+              echo "LIVE: v$want at https://bzrimsek.github.io/MadGolf/"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::The gate passed and main moved, but the site did not show v$want within 10 minutes."
+          exit 1

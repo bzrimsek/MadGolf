@@ -8921,7 +8921,72 @@ smoke('leagueCurrentSession returns session', () => {
   expect("player 2 total 90", d.rows[1].total, 90);
   expect("cells match hole count", d.rows[0].cells.length, 18);
 }
-}}}const total = passed + failed;
+
+// ── 184. Stableford ranks by +/- quota everywhere (BZ, 2026-10-03) ───────────
+// Expected values worked by hand: 9 holes, par 4, par = 1 pt, birdie = 2.
+// A: ch 0, quota 18, two birdies + seven pars = 11 pts, -7 vs quota.
+// B: ch 9 (one stroke every hole), quota 9, all 5s = net par = 9 pts, +0.
+// Raw points put A first; quota puts B first.
+{
+  expect('sfRankOrder: +0 beats -1', [{pts:20,quota:21},{pts:15,quota:15}].sort(sandbox.sfRankOrder)[0].pts, 15);
+  expect('sfRankOrder: same vs quota, more points first', [{pts:10,quota:10},{pts:12,quota:12}].sort(sandbox.sfRankOrder)[0].pts, 12);
+  const H = Array.from({length:9},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1}));
+  const a = {}; for (let h=1;h<=9;h++) a[h] = h<=2 ? 3 : 4;
+  const b = {}; for (let h=1;h<=9;h++) b[h] = 5;
+  const ctx = {
+    players:[{id:'a',name:'A',courseHcp:0},{id:'b',name:'B',courseHcp:9}],
+    course:{holes:H, slope:113, rating:36}, activeHoles:H, hcpScale:9, is9:true,
+    scores:{ a, b }, groups:[{playerIds:['a','b']}], format:'stableford',
+    settings:{ skins:{hcpAdj:100}, strokeAllowance:100, sfCfg:{dblEagle:8,eagle:4,birdie:2,par:1,bogey:0,dbl:0} }
+  };
+  const res = sandbox.computeRoundResults(ctx);
+  expect('engine: A scored 11 pts', res.entries.find(e=>e.playerId==='a').pts, 11);
+  expect('engine: B scored 9 pts', res.entries.find(e=>e.playerId==='b').pts, 9);
+  expect('engine: B (+0 vs quota) ranks first', res.entries[0].playerId, 'b');
+  expect('live board agrees: B first', sandbox.liveRoundRows(ctx, false)[0].name, 'B');
+}
+
+// ── 185. A History scorecard is read-only ────────────────────────────────────
+// It used to stay typeable, and its handler writes to the game IN PROGRESS.
+{
+  const live = sandbox.scoreCell('', 0, 'data-pid', 'p1', 1, 'fsUpdateGameScore(this)');
+  const read = sandbox.scoreCell('', 0, 'data-pid', 'p1', 1, '');
+  expect('a live cell takes input', /oninput="fsUpdateGameScore\(this\)"/.test(live), true);
+  expect('a cell with no handler has no oninput', /oninput/.test(read), false);
+  expect('a cell with no handler is readonly', /\breadonly\b/.test(read), true);
+}
+}}}
+// ── 183. The two GHIN refresh buttons reach the service (async) ──────────────
+// Outing "Refresh GHIN" called ghinFetch and Settings' bulk refresh called
+// ghinFetchPlayer; neither existed, so both only ever said "failed" (found by
+// lint.js, 2026-10-03). Both now go through fetchGhinHI. ASYNC, so the report
+// below waits for this section rather than printing before it lands.
+const _asyncSections = (async () => {
+  const run = s => vm.runInContext(s, sandbox);
+  const toasts = [];
+  run("fetchWithTimeout = async () => ({ ok: true, json: async () => ({ results: [{ handicap_index: '7.4' }] }) });");
+  sandbox.__toasts = toasts;
+  run("toast = (m) => { __toasts.push(m); };");
+  run("scheduleWrite = () => {};");
+  vmSetS('config', { ghinProxyUrl: 'https://proxy.test' });
+  vmSetS('players', [{ id: 'ga', name: 'A', ghin: '111', hcp: 10 }, { id: 'gb', name: 'B', ghin: '222', hcp: 20 }, { id: 'gc', name: 'C', hcp: 30 }]);
+  await run('adminBulkGhinRefresh()');
+  expect('bulk GHIN refresh updates player A', run("S.players.find(p=>p.id==='ga').hcp"), 7.4);
+  expect('bulk GHIN refresh updates player B', run("S.players.find(p=>p.id==='gb').hcp"), 7.4);
+  expect('a player with no GHIN is left alone', run("S.players.find(p=>p.id==='gc').hcp"), 30);
+  expect('bulk refresh reports both refreshed, none failed', toasts[toasts.length - 1], '✓ 2 players refreshed');
+
+  vmSetS('players', [{ id: 'ga', name: 'A', ghin: '111', hcp: 10 }, { id: 'gb', name: 'B', ghin: '222', hcp: 20 }]);
+  const qsa = sandbox.document.querySelectorAll;
+  sandbox.document.querySelectorAll = sel => /input:checked/.test(sel) ? [{ value: 'gb' }] : [];
+  try { await run('outingRefreshGhin()'); } finally { sandbox.document.querySelectorAll = qsa; }
+  expect('outing GHIN refresh updates the checked player', run("S.players.find(p=>p.id==='gb').hcp"), 7.4);
+  expect('outing GHIN refresh leaves the unchecked player', run("S.players.find(p=>p.id==='ga').hcp"), 10);
+  expect('outing refresh reports one updated', toasts[toasts.length - 1], 'Updated 1 ✓');
+})().catch(e => { failed++; failures.push({ desc: '§183 threw', actual: String(e && e.message || e), expected: 'no error' }); });
+
+_asyncSections.then(() => {
+const total = passed + failed;
 console.log(`\n══════════════════════════════════════════`);
 console.log(`  MadGolf Test Harness — v${APP_VERSION}`);
 console.log(`══════════════════════════════════════════`);
@@ -8994,3 +9059,4 @@ if (failed === 0) {
   console.log('');
   process.exit(1);
 }
+});

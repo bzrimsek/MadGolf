@@ -94,18 +94,26 @@
       + '<button ' + (_hole === 0 ? 'disabled' : '') + ' onclick="go(-1)">\u2039</button>'
       + '<div class="holemeta"><div class="n">HOLE ' + h.num + '</div><div class="pi">Par ' + (h.par || '-') + ' · SI ' + (h.hcp || '-') + '</div></div>'
       + '<button ' + (_hole >= _holes.length - 1 ? 'disabled' : '') + ' onclick="go(1)">\u203A</button></div>';
-    players.forEach(p => {
+    // The buttons pass the player's POSITION in the group, never the id: an id
+    // written into onclick="..." needs quoting, and JSON.stringify's double
+    // quotes ended the attribute, so every tap was a syntax error and no
+    // score was ever saved (found by the walk, 2026-10-03).
+    players.forEach((p, i) => {
       const v = getScore(p.id, h.num);
       html += '<div class="prow"><div class="who"><div class="nm">' + esc(p.name) + '</div><div class="ch">CH ' + (p.ch || 0) + '</div></div>'
-        + '<div class="step"><button onclick="bump(' + JSON.stringify(p.id) + ',' + h.num + ',-1)">\u2212</button>'
+        + '<div class="step"><button onclick="bump(' + i + ',' + h.num + ',-1)">\u2212</button>'
         + '<div class="val">' + (v == null ? '\u2013' : v) + '</div>'
-        + '<button onclick="bump(' + JSON.stringify(p.id) + ',' + h.num + ',1)">+</button></div></div>';
+        + '<button onclick="bump(' + i + ',' + h.num + ',1)">+</button></div></div>';
     });
     if (_hole < _holes.length - 1) html += '<button class="done" onclick="go(1)">Next hole \u203A</button>';
     document.getElementById('app').innerHTML = html;
   }
   function go(d) { _hole = Math.max(0, Math.min(_holes.length - 1, _hole + d)); render(); }
-  function bump(pid, holeNum, d) { const cur = getScore(pid, holeNum); setScore(pid, holeNum, (cur == null ? (_holes[_hole].par || 4) : cur) + d); }
+  function bump(idx, holeNum, d) {
+    const p = (_group.players || [])[idx]; if (!p) return;
+    const cur = getScore(p.id, holeNum);
+    setScore(p.id, holeNum, (cur == null ? (_holes[_hole].par || 4) : cur) + d);
+  }
 
   window.go = go; window.bump = bump;
   boot();
