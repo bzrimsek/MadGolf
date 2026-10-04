@@ -262,7 +262,10 @@ if (process.env.CI) {
     const src = read(f) || '';
     (src.match(/['"]([\w.-]+\.json)['"]/g) || []).forEach(q => {
       const n = q.slice(1, -1);
-      if (fs.existsSync(path.join(HERE, n)) && n !== 'package.json' && n !== 'package-lock.json') needs.add(n);
+      /* A dot-file is state a run keeps for itself (.gatetimes.json is
+         restored from cache on the runner), not a project file: the first
+         v0.91.20 gate failed demanding it be pushed, 2026-10-04. */
+      if (fs.existsSync(path.join(HERE, n)) && n[0] !== '.' && n !== 'package.json' && n !== 'package-lock.json') needs.add(n);
     });
   });
   const unsent = [...needs].filter(n => tooling.indexOf("'" + n + "'") < 0);

@@ -8946,6 +8946,13 @@ smoke('leagueCurrentSession returns session', () => {
   expect('live board agrees: B first', sandbox.liveRoundRows(ctx, false)[0].name, 'B');
 }
 
+// ── 186. One list-section header, centered by its class (2026-10-04) ─────────
+// Six screens each wrote this <div> out themselves; listSecHdr is the copy.
+{
+  expect('list header carries the shared class', sandbox.listSecHdr('REGULARS (8)'), '<div class="list-sec">REGULARS (8)</div>');
+  expect('sticky variant adds sticky', sandbox.listSecHdr('OTHERS (2)', true), '<div class="list-sec sticky">OTHERS (2)</div>');
+}
+
 // ── 185. A History scorecard is read-only ────────────────────────────────────
 // It used to stay typeable, and its handler writes to the game IN PROGRESS.
 {

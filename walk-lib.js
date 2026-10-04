@@ -302,10 +302,15 @@ async function run(opts) {
     await wire(context, store, rep, indexFile);
     await context.addInitScript(fake.userInit({ uid: UID, email: 'walk@example.com', displayName: 'Walk Tester' }));
     await context.addInitScript(INIT_REJECTIONS);
+    /* Extra in-page probes ride along with the walk (layout.js): it walks
+       every screen, so anything measured per screen is measured on all. */
+    for (const s of opts.initScripts || []) await context.addInitScript(s);
     const page = await context.newPage();
     ctx.page = page;
     listen(page, rep);
+    if (opts.onPage) await opts.onPage(page);
     await walk(ctx, page, store, context);
+    if (opts.after) await opts.after(page);
   } catch (e) {
     rep.fail('the walk crashed: ' + (e.stack || e.message).split('\n').slice(0, 2).join(' | '));
     rep.end('walk');

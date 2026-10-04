@@ -63,7 +63,7 @@ DOCS = ['CHANGELOG.md', 'CLAUDE.md', 'DEV-RULES.md', 'README.md']
 TOOLING = ['madgolf-test.js', 'audit.py', 'bump.py', 'push.py', 'gate.py',
            'check.js', 'checks.json', 'lint.js', 'consistency.js',
            'consistency-sizes.json', 'consistency-doors.json',
-           'walk-lib.js', 'browser.js', 'ios.js', 'fake-firebase.js',
+           'walk-lib.js', 'browser.js', 'ios.js', 'layout.js', 'fake-firebase.js',
            'rules.js',
            'package.json', 'package-lock.json', '.github/workflows/gate.yml']
 SERVICE = ['firebase-rules.json']

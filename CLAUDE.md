@@ -50,6 +50,8 @@ node lint.js                 # nothing undefined/duplicated/unreachable, all 4 p
 node consistency.js          # wiring: handlers, ids, write doors, sizes, delivery lists
 node browser.js              # the walk, real Chromium at 390px
 node ios.js                  # the same walk in WebKit at iPhone size
+node layout.js               # every screen: headers centered, buttons one line
+                             #   --shots / --shots-all photograph into shots-layout/
 ```
 
 Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
@@ -81,6 +83,19 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
   WRAPPER `{course, gameType, nineMode, pool, ctx}`; `tripScoringCtx(t, r)`
   and `outingScoringCtx(o)` return the engine ctx directly. Using the wrong
   one throws "Cannot destructure property 'players' of 'ctx'".
+- **Headers (BZ, 2026-10-04): centered, buttons on one line.** A screen
+  header is written as `[buttons] <title> [buttons]` (`.fs-scr-hdr` +
+  `.fs-scr-title`, or a `.card-title` holding a button and a `<span>`
+  title, or `.sec-hdr`/`.day-card-hdr`, or any `data-hdr` + `data-hdr-title`).
+  `scrHdrWatch()` groups each one into `.scr-l` / title / `.scr-r` as it is
+  drawn, on a 3-column grid that centers the title on the screen; when the
+  title would be cut or off-center, `scrHdrFit()` stacks it above the buttons
+  (`.hdr-stack`). Never hand-center a header or shrink a label to fit:
+  `layout.js` fails any header off-center by more than 6px, any button label
+  on two lines and any button row that spills. List-group headers come from
+  `listSecHdr()`. Form field labels stay left.
+- Score-entry order (By Player / By Hole) lives in the info strip under the
+  scoring header, on Trip, Outing and League alike.
 - `computeSkins(ctx)` never decides whether skins are on. League shows skins
   only when `lg.skins`; trips always compute them. Always pass `skinsOn`.
 - Rule 30's helpers here: `leagueSessionCtx`, `liveRoundRows`,

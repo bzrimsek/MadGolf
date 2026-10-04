@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.19  Build 2026-10-03 04:37 PM ET
+     Version : v0.91.20  Build 2026-10-04 09:56 AM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.20  2026-10-04  Headers are centered and action buttons stay on one line on every screen.
 // v0.91.19  2026-10-03  Moved MadGolf to the Bottlefolio-style pipeline: push.py sends each build to a build branch and the cloud gate (audit, 2866 tests, lint, wiring…
 // v0.91.18  2026-08-29  Leaderboard image share for outings + trips (foursome keeps the scorecard).
 // v0.91.17  2026-08-29  Scorecard view + share.
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.13  2026-08-01  Live-scoring STEP 1 — arm a session/round live + multi-view publish + per-group scoring links.
 // v0.91.12  2026-08-01  Live-scoring STEP 0 — competitive/social flag on league sessions (format/competitiveness becomes a calendar property the live board can trust…
 // v0.91.11  2026-08-01  Phase A — live standings extended to TRIPS and OUTINGS.
-// v0.91.10  2026-08-01  Cross-consistency sweep (phase B) — drift guards for two-path status rendering, the class the Nassau hole popup slipped through.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -82,7 +82,7 @@ window.DEV_UID = 'QTKjcW0ArKPae2Y0uGicSKhwjnr1';
 /* ── 3-column field row (Nassau cost inputs) ─────────────────── */
 .field-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
 /* ── Section label (cart/team headings inside cards) ─────────── */
-.section-label{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--muted);margin:14px 0 7px;text-transform:uppercase;}
+.section-label{font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1.5px;color:var(--muted);margin:14px 0 7px;text-transform:uppercase;text-align:center;}
 
 /* ── Scorecard grid (course editor) ─────────────────────────── */
 .sc-grid{border-collapse:collapse;font-size:12px;width:100%;min-width:340px;}
@@ -97,7 +97,7 @@ window.DEV_UID = 'QTKjcW0ArKPae2Y0uGicSKhwjnr1';
 .sc-grid input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
 .sc-grid input[type=number]{-moz-appearance:textfield;}
 /* ── Holes toggle buttons ────────────────────────────────────── */
-.holes-toggle{padding:8px 18px;border-radius:8px;border:1.5px solid var(--surf3);background:var(--surf2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;user-select:none;-webkit-user-select:none;touch-action:manipulation;}
+.holes-toggle{padding:8px 14px;border-radius:8px;border:1.5px solid var(--surf3);background:var(--surf2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;user-select:none;-webkit-user-select:none;touch-action:manipulation;}
 .holes-toggle.active{background:var(--g800);color:var(--gold);border-color:var(--g800);}
 /* ── Course modal tab bar ────────────────────────────────────── */
 .course-tab-btn{flex:1;padding:8px;border:none;background:none;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;}
@@ -209,7 +209,7 @@ main{
   font-size:17px;letter-spacing:1px;
   color:var(--g800);
   margin-bottom:12px;
-  display:flex;align-items:center;justify-content:space-between;
+  display:flex;align-items:center;justify-content:center;text-align:center;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────── */
@@ -270,18 +270,47 @@ main{
 .round-lbl{font-size:13px;font-weight:700;color:var(--g800);margin-bottom:2px;}
 .round-sub{font-size:11px;color:var(--muted);}
 .round-actions{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+/* SCREEN HEADER: one row, the title centered on the SCREEN (BZ, 2026-10-04).
+   Three columns - buttons left of the title, the title, buttons right of it -
+   and the two side columns are equal, so the title sits on the middle of the
+   phone however many buttons each side holds. scrHdrGroups() puts each
+   header's buttons into .scr-l / .scr-r as it is drawn. Buttons in a header
+   are compact and never wrap; a long title is cut with an ellipsis instead. */
 .fs-scr-hdr{
-  display:flex;align-items:center;gap:6px;
-  padding:8px 12px;
+  /* A side never shrinks below its own buttons (a button is never cut or
+     squeezed); with room, the sides are equal and the title sits on the
+     screen's middle; without it, the title gives way with an ellipsis. */
+  display:grid;grid-template-columns:minmax(max-content,1fr) minmax(0,auto) minmax(max-content,1fr);
+  align-items:center;column-gap:6px;
+  padding:8px 10px;
   background:var(--surf);
   border-bottom:1px solid var(--surf3);
   flex-shrink:0;
 }
+/* The same header drawn as a .card-title (Foursome game screens). !important
+   because each of those carries an inline display:flex. */
+.scr-grid{display:grid !important;grid-template-columns:minmax(max-content,1fr) minmax(0,auto) minmax(max-content,1fr);column-gap:6px;}
+.scr-grid > .scr-t{text-align:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.scr-grid button,.scr-grid .btn,.scr-grid .btn-back,.scr-grid .btn-home{
+  white-space:nowrap;flex-shrink:0;padding:6px 8px;font-size:12px;line-height:1.1;gap:3px;
+}
+.scr-l,.scr-r{display:flex;align-items:center;gap:4px;min-width:0;}
+.list-sec{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:8px 4px 4px;text-align:center;}
+.list-sec.sticky{padding:6px 10px 4px;background:var(--surf2);position:sticky;top:0;}
+/* Crowded: title across the top, centered and whole; buttons below it. */
+.hdr-stack{grid-template-columns:1fr 1fr !important;grid-template-areas:"t t" "l r";row-gap:6px;}
+.hdr-stack > .fs-scr-title,.hdr-stack > .scr-t{grid-area:t;white-space:normal;}
+.hdr-stack > .scr-l{grid-area:l;} .hdr-stack > .scr-r{grid-area:r;}
+.scr-l{justify-content:flex-start;}
+.scr-r{justify-content:flex-end;}
 .fs-scr-title{
-  flex:1;text-align:center;
+  text-align:center;min-width:0;
   font-family:'Bebas Neue',sans-serif;font-size:15px;
   letter-spacing:1px;color:var(--g800);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.fs-scr-hdr button,.fs-scr-hdr .btn,.fs-scr-hdr .btn-back,.fs-scr-hdr .btn-home{
+  white-space:nowrap;flex-shrink:0;padding:6px 8px;font-size:12px;line-height:1.1;gap:3px;
 }
 .btn-danger{background:var(--red);color:#fff;}
 .btn-outline{background:none;border:1.5px solid var(--g800);color:var(--g800);}
@@ -337,8 +366,11 @@ main{
   max-height:90vh;overflow-y:auto;
   box-shadow:0 8px 40px rgba(0,0,0,.25);
 }
-.modal h2{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:var(--g800);margin-bottom:16px;}
+.modal h2{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1.5px;color:var(--g800);margin-bottom:16px;text-align:center;}
 .modal-actions{display:flex;gap:10px;margin-top:18px;justify-content:flex-end;}
+/* An action button's label is one line (BZ, 2026-10-04): "Close" broke onto
+   two lines in the History modal when flex squeezed it. */
+.modal-actions .btn{white-space:nowrap;}
 
 /* ── Confirm modal ─ z-index 300 above nav ───────────────────── */
 #confirmModal{z-index:300;}
@@ -436,7 +468,6 @@ input:checked+.slider:before{transform:translateX(20px);}
 .game-divider{height:1px;background:var(--surf3);margin:4px 0;}
 
 /* ── Foursome module ─────────────────────────────────────────── */
-.holes-toggle{padding:8px 14px;border-radius:8px;border:1.5px solid var(--surf3);background:var(--surf2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;user-select:none;touch-action:manipulation;}
 .holes-toggle.active{background:var(--g800);color:var(--gold);border-color:var(--g800);}
 .game-type-card{border:1.5px solid var(--surf3);border-radius:10px;padding:14px 16px;margin-bottom:10px;cursor:pointer;background:var(--surf);transition:all .2s;}
 .game-type-card:active{opacity:.8;}
@@ -595,7 +626,7 @@ input:checked+.slider:before{transform:translateX(20px);}
     </div>
 
     <!-- Version -->
-    <div class="card" style="background:var(--g800);color:#fff;margin-bottom:12px;">
+    <div class="card" style="background:var(--g800);color:#fff;margin-bottom:12px;text-align:center;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--gold);">MadGolf</div>
       <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;line-height:1.9;">
         Version <strong id="settingsVersion" style="color:#fff;">v0.63</strong>
@@ -1169,8 +1200,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.19';
-const BUILD_TIME = '2026-10-03 04:37 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.20';
+const BUILD_TIME = '2026-10-04 09:56 AM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -1705,8 +1736,8 @@ async function adminRenderTab() {
     </div>`;
   }).join('');
   adminTabEl.innerHTML = `
-    <div style="padding:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--surf3);background:var(--surf2);">
-      <div>
+    <div data-hdr style="padding:12px;display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--surf3);background:var(--surf2);">
+      <div data-hdr-title>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--g800);">MadGolf Admin</div>
         <div style="font-size:11px;color:var(--muted);">${users.length} registered user${users.length!==1?'s':''}</div>
       </div>
@@ -3342,7 +3373,7 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
 
   return `<div style="margin-bottom:20px;">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);
-         padding:8px 12px;background:${col};border-left:4px solid ${brd};border-radius:6px 6px 0 0;">
+         padding:8px 12px;background:${col};border-left:4px solid ${brd};border-radius:6px 6px 0 0;text-align:center;">
       ${esc(grp.label)}
       <span style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;letter-spacing:0;margin-left:6px;">${names}</span>
       ${extraHtml}
@@ -3525,6 +3556,73 @@ function fsEndGame(g) { g.status='complete'; g._scoring=false; g.completedDate=D
 // fsShow/fsHide/fsRender kept as named aliases so all call sites need no changes.
 function fsShow() { fsShowGameTab(); }
 function fsHide() { /* no-op: game lives in tab, closing handled by fsClose */ }
+/** Every screen header is [buttons] TITLE [buttons]; the CSS grid centers the
+ *  title on the screen only if each side is one box. This moves a header's
+ *  children into .scr-l (before the title) and .scr-r (after it). A watcher,
+ *  not a call in each renderer: 28 headers are drawn by many functions, some
+ *  outside fsRender, and a new one is covered without remembering to.
+ *  Mutation callbacks run before paint, so the ungrouped header never shows. */
+/** The header over a group in a list (REGULARS (8), OTHERS (3)). Six screens
+ *  each spelled this out for themselves with slightly different padding;
+ *  this is the one copy (rule 30d). Centered like every header (2026-10-04).
+ *  sticky: it stays at the top while the list under it scrolls. */
+function listSecHdr(label, sticky) {
+  return `<div class="list-sec${sticky ? ' sticky' : ''}">${label}</div>`;
+}
+
+function scrHdrGroup(h) {
+  if (h.dataset.grouped) return;
+  /* The Foursome game screens build the same header as a .card-title:
+     [button] <span>TITLE</span> [buttons]. A card title holding a button is
+     one of those, and gets the same layout; a plain-text one is left alone. */
+  /* Section headers (.sec-hdr: title + Add) and trip day cards
+     (.day-card-hdr: day + Round/remove) are the same shape again. */
+  const t = h.classList.contains('fs-scr-hdr') ? h.querySelector(':scope > .fs-scr-title')
+    : h.classList.contains('sec-hdr') ? h.querySelector(':scope > .sec-title')
+    : h.classList.contains('day-card-hdr') ? h.querySelector(':scope > .day-label')
+    : h.hasAttribute('data-hdr') ? h.querySelector(':scope > [data-hdr-title]')
+    : (h.querySelector(':scope > button') && [...h.children].find(c => c.tagName === 'SPAN'));
+  if (!t) return;
+  if (!h.classList.contains('fs-scr-hdr')) { h.classList.add('scr-grid'); t.classList.add('scr-t'); }
+  const l = document.createElement('div'), r = document.createElement('div');
+  l.className = 'scr-l'; r.className = 'scr-r';
+  let after = false;
+  [...h.children].forEach(c => { if (c === t) { after = true; return; } (after ? r : l).appendChild(c); });
+  h.insertBefore(l, t); h.appendChild(r);
+  h.dataset.grouped = '1';
+}
+/** One row where the title fits whole; where it would be cut, the title moves
+ *  above the buttons (BZ, 2026-10-04: crowded headers get a second row, and
+ *  nothing is cut or renamed). Measured only once the header is on screen -
+ *  a hidden tab has no width - and again when the phone turns. */
+function scrHdrFit(h) {
+  const t = h.querySelector(':scope > .fs-scr-title, :scope > .scr-t');
+  if (!t || !h.clientWidth) return;
+  h.classList.remove('hdr-stack');
+  // "Fits" means fits CENTERED: whole, and within 6px of the header's middle.
+  // Unequal buttons either side can leave a whole title off to one side.
+  const hr = h.getBoundingClientRect(), tr = t.getBoundingClientRect();
+  const off = Math.abs((tr.left + tr.right) / 2 - (hr.left + h.clientWidth / 2));
+  if (t.scrollWidth > t.clientWidth + 1 || t.clientWidth < 24 || off > 6) h.classList.add('hdr-stack');
+  h.dataset.fit = '1';
+}
+function scrHdrWatch() {
+  const sel = s => ['.fs-scr-hdr', '.card-title', '.sec-hdr', '.day-card-hdr', '[data-hdr]'].map(x => x + s).join(', ');
+  const run = () => {
+    document.querySelectorAll(sel(':not([data-grouped])')).forEach(scrHdrGroup);
+    document.querySelectorAll(sel('[data-grouped]:not([data-fit])')).forEach(scrHdrFit);
+  };
+  // Class changes too: a tab becoming active is when its headers get a width.
+  new MutationObserver(run).observe(document.body,
+    { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('resize', () => {
+    document.querySelectorAll(sel('[data-fit]')).forEach(h => { delete h.dataset.fit; });
+    run();
+  });
+  run();
+}
+document.addEventListener('DOMContentLoaded', scrHdrWatch);
+
 function fsRender(html, afterRender) {
   const el = document.getElementById('tab-game-content');
   if (!el) return;
@@ -3672,7 +3770,7 @@ function fsShowPlayerSelect() {
   const others   = [...S.players].filter(p => !p.regular).sort(byLastName);
   const guests   = window._fsGuests || [];
 
-  const secHdr = label => `<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:6px 10px 4px;background:var(--surf2);position:sticky;top:0;">${label}</div>`;
+  const secHdr = label => listSecHdr(label, true);
   const row = p => `<div class="check-item">
     <input type="checkbox" id="fsp_${p.id}" value="${p.id}" ${preCheck.has(p.id)?'checked':''}
       onchange="fsOnPlayerCheck()">
@@ -6910,7 +7008,7 @@ function outingRenderPlanCourse() {
     </div>`;
   };
 
-  const secHdr = lbl => `<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:10px 2px 5px;">${lbl}</div>`;
+  const secHdr = lbl => listSecHdr(lbl);
   const byName = (a,b) => a.name.localeCompare(b.name);
   const home     = allCourses.filter(cx=>cx.homeCourse).sort(byName);
   const fav      = allCourses.filter(cx=>cx.favorite && !cx.homeCourse).sort(byName);
@@ -6952,7 +7050,7 @@ function outingRenderPlanPlayers() {
   const regulars = allPlayers.filter(p=>p.regular);
   const others   = allPlayers.filter(p=>!p.regular);
   const _oc = fsGetCourse(o.courseId);
-  const secHdr = lbl => `<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:8px 4px 4px;">${lbl}</div>`;
+  const secHdr = lbl => listSecHdr(lbl);
   const row = p => `<div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--surf3);">
     <input type="checkbox" ${selected.has(p.id)?'checked':''} style="width:18px;height:18px;accent-color:var(--gold);cursor:pointer;"
       onchange="outingPlanTogglePlayer('${p.id}',this.checked)">
@@ -7384,7 +7482,7 @@ function outingPlayerSelect() {
   const others   = [...S.players].filter(p => !p.regular).sort(byLast);
   const guests   = window._outingGuests || [];
 
-  const secHdr = label => `<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:6px 10px 4px;background:var(--surf2);position:sticky;top:0;">${label}</div>`;
+  const secHdr = label => listSecHdr(label, true);
   const row = p => `<div class="check-item">
     <input type="checkbox" id="outp_${p.id}" value="${p.id}" ${preCheck.has(p.id)?'checked':''}
       onchange="outingOnPlayerCheck()">
@@ -8347,7 +8445,8 @@ function outingRebuildAdvance() {
   if (!body) return;
   _outingInputCache = buildScoringIndex(body, '.game-score-input', S.config.scoringAdvance||'post');
   // Update toggle button active states in place
-  const hdr = document.querySelector('.fs-scr-hdr');
+  // The toggles live in the info strip under the header, as on Trip.
+  const hdr = document.getElementById('tab-game-content');
   if (hdr) {
     hdr.querySelectorAll('.holes-toggle').forEach(btn => {
       if (btn.textContent.trim()==='By Player') btn.classList.toggle('active', (S.config.scoringAdvance||'post')==='post');
@@ -8424,14 +8523,12 @@ function outingRenderScoring(g) {
     <div class="fs-scr-hdr">
       <button class="btn-back" onclick="outingGoBackFromScoring()">&#8592; Hub</button>
       <span class="fs-scr-title">${fsGameTypeLabel(g.gameType)}</span>
-      <div style="display:flex;gap:4px;margin-left:auto;">
-        <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='post';scheduleWrite();outingRebuildAdvance();">By Player</button>
-        <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='live';scheduleWrite();outingRebuildAdvance();">By Hole</button>
-        <button class="btn btn-sm btn-gold" onclick="outingViewResults()" style="flex-shrink:0;">Results →</button>
-      </div>
+      <button class="btn btn-sm btn-gold" onclick="outingViewResults()" style="flex-shrink:0;">Results →</button>
     </div>
-    <div style="padding:4px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);">
-      ${esc(ctx.course.name)} · ${fsGameTypeLabel(g.gameType)}
+    <div style="padding:4px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;">
+      <span style="flex:1;">${esc(ctx.course.name)} · ${fsGameTypeLabel(g.gameType)}</span>
+      <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='post';scheduleWrite();outingRebuildAdvance();">By Player</button>
+      <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='live';scheduleWrite();outingRebuildAdvance();">By Hole</button>
     </div>
     <div style="padding:8px 12px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0;">
       <div style="display:flex;gap:6px;flex-wrap:wrap;flex:1;">${groupPills}</div>
@@ -8537,14 +8634,12 @@ function outingRenderTeamScoring(g, course) {
     <div class="fs-scr-hdr">
       <button class="btn-back" onclick="outingGoBackFromScoring()">&#8592; Hub</button>
       <span class="fs-scr-title">${fsGameTypeLabel(g.gameType)}</span>
-      <div style="display:flex;gap:4px;margin-left:auto;">
-        <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='post';scheduleWrite();outingRebuildAdvance();">By Player</button>
-        <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='live';scheduleWrite();outingRebuildAdvance();">By Hole</button>
-        <button class="btn btn-sm btn-gold" onclick="outingViewResults()" style="flex-shrink:0;">Results →</button>
-      </div>
+      <button class="btn btn-sm btn-gold" onclick="outingViewResults()" style="flex-shrink:0;">Results →</button>
     </div>
-    <div style="padding:4px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);">
-      ${esc(ctx.course.name)} · ${fsGameTypeLabel(g.gameType)}
+    <div style="padding:4px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;">
+      <span style="flex:1;">${esc(ctx.course.name)} · ${fsGameTypeLabel(g.gameType)}</span>
+      <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='post';scheduleWrite();outingRebuildAdvance();">By Player</button>
+      <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='live';scheduleWrite();outingRebuildAdvance();">By Hole</button>
     </div>
     <div style="padding:8px 12px 0;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex-shrink:0;">
       <div style="display:flex;gap:6px;flex-wrap:wrap;flex:1;">${groupPills}</div>
@@ -8718,7 +8813,7 @@ function outingRenderResults(g, r) {
     const gameLabel = fsGameTypeLabel(g.gameType);
     const gt2 = g.gameType;
     const isLN = gt2 === 'lownet' || gt2 === 'gross';
-    let teamHtml = `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin-bottom:8px;">Team Results</div>`;
+    let teamHtml = `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin-bottom:8px;text-align:center;">Team Results</div>`;
     r.teamData.forEach((team, rank) => {
       const isWinner = rank === 0;
       const vsStr = isLN
@@ -8736,7 +8831,7 @@ function outingRenderResults(g, r) {
       </div>`;
     });
     // Then show individual results below
-    const indivLabel = `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin:12px 0 8px;">Individual</div>`;
+    const indivLabel = `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin:12px 0 8px;text-align:center;">Individual</div>`;
     // Fall through to render individual section after team section
     const teamSection = teamHtml + indivLabel;
     // Inject at top of results
@@ -9031,7 +9126,7 @@ function outingRenderTeamResults(g, r) {
     const border = borderColors[gi%6];
     scHtml += `<div style="margin-bottom:12px;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;
-        padding:6px 10px;background:${color};border-left:3px solid ${border};border-radius:4px 4px 0 0;">
+        padding:6px 10px;background:${color};border-left:3px solid ${border};border-radius:4px 4px 0 0;text-align:center;">
         GROUP ${gi+1} <span style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;letter-spacing:0;margin-left:6px;">${grpPlayers.map(p=>esc(p.name)).join(', ')}</span>
       </div>
       <div style="overflow-x:auto;border:1px solid var(--surf3);border-top:none;border-radius:0 0 4px 4px;">
@@ -9395,7 +9490,7 @@ function renderRoster() {
     </div>`;
   };
 
-  const sectionLabel = txt => `<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:8px 4px 4px;">${txt}</div>`;
+  const sectionLabel = txt => listSecHdr(txt);
   let html = '';
   if (regulars.length) { html += sectionLabel(`REGULARS (${regulars.length})`); html += hdr + regulars.map(playerRow).join(''); }
   if (others.length)   { html += sectionLabel(`OTHERS (${others.length})`);     html += hdr + others.map(playerRow).join(''); }
@@ -10646,7 +10741,7 @@ function tripRenderListScreen() {
     };
     if (active.length) html += active.map(tripRow).join('');
     if (past.length) {
-      html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;color:var(--muted);margin:14px 0 6px;">PAST TRIPS</div>`;
+      html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;color:var(--muted);margin:14px 0 6px;text-align:center;">PAST TRIPS</div>`;
       html += past.map(tripRow).join('');
     }
     html += '<div style="height:24px;"></div>';
@@ -11880,7 +11975,7 @@ function renderRoundResultsHtml(res,skins,ctx){
   const tbl = (hdr,body) => `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;"><thead><tr style="border-bottom:2px solid var(--surf3);">${hdr}</tr></thead><tbody>${body}</tbody></table>`;
   const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1;
 
-  const secHdr = txt => `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin:12px 0 6px;padding-bottom:3px;border-bottom:1px solid var(--surf3);">${txt}</div>`;
+  const secHdr = txt => `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin:12px 0 6px;padding-bottom:3px;border-bottom:1px solid var(--surf3);text-align:center;">${txt}</div>`;
 
   if(res.type==='scramble'){
     html+=secHdr('Team Net Scores');
@@ -11940,7 +12035,7 @@ function tripRenderResultsScreen(){
 
   // ── Trip leaderboard ──────────────────────────────────────────
   html+=`<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="tripShareLive()">📡 Go Live & share links</button><button class="btn btn-sm btn-outline" style="margin-bottom:10px;margin-left:8px;" onclick="tripShareLeaderboard()">📤 Text leaderboard</button>`;
-  html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;margin-bottom:10px;">Trip Leaderboard</div>`;
+  html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;text-align:center;margin-bottom:10px;">Trip Leaderboard</div>`;
   const board=tripLeaderboard();
   if(board.length){
     const hasTeam=board.some(e=>e.teamWins>0);
@@ -11974,14 +12069,14 @@ function tripRenderResultsScreen(){
   const aggSkins={};players.forEach(p=>{aggSkins[p.id]=0;});
   days.forEach(d=>{const dr=t.days&&t.days[d];if(!dr)return;(dr.rounds||[]).forEach(r=>{if(!r.completed||isTeamFormat(r.format))return;const ctx=tripScoringCtx(t,r);if(!ctx)return;const s=computeSkins(ctx);if(s.type==='individual')Object.entries(s.wins).forEach(([id,cnt])=>{aggSkins[id]=(aggSkins[id]||0)+cnt;});});});
   if(players.some(p=>aggSkins[p.id]>0)){
-    html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;margin:4px 0 10px;">Trip Skins</div>`;
+    html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;text-align:center;margin:4px 0 10px;">Trip Skins</div>`;
     let skRows='';
     [...players].sort((a,b)=>(aggSkins[b.id]||0)-(aggSkins[a.id]||0)).forEach(p=>{if(aggSkins[p.id]>0)skRows+=`<tr style="border-bottom:1px solid var(--surf3);"><td style="padding:7px 6px;font-weight:600;">${esc(p.name)}</td><td style="padding:7px 6px;text-align:center;font-weight:700;color:var(--gold);">${aggSkins[p.id]}</td></tr>`;});
     html+=`<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;"><thead><tr style="border-bottom:2px solid var(--surf3);"><th style="padding:5px 6px;font-size:11px;color:var(--muted);font-weight:700;text-align:left;">Player</th><th style="padding:5px 6px;font-size:11px;color:var(--muted);font-weight:700;text-align:center;">Skins</th></tr></thead><tbody>${skRows}</tbody></table>`;
   }
 
   // ── Per-round results ─────────────────────────────────────────
-  html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;margin:4px 0 10px;">Round Results</div>`;
+  html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;text-align:center;margin:4px 0 10px;">Round Results</div>`;
   let anyDone=false;
   days.forEach((dateStr,di)=>{
     const dr=t.days&&t.days[dateStr];if(!dr)return;
@@ -11992,15 +12087,12 @@ function tripRenderResultsScreen(){
       const ctx=tripScoringCtx(t,r);if(!ctx)return;
       const res=computeRoundResults(ctx);const skins=computeSkins(ctx);
       html+=`<div class="day-card" style="margin-bottom:12px;">
-        <div class="day-card-hdr" style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="day-card-hdr" style="display:block;text-align:center;">
           <div>
             ${tripFmtBadge(r.format,r.championship)}
             <span class="day-label" style="font-size:14px;margin-left:4px;">Day ${di+1} — ${esc(r.label)}</span>
           </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px;color:rgba(255,255,255,.6);">${esc(co.name)}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.5);">${tripFmtShort(dateStr)}</div>
-          </div>
+          <div style="font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;">${esc(co.name)} · ${tripFmtShort(dateStr)}</div>
         </div>
         <div style="padding:10px 12px;">
           ${renderRoundResultsHtml(res,skins,ctx)}
@@ -13108,7 +13200,7 @@ function leagueRenderRSVP() {
   const nOut=Object.values(rsvp).filter(v=>(v||{}).status==='out').length;
   const nMay=Object.values(rsvp).filter(v=>(v||{}).status==='maybe').length;
 
-  const secHdr=lbl=>`<div style="font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;padding:8px 4px 4px;">${lbl}</div>`;
+  const secHdr=lbl=>listSecHdr(lbl);
   const nonRegulars=(S.players||[]).filter(p=>!p.regular).sort((a,b)=>lastNameOf(a.name).localeCompare(lastNameOf(b.name)));
   const row=p=>{
     const pr=rsvp[p.id]||{status:'out',earliest:tts[0]||''};
@@ -13787,14 +13879,12 @@ function _leagueDoScoring(lg,s) {
     <div class="fs-scr-hdr">
       <button class="btn-back" onclick="scheduleWrite();leagueRenderGameType()">&#8592; Type</button>
       <span class="fs-scr-title">SCORING</span>
-      <div style="display:flex;gap:4px;margin-left:auto;">
-        <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='post';scheduleWrite();_leagueDoScoring(leagueCurrent(),leagueCurrentSession());">By Player</button>
-        <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='live';scheduleWrite();_leagueDoScoring(leagueCurrent(),leagueCurrentSession());">By Hole</button>
-        <button class="btn btn-sm btn-gold" onclick="leagueRenderResults()" style="flex-shrink:0;">Results &rarr;</button>
-      </div>
+      <button class="btn btn-sm btn-gold" onclick="leagueRenderResults()" style="flex-shrink:0;">Results &rarr;</button>
     </div>
-    <div style="padding:4px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);">
-      ${esc(c.name)} · ${fsGameTypeLabel(gameType)} · ${nineLabel(s.nineSide||'all')}
+    <div style="padding:4px 12px;background:var(--surf2);border-bottom:1px solid var(--surf3);flex-shrink:0;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;">
+      <span style="flex:1;">${esc(c.name)} · ${fsGameTypeLabel(gameType)} · ${nineLabel(s.nineSide||'all')}</span>
+      <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='post'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='post';scheduleWrite();_leagueDoScoring(leagueCurrent(),leagueCurrentSession());">By Player</button>
+      <button type="button" class="holes-toggle ${(S.config.scoringAdvance||'post')==='live'?'active':''}" style="font-size:10px;padding:2px 7px;" onclick="S.config.scoringAdvance='live';scheduleWrite();_leagueDoScoring(leagueCurrent(),leagueCurrentSession());">By Hole</button>
     </div>
     <div style="padding:8px 12px 0;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;flex-shrink:0;">
       <div style="display:flex;gap:6px;flex-wrap:wrap;flex:1;">${groupPills}</div>

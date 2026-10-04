@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.20  ·  2026-10-04 09:56 AM ET
+
+Headers are centered and action buttons stay on one line on every screen. Screen titles sit in the middle of the phone; where the buttons leave no room the title moves onto its own row above them instead of being cut off. Button labels no longer wrap (+ Guest, Groups, Close) and Next on New Foursome is no longer cut off at the edge. By Player and By Hole moved into the strip under the scoring header on Outing and League, as on Trip, which had pushed the Low Net title off the screen. Modal titles, card and section titles, list group headers, trip leaderboard sections and the Admin and version cards are centered. The list group header is one shared helper instead of seven copies. New check layout.js fails any header off-center or any button label on two lines.
+
 ## v0.91.19  ·  2026-10-03 04:37 PM ET
 
 Moved MadGolf to the Bottlefolio-style pipeline: push.py sends each build to a build branch and the cloud gate (audit, 2866 tests, lint, wiring checks, and a 28-step walk in Chromium and WebKit) must pass before the site moves. Fixed: score.html's minus and plus buttons never saved a score; a History scorecard was typeable and wrote into the game in progress; Outing Refresh GHIN and Settings' bulk GHIN refresh called functions that never existed; Nassau banners kept No scores yet during scoring; a finished outing's hub said Set up players; the admin registry was written before the account loaded; the sign-in fallback and file:// dev sign-in never ran because init() was not called. Stableford now ranks by plus/minus quota in every module (BZ), so past league sessions re-rank.

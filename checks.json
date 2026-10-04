@@ -74,6 +74,15 @@
         "app",
         "worker"
       ]
+    },
+    {
+      "name": "layout",
+      "harness": "layout.js",
+      "secs": 45,
+      "reaches": [
+        "app"
+      ],
+      "note": "every screen at 390px: headers centered, no button label on two lines, no button row spilling (BZ, 2026-10-04)"
     }
   ]
 }

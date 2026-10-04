@@ -25,7 +25,7 @@ BY_NAME = {c['name']: c for c in TABLE['checks']}
 
 # The grouping. consistency.js fails if a check in checks.json is in neither.
 FAST = [['audit', 'tests'], ['lint', 'consistency']]
-SLOW = [['walk', 'ios']]   # ['rules'] joins once the MadGolf admin key exists (CLAUDE.md)
+SLOW = [['walk', 'ios', 'layout']]   # ['rules'] joins once the MadGolf admin key exists (CLAUDE.md)
 
 # A harness that ends without its pass line did not pass, whatever its exit
 # code: a skip is not a pass, and a harness that stopped early says nothing.
@@ -35,6 +35,7 @@ MUST_SAY = {
     'consistency': 'consistency checks pass',
     'walk': 'walk passed',
     'ios': 'ios passed',
+    'layout': 'layout passed: headers centered',
     'rules': 'all rules checks pass',
 }
 
