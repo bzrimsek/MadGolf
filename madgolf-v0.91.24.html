@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.23  Build 2026-10-05 02:42 PM ET
+     Version : v0.91.24  Build 2026-10-05 02:58 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.24  2026-10-05  Fixed: the Text button for each group's scoring link on the live share sheet did nothing.
 // v0.91.23  2026-10-05  New Settings button, Test live scoring: one tap makes a throwaway Test Trip (you plus three regulars, your home course, one round today, already…
 // v0.91.22  2026-10-05  Nine holes always play off half the handicap index, as WHS says.
 // v0.91.21  2026-10-05  Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from…
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.17  2026-08-29  Scorecard view + share.
 // v0.91.16  2026-08-07  Live board — the FULL game, no cop-out (open items 1-5).
 // v0.91.15  2026-08-01  Two outing fixes from on-device testing.
-// v0.91.14  2026-08-01  Live-scoring STEPS 2 + 3 — web score entry (score.html) + monitor merge.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -1220,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.23';
-const BUILD_TIME = '2026-10-05 02:42 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.24';
+const BUILD_TIME = '2026-10-05 02:58 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -14448,7 +14448,11 @@ async function unitShareLive(kind, ev, unit) {
           return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--surf3);">
             <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">${esc(g.label)}</div>
             <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(who)}</div></div>
-            <button class="btn btn-sm btn-gold" onclick="liveTextScore('${url}',${JSON.stringify(g.label)})">Text</button></div>`;
+            <button class="btn btn-sm btn-gold" data-url="${encodeURIComponent(url)}" data-label="${esc(g.label)}" onclick="liveTextScore(decodeURIComponent(this.dataset.url),this.dataset.label)">Text</button></div>`;
+          /* Data fields, never JSON.stringify, inside onclick="...": its double
+             quotes ended the attribute, so this button did nothing on BZ's
+             phone (2026-10-05). The link is URL-encoded, not esc()'d - esc
+             strips '&', which would break ?id=..&g=.. */
         }).join('')
     : '<div style="font-size:11px;color:var(--muted);">Assign groups to generate per-foursome scoring links.</div>';
   openModal('liveShareModal');

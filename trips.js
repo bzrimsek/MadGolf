@@ -733,6 +733,15 @@ async function main() {
     expect(sid, 'the share sheet did not open with a live link');
     const links = await page.locator('#liveShareGroups button:has-text("Text")').count();
     expect(links === 1, links + ' scoring links, expected 1 (one group)');
+    // TAP Text, as BZ did: the button must hand liveTextScore a whole scoring
+    // link and the group's name. Counting the button was not enough - it was
+    // there and dead (2026-10-05). The SMS hand-off itself is the phone's.
+    await page.evaluate(() => { window.__sms = null; window.liveTextScore = (u, l) => { window.__sms = { u, l }; }; });
+    await page.locator('#liveShareGroups button:has-text("Text")').first().click(); await pause(page, 200);
+    const sms = await page.evaluate(() => window.__sms);
+    expect(sms, 'tapping Text did nothing - the button never reached liveTextScore');
+    expect(/score\.html\?id=[a-z0-9]+&g=0$/.test(sms.u), 'Text would send a broken link: ' + sms.u);
+    expect(sms.l === 'Test group', 'Text would label the link "' + sms.l + '"');
     await tap(page, '#liveShareModal button:has-text("Done")');
     const t = await tripNow(page);
     expect(t && t.destination === 'Test Trip' && t.players.length === 4, 'no 4-player Test Trip was made');

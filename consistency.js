@@ -85,6 +85,27 @@ const defined = new Set(fns.map(f => f.name));
   if (!missing.length) pass(names.size + ' handler functions, all defined');
 }
 
+/* ── 2b. No JSON.stringify inside an inline handler ─────────────────── */
+/* onclick="f(${JSON.stringify(x)})" writes double quotes into a double-quoted
+   attribute, which ends it: the button does nothing and logs a syntax error
+   nobody sees. It shipped twice - score.html's +/- buttons (2026-10-03) and
+   the live share sheet's Text buttons (2026-10-05). Every page is read. */
+{
+  const pages = ['index.html', 'live.html', 'score.html', 'rsvp.html'];
+  const r = /\bon[a-z]+\s*=\s*"[^"]*\$\{\s*JSON\.stringify\(/g;
+  let n = 0;
+  pages.forEach(f => {
+    const src = f === 'index.html' ? html : (read(f) || '');
+    let m;
+    while ((m = r.exec(src))) {
+      n++;
+      fail(f + ':' + src.slice(0, m.index).split('\n').length
+        + ' puts JSON.stringify inside a double-quoted handler - its quotes end the attribute; pass data-* fields instead');
+    }
+  });
+  if (!n) pass('no handler builds its arguments with JSON.stringify');
+}
+
 /* ── 3. getElementById names an id the file can produce ─────────────── */
 /* An id looked up and never declared is a feature that silently does
    nothing (the `if (el)` guard swallows it). Declared means anywhere: static

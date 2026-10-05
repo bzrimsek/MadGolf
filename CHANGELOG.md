@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.24  ·  2026-10-05 02:58 PM ET
+
+Fixed: the Text button for each group's scoring link on the live share sheet did nothing. Its onclick wrote the group's name with JSON.stringify, whose double quotes ended the attribute; it now passes the link and name as data fields, with the link URL-encoded so its &g= survives. The trip simulator now taps Text instead of only counting it, and a new wiring check fails any JSON.stringify inside an inline handler on every page - this fault had shipped twice.
+
 ## v0.91.23  ·  2026-10-05 02:42 PM ET
 
 New Settings button, Test live scoring: one tap makes a throwaway Test Trip (you plus three regulars, your home course, one round today, already paired), puts it live and opens the share sheet with the board link and the group's scoring link, so live scoring can be tried without setting up a trip. Delete Test Trip from Trips afterwards.
