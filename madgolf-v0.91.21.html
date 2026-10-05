@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.20  Build 2026-10-04 09:56 AM ET
+     Version : v0.91.21  Build 2026-10-05 01:19 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.21  2026-10-05  Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from…
 // v0.91.20  2026-10-04  Headers are centered and action buttons stay on one line on every screen.
 // v0.91.19  2026-10-03  Moved MadGolf to the Bottlefolio-style pipeline: push.py sends each build to a build branch and the cloud gate (audit, 2866 tests, lint, wiring…
 // v0.91.18  2026-08-29  Leaderboard image share for outings + trips (foursome keeps the scorecard).
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.14  2026-08-01  Live-scoring STEPS 2 + 3 — web score entry (score.html) + monitor merge.
 // v0.91.13  2026-08-01  Live-scoring STEP 1 — arm a session/round live + multi-view publish + per-group scoring links.
 // v0.91.12  2026-08-01  Live-scoring STEP 0 — competitive/social flag on league sessions (format/competitiveness becomes a calendar property the live board can trust…
-// v0.91.11  2026-08-01  Phase A — live standings extended to TRIPS and OUTINGS.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -1071,6 +1071,19 @@ input:checked+.slider:before{transform:translateX(20px);}
         <option value="321">3-2-1</option>
       </select>
     </div>
+    <div class="field" id="rm-twoman-row"><label>2-Man Game (on top of the round)</label>
+      <select id="rm-twoman" style="width:100%;padding:10px 12px;border:1.5px solid var(--surf3);border-radius:8px;font-size:14px;" onchange="tripOnFmtChg()">
+        <option value="">None</option>
+        <option value="bestball">2-man best ball (net)</option>
+        <option value="stableford">2-man Stableford</option>
+      </select>
+    </div>
+    <div class="field" id="rm-twoman-sf-row" style="display:none;"><label>2-Man Stableford team score</label>
+      <select id="rm-twoman-sf" style="width:100%;padding:10px 12px;border:1.5px solid var(--surf3);border-radius:8px;font-size:14px;">
+        <option value="better">Better ball</option>
+        <option value="aggregate">Both added</option>
+      </select>
+    </div>
     <div class="field"><label>Nine Mode</label>
       <select id="rm-nine" style="width:100%;padding:10px 12px;border:1.5px solid var(--surf3);border-radius:8px;font-size:14px;">
         <option value="all">18 Holes</option>
@@ -1200,8 +1213,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.20';
-const BUILD_TIME = '2026-10-04 09:56 AM ET';  // written by bump.py
+const APP_VERSION = '0.91.21';
+const BUILD_TIME = '2026-10-05 01:19 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3060,15 +3073,24 @@ async function ghinFetchForGame(players, onDone) {
  * }
  */
 function buildScoringCtx(players, course, nineMode, scores, groups, format, settings) {
-  const activeHoles = getActiveHoles(course, nineMode).map(h => ({
-    ...h, hcpRating: h.hcpRating ?? h.hcp ?? 0
+  /* A NINE OFF AN 18-HOLE COURSE (trips.js, 2026-10-05). Two things change:
+     the holes are re-ranked 1-9 so strokes fall on the nine's hardest holes
+     (as outingScoringCtx always did), and the course handicap uses the par of
+     the nine PLAYED. The 18-hole par went into the 9-hole formula, which gave
+     a 10 handicap -31 on a nine and added ~36 to every 9-hole round. */
+  const activeHolesRaw = getActiveHoles(course, nineMode);
+  const rankMap        = effectiveHcpRatings(course, activeHolesRaw);
+  const activeHoles = activeHolesRaw.map(h => ({
+    ...h, hcpRating: rankMap ? (rankMap[h.num] ?? 0) : (h.hcpRating ?? h.hcp ?? 0)
   }));
   const is9             = activeHoles.length === 9;
   const hcpScale        = activeHoles.length || 18;
   const strokeAllowance = (settings && settings.strokeAllowance) || 100;
+  const playedPar       = activeHoles.reduce((a, h) => a + (h.par || 0), 0);
   const withCH = (players || []).map(p => ({
     ...p,
-    courseHcp: courseHandicap(p.hcp || 0, p.teeSlope ?? (course.slope || 113), p.teeRating ?? (course.rating || 72), p.teePar ?? coursePar(course), strokeAllowance, is9)
+    courseHcp: courseHandicap(p.hcp || 0, p.teeSlope ?? (course.slope || 113), p.teeRating ?? (course.rating || 72),
+      is9 ? playedPar : (p.teePar ?? coursePar(course)), strokeAllowance, is9)
   }));
   return {
     players: withCH, course, activeHoles, hcpScale, is9, nineMode,
@@ -11293,6 +11315,9 @@ function tripOpenRoundModal(dayIdx, rndIdx) {
   setVal('rm-label',  ex ? ex.label   : '');
   setVal('rm-format', ex ? ex.format  : 'stroke');
   setVal('rm-nine',   ex ? ex.nineMode: 'all');
+  setVal('rm-twoman',    ex && ex.twoMan ? ex.twoMan.game : '');
+  setVal('rm-twoman-sf', (ex && ex.twoMan && ex.twoMan.sfMode) || 'better');
+  tripOnFmtChg();
   setVal('rm-result', ex ? (ex.resultMethod || 'best2') : 'best2');
   setChk('rm-champ',  ex && ex.championship);
   tripOnFmtChg();
@@ -11309,6 +11334,12 @@ function tripOnFmtChg() {
   const f   = (document.getElementById('rm-format') || {}).value;
   const row = document.getElementById('rm-result-row');
   if (row) row.style.display = f === 'shamble' ? '' : 'none';
+  // The 2-man game lays over an individual round only: a team format is already a team game.
+  const indiv = f === 'stroke' || f === 'stableford';
+  const tm = document.getElementById('rm-twoman-row');
+  if (tm) tm.style.display = indiv ? '' : 'none';
+  const sf = document.getElementById('rm-twoman-sf-row');
+  if (sf) sf.style.display = indiv && (document.getElementById('rm-twoman') || {}).value === 'stableford' ? '' : 'none';
 }
 function tripRenderRoundTTsHtml(){if(!_tripRoundTTs.length)return'<div style="font-size:12px;color:var(--muted);">No tee times added.</div>';return _tripRoundTTs.map((tt,i)=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;"><span style="flex:1;font-size:13px;font-weight:600;">${esc(tt)}</span><button type="button" class="btn btn-sm btn-outline" style="font-size:11px;padding:4px 8px;" onclick="tripRemoveTT(${i})">&#x2715;</button></div>`).join('');}
 function tripAddTeeTime(){const inp=document.getElementById('rm-newtt');if(!inp||!inp.value)return;_tripRoundTTs.push(tripFmt12hr(inp.value));const[hh,mm]=inp.value.split(':').map(Number);const next=new Date(2000,0,1,hh,mm+10);inp.value=String(next.getHours()).padStart(2,'0')+':'+String(next.getMinutes()).padStart(2,'0');const c=document.getElementById('rm-teetimes');if(c)c.innerHTML=tripRenderRoundTTsHtml();}
@@ -11323,15 +11354,17 @@ function tripSaveRound() {
   const nine   = (document.getElementById('rm-nine')    || {}).value || 'all';
   const champ  = !!(document.getElementById('rm-champ') || {}).checked;
   const rm     = format === 'shamble' ? ((document.getElementById('rm-result') || {}).value || 'best2') : null;
+  const tmGame = (format === 'stroke' || format === 'stableford') ? ((document.getElementById('rm-twoman') || {}).value || '') : '';
+  const twoMan = tmGame ? { game: tmGame, sfMode: tmGame === 'stableford' ? ((document.getElementById('rm-twoman-sf') || {}).value || 'better') : null } : null;
   if (!t.days) t.days = {};
   const { dayIdx, rndIdx, dateStr } = ctx;
   if (!t.days[dateStr]) t.days[dateStr] = { rounds: [] };
   const rounds = t.days[dateStr].rounds;
   if (rndIdx != null && rounds[rndIdx]) {
-    Object.assign(rounds[rndIdx], { label: label || format, courseId, format, nineMode: nine, championship: champ, teeTimes: [..._tripRoundTTs], resultMethod: rm });
+    Object.assign(rounds[rndIdx], { label: label || format, courseId, format, nineMode: nine, championship: champ, teeTimes: [..._tripRoundTTs], resultMethod: rm, twoMan });
   } else {
     if (rounds.length >= 2) return toast('Max 2 rounds per day');
-    rounds.push({ id: uid(), label: label || format, courseId, format, nineMode: nine, championship: champ, teeTimes: [..._tripRoundTTs], resultMethod: rm, groups: [], scores: {}, borrows: [], completed: false });
+    rounds.push({ id: uid(), label: label || format, courseId, format, nineMode: nine, championship: champ, teeTimes: [..._tripRoundTTs], resultMethod: rm, twoMan, groups: [], scores: {}, borrows: [], completed: false });
   }
   closeModal('roundModal');
   scheduleWrite();
@@ -11486,6 +11519,67 @@ function tripSetDefaultTee(teeId) {
   else r.defaultTee=teeId;
   scheduleWrite(); tripRenderRoundGroupsScreen();
 }
+/** The round's 2-man teams on the groups screen: each foursome's two teams,
+ *  a Re-pair button that steps through its three pairings, teams made across
+ *  groups, and anyone without a partner. Empty when the round has no 2-man game. */
+function tripTwoManCardHtml(t, r) {
+  if (!r.twoMan || !r.twoMan.game) return '';
+  const ctx = tripScoringCtx(t, r); if (!ctx || !ctx.groups.length) return '';
+  const { teams, unpaired } = tripTwoManTeams(ctx, r);
+  const name = pid => esc(lastName(pid));
+  const pair = x => x.pids.map(name).join(' / ');
+  let h = '<div class="card" style="margin-bottom:8px;">' + listSecHdr((r.twoMan.game === 'bestball' ? '2-MAN BEST BALL' : '2-MAN STABLEFORD') + ' TEAMS');
+  ctx.groups.forEach((g, gi) => {
+    const mine = teams.filter(x => x.gi === gi); if (!mine.length) return;
+    const four = (g.playerIds || []).length === 4;
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--surf3);">'
+      + '<span style="flex:1;font-size:13px;text-transform:capitalize;">' + mine.map(pair).join(' &nbsp;&middot;&nbsp; ') + '</span>'
+      + (four ? '<button class="btn btn-sm btn-outline" onclick="tripTwoManRepair(' + gi + ')">Re-pair</button>' : '') + '</div>';
+  });
+  teams.filter(x => x.gi === null).forEach(x => {
+    h += '<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--surf3);text-transform:capitalize;">' + pair(x)
+      + ' <span style="color:var(--muted);font-size:11px;">(across groups)</span></div>';
+  });
+  if (unpaired.length) h += '<div style="font-size:12px;color:var(--muted);padding-top:6px;text-transform:capitalize;">No partner today: ' + unpaired.map(name).join(', ') + '</div>';
+  return h + '</div>';
+}
+/** Step a foursome to its next pairing (three in all, then back to the first). */
+/** The 2-man result as board rows {pos, name, primary, secondary} - the one
+ *  shape both the round's results screen and the live board draw, so the two
+ *  cannot disagree. */
+function tripTwoManRows(res, holes) {
+  if (!res) return [];
+  const vsPar = n => n === 0 ? 'E' : (n > 0 ? '+' + n : '' + n);
+  // Surnames as written: these rows also go to live.html, which has none of
+  // the app's CSS that capitalises lastName()'s lowercase sort keys.
+  const surname = pid => { const n = ((fsPlayerById(pid) || {}).name || '?').trim();
+    return n.includes(',') ? n.split(',')[0].trim() : n.split(/\s+/).pop(); };
+  return res.rows.map(x => ({
+    pos: x.pos == null ? '' : x.pos,
+    name: x.pids.map(surname).join(' / '),
+    primary: !x.thru ? '—' : res.game === 'bestball' ? vsPar(x.score) : x.score + ' pts',
+    secondary: !x.thru ? 'not started' : x.thru < holes ? 'thru ' + x.thru : 'F'
+  }));
+}
+/** The 2-man section of a round's results screen. */
+function tripTwoManResultsHtml(r, ctx) {
+  const res = tripTwoManResults(ctx, r); if (!res) return '';
+  const title = res.game === 'bestball' ? '2-Man Best Ball' : '2-Man Stableford' + (res.sfMode === 'aggregate' ? ' (both added)' : ' (better ball)');
+  const rows = tripTwoManRows(res, ctx.activeHoles.length);
+  return '<div style="font-family:Bebas Neue,sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;text-align:center;margin:16px 0 8px;">' + title + '</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:13px;"><tbody>'
+    + rows.map(x => '<tr style="border-bottom:1px solid var(--surf3);"><td style="padding:7px 6px;text-align:center;color:var(--muted);font-size:12px;">' + x.pos
+      + '</td><td style="padding:7px 6px;font-weight:600;">' + esc(x.name) + '</td><td style="padding:7px 6px;text-align:center;font-weight:700;">' + x.primary
+      + '</td><td style="padding:7px 6px;text-align:center;color:var(--muted);font-size:11px;">' + x.secondary + '</td></tr>').join('')
+    + '</tbody></table>'
+    + (res.unpaired.length ? '<div style="font-size:11px;color:var(--muted);margin-top:4px;text-transform:capitalize;">No partner: ' + res.unpaired.map(lastName).map(esc).join(', ') + '</div>' : '');
+}
+function tripTwoManRepair(gi) {
+  const r = tripGetPairingRound(); if (!r) return;
+  r.pairPick = r.pairPick || {};
+  r.pairPick[gi] = ((r.pairPick[gi] || 0) + 1) % 3;
+  scheduleWrite(); tripRenderRoundGroupsScreen();
+}
 function tripRenderRoundGroupsScreen(){
   const t=tripActive();if(!t){tripGoScreen('list');return;}
   const r=tripGetPairingRound();if(!r){tripGoScreen('pairings');return;}
@@ -11511,6 +11605,7 @@ function tripRenderRoundGroupsScreen(){
     else{gp.forEach(p=>{body+=`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--surf3);"><span style="flex:1;font-size:13px;">${esc(p.name)}${managerSet.has(p.id)?' &#9733;':''}</span>${teePickerHtml(p.id, (r.playerTees&&r.playerTees[p.id])||r.defaultTee, _tc, 'tripSetPlayerTee')}<select data-pid="${p.id}" data-gi="${gi}" data-action="move" style="font-size:11px;border:1px solid var(--surf3);border-radius:6px;padding:3px 5px;"><option value="">Move&hellip;</option>${groups.map((og,oi)=>{if(oi===gi)return'';if((og.playerIds||[]).length>=4)return'';return`<option value="${oi}">${grpLabel(oi)}</option>`;}).join('')}<option value="unassign">Unassign</option></select></div>`;});}
     body+='</div>';
   });
+  body+=tripTwoManCardHtml(t,r);
   if(!groups.length)body+='<div style="font-size:13px;color:var(--muted);text-align:center;padding:16px;">Tap Generate to create groups.</div>';
   fsRender(`
     <div class="fs-scr-hdr">
@@ -11553,6 +11648,23 @@ function tripGetPairHistory(){
   const rounds=[];tripDays(t).forEach(d=>{const dr=t.days&&t.days[d];if(!dr)return;(dr.rounds||[]).forEach(r=>{if(!r.championship)rounds.push(r);});});
   return buildPairHistoryMap(rounds);
 }
+/** THE CHAMPIONSHIP FIELD, SET BY STANDING (BZ, 2026-10-05): leaders go off
+ *  LAST. The last tee time takes the top of the board, the one before it the
+ *  next, and so on back to the first; each group fills to its own size, so the
+ *  leaders' group is full even when sizes are uneven. Players with no completed
+ *  round yet stand at the back of the field. It used to deal the board
+ *  round-robin, which put one leader in every group. */
+function tripSeatByStanding(players, shells, board) {
+  const rank = {}; board.forEach((e, i) => { rank[e.playerId] = i; });
+  const best = [...players].sort((a, b) => (rank[a.id] ?? 1e9) - (rank[b.id] ?? 1e9));
+  let k = 0;
+  for (let g = shells.length - 1; g >= 0 && k < best.length; g--) {
+    const cap = shells[g].cap || Math.ceil(best.length / shells.length);
+    while (shells[g].playerIds.length < cap && k < best.length) shells[g].playerIds.push(best[k++].id);
+  }
+  for (let g = shells.length - 1; k < best.length; g = (g - 1 + shells.length) % shells.length) shells[g].playerIds.push(best[k++].id);
+  return shells;
+}
 function tripGenerateGroups(){
   const t=tripActive();if(!t)return;const r=tripGetPairingRound();if(!r)return;
   const c=tripCourseById(t,r.courseId);if(!c)return toast('Course data missing');
@@ -11562,9 +11674,7 @@ function tripGenerateGroups(){
   const count=calcGroupCount(players.length,tts.length);const shells=buildGroupShells(count,tts,players.length);
   const ds=t.settings||{};
   if(r.championship){
-    const board=tripLeaderboard();const rank={};board.forEach((e,i)=>rank[e.playerId]=i);
-    const sorted=[...players].map(p=>({...p,ch:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,coursePar(c),is9)})).sort((a,b)=>(rank[a.id]??-1)-(rank[b.id]??-1));
-    sorted.forEach((p,i)=>shells[i%count].playerIds.push(p.id));
+    tripSeatByStanding(players, shells, tripLeaderboard());
   }else{
     const hist=tripGetPairHistory();
     const withHcp=players.map(p=>({...p,ch:calcCourseHcp(p.hcp||0,c.slope||113,c.rating||72,coursePar(c),is9),isMgr:isTripManager(t,p.id)}));
@@ -11731,10 +11841,12 @@ function tripAssignBorrows(r,players){
   r.borrows=(r.groups||[]).map((grp,gi)=>{const size=(grp.playerIds||[]).length;if(size>=4)return{gi,borrowedPids:[]};const needed=4-size;const inGroup=new Set(grp.playerIds||[]);const pool=players.filter(p=>!inGroup.has(p.id));const seeded=pool.slice().sort((a,b)=>((a.id.charCodeAt(0)+gi*7)%97)-((b.id.charCodeAt(0)+gi*7)%97));return{gi,borrowedPids:seeded.slice(0,needed).map(p=>p.id)};});
 }
 function tripScoringCtx(t,r){
+  /* Trip's adapter onto the shared engine. It used to compute course
+     handicaps itself, and the copy skipped the engine's nine-hole handling
+     (rule 30d; trips.js, 2026-10-05). It now says only what is Trip's own -
+     who is in the round, locked indexes, tees, the trip's settings - and
+     buildScoringCtx does the arithmetic. */
   const c=tripCourseById(t,r.courseId);if(!c)return null;
-  const nineMode=r.nineMode||'all';
-  const activeHoles=getActiveHoles(c,nineMode).map(h=>({...h,hcpRating:h.hcpRating??h.hcp??0}));
-  const is9=activeHoles.length===9;const hcpScale=activeHoles.length||18;
   const sa=(t.settings&&t.settings.scrambleAbcd)||{};
   // Resolve players from all group playerIds — ensures scoring works even if
   // trip roster (t.players) doesn't perfectly match who was assigned to groups
@@ -11746,20 +11858,95 @@ function tripScoringCtx(t,r){
   const pcts=sa.noHcp?[]:n>=4?(sa.p4||[25,20,15,10]):n===3?(sa.p3||[30,20,10]):(sa.p2||[35,15]);
   // Use locked HIs if set on the trip (locked at first round start)
   const locked = t.lockedHcps || {};
-  const strokeAllowance=(t.settings&&t.settings.strokeAllowance)||100;
   const players=allPlayers.map(p=>{
     const pt = withPlayerTee(p, r, c);
-    const hi = locked[p.id]!=null ? locked[p.id] : p.hcp;
-    return {...pt, hcp: hi,
-      courseHcp: courseHandicap(hi||0, pt.teeSlope??(c.slope||113), pt.teeRating??(c.rating||72), pt.teePar??coursePar(c), strokeAllowance, is9)};
+    return {...pt, hcp: locked[p.id]!=null ? locked[p.id] : p.hcp};
   });
-  return{players,course:c,activeHoles,hcpScale,is9,nineMode,scores:r.scores||{},groups:(r.groups||[]).map((gr,i)=>({playerIds:gr.playerIds||[],label:gr.teetime||('Group '+(i+1))})),format:r.format||'stroke',settings:{scramblePcts:pcts,strokeAllowance:(t.settings&&t.settings.strokeAllowance)||100,skins:(t.settings&&t.settings.skins)||{},sfCfg:S.config.games?.individual?.stableford||{},resultMethod:r.resultMethod||'best2',borrows:r.borrows||[]}};
+  const groups=(r.groups||[]).map((gr,i)=>({playerIds:gr.playerIds||[],label:gr.teetime||('Group '+(i+1))}));
+  return buildScoringCtx(players, c, r.nineMode||'all', r.scores||{}, groups, r.format||'stroke',
+    {scramblePcts:pcts,strokeAllowance:(t.settings&&t.settings.strokeAllowance)||100,skins:(t.settings&&t.settings.skins)||{},sfCfg:S.config.games?.individual?.stableford||{},resultMethod:r.resultMethod||'best2',borrows:r.borrows||[]});
 }
 
 // ── Leaderboard ───────────────────────────────────────────────
 /** Compute USGA countback scores for a player across all completed individual rounds.
  *  Returns [back9net, back6net, back3net, last1net] — lower = better.
  *  Only meaningful when totalNet scores are tied. */
+/* ── DAILY 2-MAN GAMES (BZ, 2026-10-05) ─────────────────────────────────────
+   Laid over a stroke or Stableford round: the same cards, a second result,
+   for that day only - the trip game is untouched. r.twoMan = {game:
+   'bestball'|'stableford', sfMode:'better'|'aggregate'}; r.pairPick[gi] picks
+   which of a foursome's three pairings is played. Teams are made from the
+   round's groups, so they follow the groups when those change. */
+
+/** The 2-man teams of a round. A foursome is split A/B by course handicap:
+ *  pairing 0 (the default) is A1+B2 / A2+B1, the closest-matched; 1 is
+ *  A1+B1 / A2+B2; 2 is A1+A2 / B1+B2. A threesome plays its low and high
+ *  together and its middle player teams with another group's odd player.
+ *  Returns {teams:[{gi, pids:[a,b]}], unpaired:[pid]}. */
+function tripTwoManTeams(ctx, r) {
+  const ch = {}; ctx.players.forEach(p => { ch[p.id] = p.courseHcp; });
+  const picks = (r && r.pairPick) || {};
+  const teams = [], odd = [];
+  ctx.groups.forEach((g, gi) => {
+    const ids = (g.playerIds || []).filter(id => ch[id] != null).sort((a, b) => ch[a] - ch[b] || (a < b ? -1 : 1));
+    if (ids.length === 4) {
+      const [a1, a2, b1, b2] = ids;
+      const opts = [[[a1, b2], [a2, b1]], [[a1, b1], [a2, b2]], [[a1, a2], [b1, b2]]];
+      opts[(picks[gi] || 0) % 3].forEach(pids => teams.push({ gi, pids }));
+    } else {
+      let i = 0, j = ids.length - 1;
+      while (i < j) { teams.push({ gi, pids: [ids[i], ids[j]] }); i++; j--; }
+      if (i === j) odd.push(ids[i]);
+    }
+  });
+  for (let i = 0; i + 1 < odd.length; i += 2) teams.push({ gi: null, pids: [odd[i], odd[i + 1]] });
+  return { teams, unpaired: odd.length % 2 ? [odd[odd.length - 1]] : [] };
+}
+
+/** The day's 2-man result: every team against the whole field. A hole counts
+ *  once both partners have a score on it. Best ball: the better NET per hole,
+ *  shown against par, lowest wins. Stableford: per-hole points off each
+ *  partner's net - the better of the two, or both added (sfMode) - most wins.
+ *  Strokes come from the same course handicaps the scorecard uses. Tied teams
+ *  share a position. Returns null when the round has no 2-man game. */
+function tripTwoManResults(ctx, r) {
+  const game = r && r.twoMan && r.twoMan.game;
+  if (!game || !ctx) return null;
+  const { teams, unpaired } = tripTwoManTeams(ctx, r);
+  const byId = {}; ctx.players.forEach(p => { byId[p.id] = p; });
+  const sfCfg = (ctx.settings && ctx.settings.sfCfg) || {};
+  const agg = r.twoMan.sfMode === 'aggregate';
+  const rows = teams.map(t => {
+    let total = 0, par = 0, thru = 0;
+    ctx.activeHoles.forEach(h => {
+      const nets = t.pids.map(pid => {
+        const g = parseInt((ctx.scores[pid] || {})[h.num]);
+        return g > 0 ? g - strokesOnHole(byId[pid].courseHcp, h.hcpRating, ctx.hcpScale) : null;
+      });
+      if (nets.some(n => n == null)) return;
+      thru++; par += h.par;
+      if (game === 'bestball') total += Math.min(...nets);
+      else {
+        const pts = nets.map(n => stablefordPts(n - h.par, sfCfg));
+        total += agg ? pts[0] + pts[1] : Math.max(...pts);
+      }
+    });
+    return { pids: t.pids, gi: t.gi, thru, score: game === 'bestball' ? total - par : total };
+  });
+  const better = (a, b) => game === 'bestball' ? a.score < b.score : a.score > b.score;
+  const played = rows.filter(x => x.thru > 0), none = rows.filter(x => !x.thru);
+  played.sort((a, b) => game === 'bestball' ? a.score - b.score : b.score - a.score);
+  played.forEach(x => { x.pos = 1 + played.filter(y => better(y, x)).length; });
+  none.forEach(x => { x.pos = null; });
+  return { game, sfMode: agg ? 'aggregate' : 'better', rows: played.concat(none), unpaired };
+}
+
+/** A card counts once every hole played has a score (BZ's trip game is net
+ *  strokes, which a missing hole would flatter). */
+function tripCardComplete(ctx, pid) {
+  const sc = (ctx.scores || {})[pid] || {};
+  return ctx.activeHoles.every(h => parseInt(sc[h.num]) > 0);
+}
 function tripCountback(pid, t) {
   let back9=0, back6=0, back3=0, last1=0, found=false;
   tripDays(t).forEach(d => {
@@ -11768,12 +11955,11 @@ function tripCountback(pid, t) {
       if (!r.completed || isTeamFormat(r.format) || !isCompFormat(r.format)) return;
       const ctx = tripScoringCtx(t, r); if (!ctx) return;
       const p   = ctx.players.find(x=>x.id===pid); if (!p) return;
-      const nets = ctx.activeHoles.map(h => {
-        const gross = parseInt((r.scores[pid]||{})[h.num]) || 0;
-        const strokes = Math.floor(p.courseHcp/ctx.hcpScale) + (h.hcpRating <= p.courseHcp % ctx.hcpScale ? 1 : 0);
-        return gross - strokes;
-      });
-      if (!nets.some(Boolean)) return;
+      if (!tripCardComplete(ctx, pid)) return;
+      // strokesOnHole is the app's one stroke allocation: a plus handicap gives
+      // strokes back on the EASIEST holes, not one on every hole (trips.js).
+      const nets = ctx.activeHoles.map(h =>
+        (parseInt((r.scores[pid]||{})[h.num]) || 0) - strokesOnHole(p.courseHcp, h.hcpRating, ctx.hcpScale));
       found = true;
       const n = nets.length;
       if (n >= 18) {
@@ -11811,12 +11997,14 @@ function tripLeaderboard(t) {
           if (winners.length===1) (ctx.groups[winners[0].gi]?.playerIds||[]).forEach(pid => { teamWins[pid]=(teamWins[pid]||0)+1; });
         }
       } else {
-        players.forEach(p => {
+        /* Each player's net off the SAME course handicap the scorecard used -
+           locked index, allowance, tees and the nine played - and only for a
+           complete card: a card short of holes totalled lower and could lead
+           the trip (trips.js, 2026-10-05). */
+        ctx.players.forEach(p => {
+          if (!players.some(x => x.id === p.id) || !tripCardComplete(ctx, p.id)) return;
           const gross = ctx.activeHoles.reduce((a,h) => a+(parseInt((r.scores[p.id]||{})[h.num])||0), 0);
-          if (!gross) return;
-          const c = tripCourseById(t, r.courseId); if (!c) return;
-          const ch = calcCourseHcp(p.hcp||0, c.slope||113, c.rating||72, coursePar(c), ctx.is9);
-          net[p.id]  = (net[p.id]||0) + (gross - ch);
+          net[p.id]  = (net[p.id]||0) + (gross - p.courseHcp);
           rnds[p.id] = (rnds[p.id]||0) + 1;
         });
       }
@@ -11962,7 +12150,7 @@ function tripRenderRoundResults(){
       <span class="fs-scr-title">RESULTS \u2014 ${esc(r.label)}</span>
       <button class="btn btn-sm btn-gold" onclick="tripSaveRoundComplete(${sctx.dayIdx},${sctx.rndIdx})" style="flex-shrink:0;">${r.completed?'Update &#128190;':'&#128190; Save'}</button>
     </div>
-    <div class="fs-scr-body">${renderRoundResultsHtml(res,skins,ctx)}<div style="height:60px;"></div></div>
+    <div class="fs-scr-body">${renderRoundResultsHtml(res,skins,ctx)}${tripTwoManResultsHtml(r,ctx)}<div style="height:60px;"></div></div>
   `);
   fsShowGameTab('✈️ Trip');
 }
@@ -13817,22 +14005,16 @@ function leagueRenderScoring(){leagueGoToScoring();}
 function _leagueDoScoring(lg,s) {
   const c=leagueSessionCourse(lg,s);if(!c||!c.holes)return toast('Course data missing');
   const gameType=s.gameType||'stableford';
-  const pool=leagueBuildPool(lg,s);
-  const par=coursePar(c);
-  const pWithCH=pool.map(p=>{const pt=withPlayerTee(p,s,c);return {...pt,courseHcp:courseHandicap(p.hcp||0,pt.teeSlope??(c.slope||113),pt.teeRating??(c.rating||72),pt.teePar??par,leagueSessionAllowance(lg,s),false)};});
-  const activeHoles=getActiveHoles(c,s.nineSide||'all');
-  const isTeam=isTeamFormat(gameType);
+  // The same scoring setup the League results use (leagueSessionCtx -> the
+  // engine): the season's allowance and the nine played. This screen built its
+  // own, with an 18-hole handicap on a nine, so its stroke dots disagreed with
+  // the results (2026-10-05).
   if(!s.scores)s.scores={};
+  const ctx=leagueSessionCtx(lg,s).ctx;
+  const pWithCH=ctx.players;
+  const activeHoles=ctx.activeHoles;
+  const isTeam=isTeamFormat(gameType);
   const groups=(s.groups||[]);
-  const ctx={
-    players:pWithCH,course:c,activeHoles,hcpScale:activeHoles.length,
-    is9:(s.nineSide&&s.nineSide!=='all'),nineMode:s.nineSide||'all',scores:s.scores,
-    groups:groups.map((g,i)=>({playerIds:g.playerIds||[],label:g.teetime||('Group '+(i+1))})),
-    format:gameType,
-    settings:{scramblePcts:[25,20,15,10],strokeAllowance:100,
-      skins:lg.skins||{hcpAdj:100},sfCfg:S.config.games?.individual?.stableford||{},
-      resultMethod:s.resultMethod||'best2',borrows:[]}
-  };
   // Group-by-group navigation (matches Outing/Trip pattern)
   const validGroups=groups.map((grp,gi)=>({grp,gi,players:(grp.playerIds||[]).map(id=>pWithCH.find(p=>p.id===id)).filter(Boolean)})).filter(x=>x.players.length>0);
   const totalGroups=validGroups.length;
@@ -13930,18 +14112,20 @@ function leagueSessionCtx(lg, s){
   if(!course) return null;
   const gameType = s.gameType||'stableford';
   const nineMode = s.nineSide||'all';
-  const par = course.holes.reduce((a,h)=>a+(h.par||0),0);
-  const pool = leagueBuildPool(lg, s).map(p=>{
-    const pt = withPlayerTee(p, s, course);
-    return {...pt,
-    courseHcp: courseHandicap(p.hcp||0, pt.teeSlope??(course.slope||113), pt.teeRating??(course.rating||72), pt.teePar??par, leagueSessionAllowance(lg,s), false)};
-  });
+  /* The engine computes every course handicap, with the season's allowance
+     and the nine actually played. League used to work out its own (18-hole,
+     with the allowance) and then hand the engine 100%, which recomputed it -
+     so the pool and the scores disagreed and the allowance never reached
+     scoring (trips.js, 2026-10-05). The pool now carries the engine's value. */
+  const pool0 = leagueBuildPool(lg, s).map(p => withPlayerTee(p, s, course));
   const skinsCfg = (lg.skins && s.skins!==false) ? lg.skins : {hcpAdj:100};
-  const ctx = buildScoringCtx(pool, course, nineMode, s.scores||{},
+  const ctx = buildScoringCtx(pool0, course, nineMode, s.scores||{},
     (s.groups||[]).map((g,i)=>({playerIds:g.playerIds||[], label:g.teetime||('Group '+(i+1))})),
     gameType,
-    {strokeAllowance:100, scramblePcts:[25,20,15,10], skins:skinsCfg,
-     sfCfg:S.config.games?.individual?.stableford||{}, resultMethod:s.resultMethod||'best2'});
+    {strokeAllowance:leagueSessionAllowance(lg,s), scramblePcts:[25,20,15,10], skins:skinsCfg,
+     sfCfg:S.config.games?.individual?.stableford||{}, resultMethod:s.resultMethod||'best2', borrows:[]});
+  const chOf = {}; ctx.players.forEach(p => { chOf[p.id] = p.courseHcp; });
+  const pool = pool0.map(p => ({ ...p, courseHcp: chOf[p.id] }));
   return { course, gameType, nineMode, pool, ctx };
 }
 
@@ -14133,6 +14317,7 @@ function liveUnitPayload(kind, ev, unit) {
     const cw = tripScoringCtx(t, r);
     if (cw) {
       views.push({ id:'round', label:(r.label||'Round'), rows: liveRoundRows(cw, true) });
+      if (r.twoMan && r.twoMan.game) views.push({ id:'twoman', label:'2-Man', rows: tripTwoManRows(tripTwoManResults(cw, r), cw.activeHoles.length) });
       ({course, groups} = liveRoster(cw.course, cw.players, r.groups));
     }
     views.push({ id:'trip', label:'Trip', rows: tripLeaderboard(t).map((e,i)=>({pos:i+1, name:(fsPlayerById(e.playerId)||{}).name||'?', primary:netStr(e.totalNet), secondary:(e.rounds||0)+' rds'})) });
@@ -14188,15 +14373,25 @@ function scheduleLiveRepublish() {
 // (the compute hub) runs the engines on the full field and republishes results. The organizer's own
 // group is scored natively; score.html writes only its group's holes to live/{shareId}/scores, so this
 // is a union — no native score is overwritten. Runs only while a unit is live (self-gating).
+/** Fold phone scores into the unit. NEWEST EDIT WINS: a phone's value is taken
+ *  only when the phone has CHANGED it since the last poll (unit.remoteSeen
+ *  remembers what each phone last sent). Every poll used to re-apply every
+ *  phone value, so an organizer's correction to a phone's score was put back
+ *  15 seconds later (trips.js, 2026-10-05). */
 function liveMergeScores(unit, shared) {
   if (!shared) return false;
-  unit.scores = unit.scores || {}; let changed = false;
+  unit.scores = unit.scores || {}; unit.remoteSeen = unit.remoteSeen || {};
+  let changed = false;
   Object.keys(shared).forEach(pid => {
     const holes = shared[pid] || {};
+    const seen = unit.remoteSeen[pid] = unit.remoteSeen[pid] || {};
     Object.keys(holes).forEach(h => {
       const v = holes[h];
+      if (seen[h] === v) return;            // the phone has not changed it: leave ours
+      seen[h] = v;
       if (!unit.scores[pid]) unit.scores[pid] = {};
-      if (unit.scores[pid][h] !== v) { unit.scores[pid][h] = v; changed = true; }
+      if (unit.scores[pid][h] !== v) { unit.scores[pid][h] = v; }
+      changed = true;
     });
   });
   return changed;

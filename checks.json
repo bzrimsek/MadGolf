@@ -83,6 +83,16 @@
         "app"
       ],
       "note": "every screen at 390px: headers centered, no button label on two lines, no button row spilling (BZ, 2026-10-04)"
+    },
+    {
+      "name": "trips",
+      "harness": "trips.js",
+      "secs": 115,
+      "reaches": [
+        "app",
+        "worker"
+      ],
+      "note": "four whole trips through the real screens: stroke + Stableford days, nines, locked handicaps, championship seating, two phones on score.html, live.html, 2-man games, reload, short cards - every standing worked out independently (BZ, 2026-10-05)"
     }
   ]
 }

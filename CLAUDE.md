@@ -50,6 +50,8 @@ node lint.js                 # nothing undefined/duplicated/unreachable, all 4 p
 node consistency.js          # wiring: handlers, ids, write doors, sizes, delivery lists
 node browser.js              # the walk, real Chromium at 390px
 node ios.js                  # the same walk in WebKit at iPhone size
+node trips.js                # four whole trips through the screens, phones + live board
+                             #   TRIPS_SHOTS=1 photographs them into shots-trips/
 node layout.js               # every screen: headers centered, buttons one line
                              #   --shots / --shots-all photograph into shots-layout/
 ```
@@ -94,6 +96,25 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
   `layout.js` fails any header off-center by more than 6px, any button label
   on two lines and any button row that spills. List-group headers come from
   `listSecHdr()`. Form field labels stay left.
+- **Trips (BZ, 2026-10-05).** The trip game is individual NET STROKES over
+  every competitive individual round - Stableford days included; their
+  points decide only that day's own result. Handicaps lock at the first round
+  (`t.lockedHcps`). Only a complete card counts (`tripCardComplete`). The
+  championship round seats the field by standing, leaders in the LAST tee
+  time (`tripSeatByStanding`); every other round uses the optimized pairings.
+  Daily 2-man games lay over a stroke/Stableford round (`r.twoMan` = best
+  ball net, or Stableford better-ball/aggregate): A/B teams per foursome by
+  course handicap, `r.pairPick` re-pairs, threesomes' odd players team across
+  groups, ranked against the whole field, that day only
+  (`tripTwoManTeams` / `tripTwoManResults` / `tripTwoManRows`, also the
+  live board's 2-Man tab).
+- **Every course handicap comes from `buildScoringCtx`.** Trip
+  (`tripScoringCtx`) and League (`leagueSessionCtx`, `_leagueDoScoring`) hand
+  it their players; it applies the allowance and, on a nine off an 18-hole
+  course, the nine's own par and re-ranked hole ratings. Before 2026-10-05
+  each computed its own and a nine added ~36 strokes.
+- Live phone scores: newest edit wins (`unit.remoteSeen`), so an organizer's
+  correction is not undone by the next 15-second poll.
 - Score-entry order (By Player / By Hole) lives in the info strip under the
   scoring header, on Trip, Outing and League alike.
 - `computeSkins(ctx)` never decides whether skins are on. League shows skins
@@ -147,6 +168,12 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
   2026-10-03).
 
 ## Open items (2026-10-03)
+
+- **Decision for BZ (2026-10-05): a 9-hole COURSE plays off the full index.**
+  `calcRawCourseHcp` halves the index only when the rating is an 18-hole one
+  (>= 50), so a 10.0 at a 9-hole course plays off 9; WHS says 4. Six tests
+  assert the current behaviour ("9h rating<50 no-halve"), so it looks
+  deliberate and was left alone. A nine off an 18-hole course is right.
 
 - **Firebase rules automation waits on a MadGolf admin key.** BZ runs
   `npx firebase login` (or downloads a key to

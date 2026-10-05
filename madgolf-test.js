@@ -7088,8 +7088,10 @@ smoke('leagueCurrentSession returns session', () => {
   expect('100% == calcCourseHcp', courseHandicap(20,130,70,72,100,false), calcCourseHcp(20,130,70,72,false));
   // both scoring-context engines must use the shared function (no drift back to divergent hcp math)
   expect('buildScoringCtx uses courseHandicap', html.includes('courseHcp: courseHandicap('), true);
-  expect('tripScoringCtx uses courseHandicap',  html.includes('courseHcp: courseHandicap(hi'), true);
-  expect('league scoring uses courseHandicap',   html.includes('courseHcp:courseHandicap(p.hcp||0,pt.teeSlope') && html.includes('courseHcp: courseHandicap(p.hcp||0, pt.teeSlope'), true);
+  // Trip and League hand the arithmetic to buildScoringCtx (2026-10-05): one door.
+  expect('tripScoringCtx goes through the engine', /function tripScoringCtx[\s\S]{0,2000}?return buildScoringCtx\(/.test(html), true);
+  expect('league scoring goes through the engine', /function leagueSessionCtx[\s\S]{0,2500}?buildScoringCtx\(pool0/.test(html), true);
+  expect('league scoring screen uses the results setup', /function _leagueDoScoring[\s\S]{0,1200}?leagueSessionCtx\(lg,s\)\.ctx/.test(html), true);
 }
 
 // ── 120. LEAGUE + OUTING HC ADJUSTMENT (allowance) ───────────
@@ -8944,6 +8946,124 @@ smoke('leagueCurrentSession returns session', () => {
   expect('engine: B scored 9 pts', res.entries.find(e=>e.playerId==='b').pts, 9);
   expect('engine: B (+0 vs quota) ranks first', res.entries[0].playerId, 'b');
   expect('live board agrees: B first', sandbox.liveRoundRows(ctx, false)[0].name, 'B');
+}
+
+// ── 187. A nine played off an 18-hole course: WHS course handicap + stroke holes ─
+// Found by trips.js (2026-10-05): every 9-hole Trip round added ~36 strokes to the
+// standings, because the 18-hole par went into the 9-hole formula. Worked by hand,
+// slope 113 / rating 72, all par 4: HI 10 on a nine = 5.0 * 113/113 + (36 - 36) = 5;
+// HI 20 = 10. Back nine: hole 10 (rated 10th of 18) is the hardest of the nine = 1.
+{
+  vmSetS('courses', [{ id:'n18', name:'Nine Test', slope:113, rating:72, par:72,
+    holes: Array.from({length:18},(_,i)=>({num:i+1,par:4,hcp:i+1,hcpRating:i+1})) }]);
+  vmSetS('players', [{id:'n1',name:'Ten',hcp:10,regular:true},{id:'n2',name:'Twenty',hcp:20,regular:true}]);
+  const course = vm.runInContext("S.courses[0]", sandbox);
+  const pl = [{id:'n1',name:'Ten',hcp:10},{id:'n2',name:'Twenty',hcp:20}];
+  const F = sandbox.buildScoringCtx(pl, course, 'front', {}, [{playerIds:['n1','n2']}], 'stroke', {});
+  expect('engine front nine: HI 10 plays off 5',  F.players[0].courseHcp, 5);
+  expect('engine front nine: HI 20 plays off 10', F.players[1].courseHcp, 10);
+  const B = sandbox.buildScoringCtx(pl, course, 'back', {}, [{playerIds:['n1','n2']}], 'stroke', {});
+  expect('engine back nine: hole 10 is the hardest of the nine', B.activeHoles[0].hcpRating, 1);
+  expect('engine back nine: hole 18 is the easiest of the nine', B.activeHoles[8].hcpRating, 9);
+
+  const trip = { players:[{id:'n1'},{id:'n2'}], settings:{}, lockedHcps:{ n1:8 } };
+  const r9 = { courseId:'n18', format:'stroke', nineMode:'front', groups:[{playerIds:['n1','n2']}], scores:{}, borrows:[] };
+  const T9 = sandbox.tripScoringCtx(trip, r9);
+  expect('trip front nine: locked HI 8 plays off 4', T9.players.find(p=>p.id==='n1').courseHcp, 4);
+  expect('trip front nine: HI 20 plays off 10',      T9.players.find(p=>p.id==='n2').courseHcp, 10);
+  const r18 = Object.assign({}, r9, { nineMode:'all' });
+  const T90 = sandbox.tripScoringCtx(Object.assign({}, trip, { lockedHcps:null, settings:{ strokeAllowance:90 } }), r18);
+  expect('trip 90% allowance: HI 10 plays off 9', T90.players.find(p=>p.id==='n1').courseHcp, 9);
+
+  // League: the season's allowance reaches the scoring engine, and pool agrees with ctx.
+  const lg = { type:'league', id:'lgN', courseId:'n18', seasons:[{id:'sN', strokeAllowance:90}], sessions:[] };
+  vmSetS('events', [lg]);
+  const s = { id:'sx', seasonId:'sN', date:'2026-07-10', rsvp:{ n1:{status:'in'}, n2:{status:'in'} },
+    groups:[{ playerIds:['n1','n2'] }], scores:{}, gameType:'stroke', nineSide:'front' };
+  const L = sandbox.leagueSessionCtx(lg, s);
+  // HI 20 on the front nine: 10 * 113/113 + 0 = 10, at 90% = 9
+  expect('league front nine at 90%: HI 20 plays off 9', L.ctx.players.find(p=>p.id==='n2').courseHcp, 9);
+  expect('league pool agrees with the engine', L.pool.find(p=>p.id==='n2').courseHcp, 9);
+}
+
+// ── 188. Championship field set by standing, leaders off last (BZ, 2026-10-05) ─
+// Worked by hand: board order A..L; three groups of four -> last tee time A-D,
+// middle E-H, first I-L. Ten players into caps 4/3/3 -> last A-C, middle D-F, first G-J.
+{
+  const ids = 'ABCDEFGHIJKL'.split('');
+  const board = ids.map(id => ({ playerId: id }));
+  const shells12 = sandbox.buildGroupShells(3, ['8:00', '8:10', '8:20'], 12);
+  sandbox.tripSeatByStanding(ids.map(id => ({ id })), shells12, board);
+  expect('champ 12: leaders in the last tee time', shells12[2].playerIds.join(''), 'ABCD');
+  expect('champ 12: next four in the middle',       shells12[1].playerIds.join(''), 'EFGH');
+  expect('champ 12: back of the field first',       shells12[0].playerIds.join(''), 'IJKL');
+  const ten = ids.slice(0, 10);
+  const shells10 = sandbox.buildGroupShells(3, ['8:00', '8:10', '8:20'], 10);
+  sandbox.tripSeatByStanding(ten.map(id => ({ id })), shells10, board.slice(0, 10));
+  expect('champ 10: leaders last (group of 3)', shells10[2].playerIds.join(''), 'ABC');
+  expect('champ 10: middle',                     shells10[1].playerIds.join(''), 'DEF');
+  expect('champ 10: first off holds four',       shells10[0].playerIds.join(''), 'GHIJ');
+  // A player with no completed round stands at the back.
+  const shellsNew = sandbox.buildGroupShells(2, ['8:00', '8:10'], 8);
+  sandbox.tripSeatByStanding('ABCDEFGZ'.split('').map(id => ({ id })), shellsNew, board.slice(0, 7));
+  expect('champ: unranked player at the back', shellsNew[0].playerIds.indexOf('Z') >= 0, true);
+}
+
+// ── 189. Live merge: newest edit wins; a correction is not undone by a poll ──
+{
+  const unit = { scores: {} };
+  sandbox.liveMergeScores(unit, { P1: { 1: 6 } });
+  expect('phone score taken',                 unit.scores.P1[1], 6);
+  unit.scores.P1[1] = 7;                                   // organizer corrects it
+  expect('same phone value: nothing to merge', sandbox.liveMergeScores(unit, { P1: { 1: 6 } }), false);
+  expect('organizer correction kept',          unit.scores.P1[1], 7);
+  sandbox.liveMergeScores(unit, { P1: { 1: 5 } });         // the phone changes it again
+  expect('a newer phone edit wins',            unit.scores.P1[1], 5);
+}
+
+// ── 190. Daily 2-man games: teams and the field result (BZ, 2026-10-05) ──────
+// All expected values worked by hand (see the comments beside each).
+{
+  // Teams. Foursome W2 X5 Y10 Z20 -> A=W,X  B=Y,Z.
+  //   pairing 0: W+Z / X+Y   pairing 1: W+Y / X+Z   pairing 2: W+X / Y+Z
+  // Threesomes P1 Q8 R15 and S3 T9 U12 -> P+R, S+U; odd Q and T team up.
+  const pl = [['W',2],['X',5],['Y',10],['Z',20],['P',1],['Q',8],['R',15],['S',3],['T',9],['U',12]]
+    .map(([id, ch]) => ({ id, courseHcp: ch }));
+  const ctxT = { players: pl, groups: [{ playerIds:['Z','X','W','Y'] }, { playerIds:['Q','R','P'] }, { playerIds:['U','S','T'] }] };
+  const fmt = res => res.teams.map(t => t.pids.join('+')).join(' ');
+  expect('2-man teams: default A/B pairing', fmt(sandbox.tripTwoManTeams(ctxT, {})), 'W+Z X+Y P+R S+U Q+T');
+  expect('2-man teams: re-pair 1', fmt(sandbox.tripTwoManTeams(ctxT, { pairPick:{0:1} })).split(' ').slice(0,2).join(' '), 'W+Y X+Z');
+  expect('2-man teams: re-pair 2', fmt(sandbox.tripTwoManTeams(ctxT, { pairPick:{0:2} })).split(' ').slice(0,2).join(' '), 'W+X Y+Z');
+  expect('2-man teams: nobody left over', sandbox.tripTwoManTeams(ctxT, {}).unpaired.length, 0);
+  const lone = sandbox.tripTwoManTeams({ players: pl.slice(4, 7), groups: [{ playerIds:['P','Q','R'] }] }, {});
+  expect('2-man teams: a lone odd player is listed unpaired', lone.unpaired.join(), 'Q');
+
+  // Results. Three par-4 holes rated 1,2,3 on an 18-hole scale.
+  const H = [1,2,3].map(n => ({ num:n, par:4, hcpRating:n }));
+  const base = { activeHoles:H, hcpScale:18, settings:{ sfCfg:{} },
+    players:[{id:'A',courseHcp:0},{id:'B',courseHcp:2},{id:'C',courseHcp:1},{id:'D',courseHcp:0}],
+    groups:[{ playerIds:['A','B','C','D'] }],
+    scores:{ A:{1:5,2:4,3:4}, B:{1:5,2:6,3:4}, C:{1:4,2:5,3:3}, D:{1:6,2:4,3:5} } };
+  // Default pairing on CH: A0 C1 | B2 D0 -> sorted A0 D0 C1 B2 -> teams A+B, D+C.
+  const bb = sandbox.tripTwoManResults(base, { twoMan:{ game:'bestball' } });
+  // A+B: nets A 5,4,4  B 4,5,4 -> best 4,4,4 = 12 vs par 12 -> 0
+  // C+D: nets C 3,5,3  D 6,4,5 -> best 3,4,3 = 10 -> -2
+  expect('2-man best ball: C+D lead at -2', bb.rows[0].pids.slice().sort().join('') + ' ' + bb.rows[0].score, 'CD -2');
+  expect('2-man best ball: A+B at even',     bb.rows[1].pids.slice().sort().join('') + ' ' + bb.rows[1].score, 'AB 0');
+  expect('2-man best ball: positions', bb.rows.map(x => x.pos).join(), '1,2');
+  const sfB = sandbox.tripTwoManResults(base, { twoMan:{ game:'stableford', sfMode:'better' } });
+  // better ball points: A+B 1,1,1 = 3; C+D 2,1,2 = 5
+  expect('2-man Stableford (better ball): C+D 5 first', sfB.rows[0].pids.slice().sort().join('') + ' ' + sfB.rows[0].score, 'CD 5');
+  expect('2-man Stableford (better ball): A+B 3',       sfB.rows[1].score, 3);
+  const sfA = sandbox.tripTwoManResults(base, { twoMan:{ game:'stableford', sfMode:'aggregate' } });
+  // both added: A+B (0+1)+(1+0)+(1+1) = 4; C+D (2+0)+(0+1)+(2+0) = 5
+  expect('2-man Stableford (both added): A+B 4', sfA.rows.find(x => x.pids.indexOf('A') >= 0).score, 4);
+  expect('2-man Stableford (both added): C+D 5', sfA.rows.find(x => x.pids.indexOf('C') >= 0).score, 5);
+  // A hole counts once both partners have scored: drop A's hole 3 -> A+B thru 2.
+  const part = Object.assign({}, base, { scores: Object.assign({}, base.scores, { A:{1:5,2:4} }) });
+  expect('2-man: a hole counts once both partners scored', sandbox.tripTwoManResults(part, { twoMan:{ game:'bestball' } })
+    .rows.find(x => x.pids.indexOf('A') >= 0).thru, 2);
+  expect('2-man: no game -> null', sandbox.tripTwoManResults(base, {}), null);
 }
 
 // ── 186. One list-section header, centered by its class (2026-10-04) ─────────

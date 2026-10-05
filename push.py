@@ -53,7 +53,7 @@ WATCH_LIMIT = 20 * 60
 
 TRANSIENT = re.compile(r'HTTP 5\d\d|timed out|timeout|connection (reset|refused)'
                        r'|error connecting|dial tcp|no such host|TLS handshake'
-                       r'|unexpected EOF|temporar', re.I)
+                       r'|unexpected EOF|unexpected end of JSON|temporar', re.I)
 
 # What the site serves. The gate publishes exactly these (gate.yml, "The
 # site, and only the site"); consistency.js fails if the two lists disagree.
@@ -63,7 +63,7 @@ DOCS = ['CHANGELOG.md', 'CLAUDE.md', 'DEV-RULES.md', 'README.md']
 TOOLING = ['madgolf-test.js', 'audit.py', 'bump.py', 'push.py', 'gate.py',
            'check.js', 'checks.json', 'lint.js', 'consistency.js',
            'consistency-sizes.json', 'consistency-doors.json',
-           'walk-lib.js', 'browser.js', 'ios.js', 'layout.js', 'fake-firebase.js',
+           'walk-lib.js', 'browser.js', 'ios.js', 'layout.js', 'trips.js', 'fake-firebase.js',
            'rules.js',
            'package.json', 'package-lock.json', '.github/workflows/gate.yml']
 SERVICE = ['firebase-rules.json']
@@ -214,8 +214,10 @@ def push(v, subject, dry):
 
     entries = []
     for name, raw in changed:
+        # retry: a blob POST is safe to repeat (same bytes, same sha), and a
+        # dropped upload of index.html stopped the v0.91.21 push (2026-10-05).
         b = gh('repos/%s/git/blobs' % REPO, 'POST',
-               {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'})
+               {'content': base64.b64encode(raw).decode(), 'encoding': 'base64'}, retry=True)
         entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': b['sha']})
     for name in gone:
         entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': None})
