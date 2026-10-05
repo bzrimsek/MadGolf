@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.23  ·  2026-10-05 02:42 PM ET
+
+New Settings button, Test live scoring: one tap makes a throwaway Test Trip (you plus three regulars, your home course, one round today, already paired), puts it live and opens the share sheet with the board link and the group's scoring link, so live scoring can be tried without setting up a trip. Delete Test Trip from Trips afterwards.
+
 ## v0.91.22  ·  2026-10-05 01:36 PM ET
 
 Nine holes always play off half the handicap index, as WHS says. At a 9-hole course the index was not halved, so a 10.0 played off 9 instead of 4; the course's own 9-hole rating is still used as is, and a nine off an 18-hole course was already right. Fixed in the one shared formula, so Foursome, League, Trip and the scramble team handicaps all follow it; six tests that held the old values now carry worked WHS figures.

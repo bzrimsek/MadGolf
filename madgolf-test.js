@@ -9069,6 +9069,23 @@ smoke('leagueCurrentSession returns session', () => {
   expect('2-man: no game -> null', sandbox.tripTwoManResults(base, {}), null);
 }
 
+// ── 191. One-tap test trip for live scoring (BZ, 2026-10-05) ─────────────────
+// By hand: me = p3; regulars p1,p2,p4,p5 → roster p3,p1,p2,p4; the home course cH.
+{
+  let n = 0; const id = () => 'id' + (++n);
+  const st = { config:{ myPlayerId:'p3' },
+    players:[{id:'p1',regular:true},{id:'p2',regular:true},{id:'p3',regular:false},{id:'p4',regular:true},{id:'p5',regular:true}],
+    courses:[{id:'cA'},{id:'cH',homeCourse:true}] };
+  const m = sandbox.tripTestTrip(st, '2026-10-05', id);
+  expect('test trip: me first, then three regulars', m.trip.players.map(p => p.id).join(), 'p3,p1,p2,p4');
+  expect('test trip: on the home course', m.round.courseId + ' ' + m.trip.courseIds.join(), 'cH cH');
+  expect('test trip: one round today', Object.keys(m.trip.days).join() + ' ' + m.trip.days['2026-10-05'].rounds.length, '2026-10-05 1');
+  expect('test trip: already paired as one group of four', m.round.groups.length + ' ' + m.round.groups[0].playerIds.length, '1 4');
+  expect('test trip: the round in the trip is the one returned', m.trip.days['2026-10-05'].rounds[0] === m.round, true);
+  expect('test trip: no course -> null', sandbox.tripTestTrip({ players: st.players, courses: [] }, '2026-10-05', id), null);
+  expect('test trip: one player -> null', sandbox.tripTestTrip({ players: [st.players[0]], courses: st.courses }, '2026-10-05', id), null);
+}
+
 // ── 186. One list-section header, centered by its class (2026-10-04) ─────────
 // Six screens each wrote this <div> out themselves; listSecHdr is the copy.
 {

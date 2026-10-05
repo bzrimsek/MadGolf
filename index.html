@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.22  Build 2026-10-05 01:36 PM ET
+     Version : v0.91.23  Build 2026-10-05 02:42 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.23  2026-10-05  New Settings button, Test live scoring: one tap makes a throwaway Test Trip (you plus three regulars, your home course, one round today, already…
 // v0.91.22  2026-10-05  Nine holes always play off half the handicap index, as WHS says.
 // v0.91.21  2026-10-05  Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from…
 // v0.91.20  2026-10-04  Headers are centered and action buttons stay on one line on every screen.
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.16  2026-08-07  Live board — the FULL game, no cop-out (open items 1-5).
 // v0.91.15  2026-08-01  Two outing fixes from on-device testing.
 // v0.91.14  2026-08-01  Live-scoring STEPS 2 + 3 — web score entry (score.html) + monitor merge.
-// v0.91.13  2026-08-01  Live-scoring STEP 1 — arm a session/round live + multi-view publish + per-group scoring links.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -625,6 +625,13 @@ input:checked+.slider:before{transform:translateX(20px);}
       </label>
     </div>
 
+    <!-- Test live scoring -->
+    <div class="card">
+      <div class="card-title">Test Live Scoring</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Makes a throwaway "Test Trip" (you + three regulars, your home course, one round today), puts it live and opens the scoring links. Delete it from Trips when done.</div>
+      <button class="btn btn-outline btn-full" onclick="tripTestLive()">📡 Test live scoring</button>
+    </div>
+
     <!-- Version -->
     <div class="card" style="background:var(--g800);color:#fff;margin-bottom:12px;text-align:center;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:1px;color:var(--gold);">MadGolf</div>
@@ -1213,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.22';
-const BUILD_TIME = '2026-10-05 01:36 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.23';
+const BUILD_TIME = '2026-10-05 02:42 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -14467,6 +14474,40 @@ function liveShowRoundPicker(t, rounds) {
 }
 function livePickRound(i) { const c=_liveRoundPick; if(!c)return; closeModal('liveRoundPicker'); unitShareLive('trip', c.t, c.rounds[i]); }
 function leagueShareLive() { const lg = leagueCurrent(); unitShareLive('league', lg, leagueCurrentSession()); }
+/** A throwaway trip for testing live scoring in one tap (BZ, 2026-10-05: "it's
+ *  a lot to set up a trip just to test"). You (Settings -> My Player) plus the
+ *  next three regulars, your home course, one stroke round TODAY in your own
+ *  timezone, already paired as one group. Pure: takes the state, the date and
+ *  an id maker; returns {trip, round} or null when there is no course or
+ *  fewer than two players. */
+function tripTestTrip(state, today, newId) {
+  const players = state.players || [], courses = state.courses || [];
+  const course = courses.find(c => c.homeCourse) || courses[0];
+  if (!course || players.length < 2) return null;
+  const me = players.find(p => p.id === (state.config || {}).myPlayerId);
+  const pool = [me].concat(players.filter(p => p !== me && p.regular), players.filter(p => p !== me && !p.regular))
+    .filter(Boolean).slice(0, 4);
+  const round = { id: newId(), label: 'Test round', courseId: course.id, format: 'stroke', nineMode: 'all',
+    championship: false, teeTimes: [], resultMethod: null, twoMan: null,
+    groups: [{ playerIds: pool.map(p => p.id), teetime: 'Test group' }], scores: {}, borrows: [], completed: false };
+  const trip = { id: newId(), type: 'trip', destination: 'Test Trip', startDate: today, endDate: today,
+    players: pool.map(p => ({ id: p.id, manager: false })), courseIds: [course.id],
+    days: { [today]: { rounds: [round] } }, settings: {} };
+  return { trip, round };
+}
+/** Settings -> Test live scoring: build the test trip and put its round live,
+ *  opening the share sheet with the board link and the group's scoring link. */
+function tripTestLive() {
+  const d = new Date();
+  const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const made = tripTestTrip(S, today, uid);
+  if (!made) return toast('Add a course and at least two players first');
+  if (!S.events) S.events = [];
+  S.events.push(made.trip);
+  S.activeTripId = made.trip.id;
+  scheduleWrite();
+  unitShareLive('trip', made.trip, made.round);
+}
 function tripShareLive() {
   const t = tripActive(); if (!t) return;
   const rounds = tripArmableRounds(t);

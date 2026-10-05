@@ -724,6 +724,36 @@ async function main() {
     return p9 ? 'Caito shown at ' + p9.net + ' (' + (got.indexOf(p9) + 1) + ' of ' + got.length + ')' : 'Caito not ranked';
   });
 
+  /* ---- THE ONE-TAP TEST, as BZ will use it from Settings. */
+  await step(ctx, 'Settings: Test live scoring builds a trip, goes live, and a phone link saves a score', async () => {
+    await page.click('#tab-settings'); await pause(page, 300);
+    await tap(page, 'button:has-text("Test live scoring")'); await pause(page, 600);
+    const url = await page.locator('#liveShareUrl').innerText();
+    const sid = (url.match(/[?&]id=([a-z0-9]+)/) || [])[1];
+    expect(sid, 'the share sheet did not open with a live link');
+    const links = await page.locator('#liveShareGroups button:has-text("Text")').count();
+    expect(links === 1, links + ' scoring links, expected 1 (one group)');
+    await tap(page, '#liveShareModal button:has-text("Done")');
+    const t = await tripNow(page);
+    expect(t && t.destination === 'Test Trip' && t.players.length === 4, 'no 4-player Test Trip was made');
+    const live = store.read('/bz-apps/golf/live/' + sid);
+    const sp = await context.newPage(); listen(sp, rep);
+    await sp.goto(ORIGIN + '/score.html?id=' + sid + '&g=0');
+    await sp.waitForSelector('.prow', { timeout: 6000 });
+    await sp.locator('.prow').first().locator('button:has-text("+")').click();
+    await sp.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });
+    await sp.close();
+    const pid = live.groups[0].players[0].id;
+    const par1 = live.course.holes[0].par;
+    const saved = store.read('/bz-apps/golf/live/' + sid + '/scores/' + pid + '/1');
+    expect(saved === par1 + 1, 'the phone saved ' + saved + ' for hole 1, expected par + 1 = ' + (par1 + 1));
+    await page.evaluate(() => liveMonitorPoll()); await pause(page, 800);
+    const t2 = await tripNow(page);
+    const got = Number(Object.values(t2.days)[0].rounds[0].scores[pid][1]);
+    expect(got === par1 + 1, 'the app shows ' + got + ' for hole 1 after the poll');
+    return 'Test Trip live, hole 1 = ' + saved + ' from the phone, in the app';
+  });
+
   /* ---- AND ON EVERY STEP: the app never wrote before its first load. */
   await step(ctx, 'nothing was written to the database before the first load', async () => {
     const firstLoad = store.log.find(e => e.op === 'get' && e.path === STATE_PATH && e.servedSeq);
