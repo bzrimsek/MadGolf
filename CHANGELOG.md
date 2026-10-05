@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.25  ·  2026-10-05 03:22 PM ET
+
+The scoring link and the live board now use the app's own look. The scoring link shows the group's card in the app's scorecard grid - front and back nines, par and handicap rows, stroke dots, out/in/total - and you type a score as in the app; it saves and moves to the next box. The board shows the app's header, tabs and leaderboard rows. Both carry the app's code copied exactly by pages.py, and the audit fails if a copy drifts. Fixed: a round in progress was ranked on gross so far minus the whole handicap, so the highest handicap led after one hole; every board now shows net against par through the holes played (thru N), for individual, scramble and best-ball rounds alike. The Trip tab showed the net-stroke total with a plus sign; it shows the plain total, as the app does.
+
 ## v0.91.24  ·  2026-10-05 02:58 PM ET
 
 Fixed: the Text button for each group's scoring link on the live share sheet did nothing. Its onclick wrote the group's name with JSON.stringify, whose double quotes ended the attribute; it now passes the link and name as data fields, with the link URL-encoded so its &g= survives. The trip simulator now taps Text instead of only counting it, and a new wiring check fails any JSON.stringify inside an inline handler on every page - this fault had shipped twice.

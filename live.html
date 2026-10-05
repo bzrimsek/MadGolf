@@ -4,75 +4,137 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>MadGolf — Live</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#12261a; --surf:#1b3527; --surf2:#24402f; --fg:#f0f4f0; --muted:#9fb3a5; --gold:#e0b64a; --line:#2e4a38; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
-  .wrap { max-width:560px; margin:0 auto; padding:22px 16px 48px; }
-  h1 { font-size:22px; margin:0 0 2px; letter-spacing:.5px; }
-  .live { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--gold); font-weight:700; letter-spacing:.5px; margin-bottom:12px; }
-  .dot { width:7px; height:7px; border-radius:50%; background:var(--gold); animation:pulse 1.6s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.25;} }
-  .tabs { display:flex; gap:6px; margin-bottom:6px; }
-  .tab { flex:1; padding:8px 6px; text-align:center; font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase;
-         background:var(--surf); color:var(--muted); border:1px solid var(--line); border-radius:8px; cursor:pointer; }
-  .tab.on { background:var(--surf2); color:var(--gold); border-color:var(--gold); }
-  table { width:100%; border-collapse:collapse; margin-top:10px; }
-  td { padding:10px 6px; border-bottom:1px solid var(--line); text-align:left; }
-  .pos { width:36px; text-align:center; color:var(--muted); }
-  .name { font-weight:600; }
-  .pri { text-align:right; font-weight:700; color:var(--gold); font-size:15px; }
-  .sec { text-align:right; color:var(--muted); font-size:12px; width:64px; }
-  .upd { color:var(--muted); font-size:11px; margin-top:16px; text-align:center; }
-  .msg { color:var(--muted); text-align:center; padding:44px 12px; line-height:1.5; }
+/* COPIED-CSS from index.html by pages.py - do not edit here */
+:root {
+  --g900:#0d1f0d; --g800:#1a2f1a;
+  --g700:#243824; --g600:#2e472e;
+  --gold:#c9a227; --gold2:#e8c04a;
+  --surf:#fff;
+  --surf2:#f4f4f2;
+  --surf3:#e8e8e5;
+  --red:#c0392b;
+  --blue:#2471a3;
+  --text:#1a1a1a;
+  --muted:#777;
+  --radius:10px;
+  --shadow:0 2px 12px rgba(0,0,0,0.12);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+header{
+  background:var(--g800);
+  color:#fff;
+  position:sticky;top:0;
+  z-index:100;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+  flex-shrink:0;
+}
+.hdr-inner{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 16px 10px;
+  max-width:480px;margin:0 auto;
+}
+.hdr-left{display:flex;align-items:center;gap:10px;}
+.hdr-logo{height:40px;width:40px;object-fit:contain;border-radius:6px;}
+.hdr-title{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;color:var(--gold);}
+.hdr-sub{font-size:11px;color:rgba(255,255,255,0.5);margin-top:1px;font-weight:500;}
+.card{
+  background:var(--surf);
+  border-radius:var(--radius);
+  padding:16px;
+  margin-bottom:12px;
+  box-shadow:var(--shadow);
+}
+.holes-toggle{padding:8px 14px;border-radius:8px;border:1.5px solid var(--surf3);background:var(--surf2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;user-select:none;-webkit-user-select:none;touch-action:manipulation;}
+.holes-toggle.active{background:var(--g800);color:var(--gold);border-color:var(--g800);}
+/* END COPIED-CSS */
+/* This page only: the leaderboard laid out as the app's Results screens are. */
+body{font-family:'DM Sans',sans-serif;background:var(--surf2);color:var(--text);padding-top:env(safe-area-inset-top);}
+.wrap{max-width:560px;margin:0 auto;padding:12px 10px 40px;}
+.evt{text-align:center;margin:4px 0 8px;}
+.evt .t{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--g800);}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--gold);font-weight:700;letter-spacing:.5px;}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--gold);animation:pulse 1.6s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+.tabs{display:flex;gap:6px;margin-bottom:8px;}
+.tabs .tab{flex:1;text-align:center;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+td{padding:8px 6px;border-bottom:1px solid var(--surf3);}
+td.pos{width:34px;text-align:center;color:var(--muted);font-size:12px;}
+td.name{font-weight:600;}
+td.pri{text-align:center;font-weight:700;}
+tr.lead td.name{font-weight:700;}
+tr.lead td.pri{color:var(--gold);font-size:15px;}
+td.sec{text-align:right;color:var(--muted);font-size:11px;white-space:nowrap;}
+.upd{color:var(--muted);font-size:11px;margin-top:10px;text-align:center;}
+.msg{color:var(--muted);text-align:center;padding:36px 12px;line-height:1.5;}
 </style>
 </head>
 <body>
+<header>
+  <div class="hdr-inner">
+    <div class="hdr-left">
+      <img class="hdr-logo" src="logo.webp" alt="MadGolf" onerror="this.style.display='none'">
+      <div><div class="hdr-title">MadGolf</div><div class="hdr-sub">Live leaderboard</div></div>
+    </div>
+    <span class="live"><span class="dot"></span>LIVE</span>
+  </div>
+</header>
 <div class="wrap">
-  <h1 id="title">Live</h1>
-  <div class="live"><span class="dot"></span>LIVE</div>
-  <div id="tabs" class="tabs"></div>
-  <div id="board"></div>
+  <div class="evt"><div class="t" id="title">Live</div></div>
+  <div class="card" style="padding:12px;">
+    <div id="tabs" class="tabs"></div>
+    <div id="board"></div>
+  </div>
   <div class="upd" id="upd"></div>
 </div>
 <script>
-  const DB = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';
-  const id = new URLSearchParams(location.search).get('id');
-  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const medal = p => p === 1 ? '\uD83E\uDD47' : p === 2 ? '\uD83E\uDD48' : p === 3 ? '\uD83E\uDD49' : esc(p);
-  let _data = null, _view = 0;
+/* COPIED-JS from index.html by pages.py - do not edit here */
+function esc(str) {
+  return String(str || '').replace(/[<>"'&]/g, '').trim().slice(0, 100);
+}
+/* END COPIED-JS */
 
-  async function load() {
-    if (!id) { msg('No id in this link.'); return; }
-    try {
-      const res = await fetch(DB + '/' + encodeURIComponent(id) + '.json', { cache: 'no-store' });
-      const d = await res.json();
-      if (!d) { msg('This board is not available &mdash; it may not be shared, or sharing was stopped.'); return; }
-      _data = d; render();
-    } catch (e) { const u = document.getElementById('upd'); if (u) u.textContent = 'Reconnecting\u2026'; }
-  }
-  function msg(html) { document.getElementById('tabs').innerHTML = ''; document.getElementById('board').innerHTML = '<div class="msg">' + html + '</div>'; }
-  function views() { return _data.views || (_data.rows ? [{ id:'main', label:'', rows:_data.rows }] : []); }
-  function setView(i) { _view = i; render(); }
-  function render() {
-    const d = _data; document.getElementById('title').textContent = d.title || 'Live';
-    const vs = views(); if (_view >= vs.length) _view = 0;
-    document.getElementById('tabs').innerHTML = vs.length > 1
-      ? vs.map((v, i) => '<div class="tab ' + (i === _view ? 'on' : '') + '" onclick="setView(' + i + ')">' + esc(v.label) + '</div>').join('')
-      : '';
-    const rows = ((vs[_view] || {}).rows || []).map(r =>
-      '<tr><td class="pos">' + medal(r.pos) + '</td><td class="name">' + esc(r.name) +
-      '</td><td class="pri">' + esc(r.primary) + '</td><td class="sec">' + esc(r.secondary || '') + '</td></tr>'
-    ).join('');
-    document.getElementById('board').innerHTML = rows
-      ? '<table><tbody>' + rows + '</tbody></table>'
-      : '<div class="msg">No scores posted yet.</div>';
-    if (d.updated) document.getElementById('upd').textContent = 'Updated ' + new Date(d.updated).toLocaleTimeString();
-  }
+/* This page only. The rows are worked out by the app (liveUnitPayload) and
+   published; this draws them and nothing else, so it cannot disagree with
+   the app's numbers. */
+const DB = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';
+const id = new URLSearchParams(location.search).get('id');
+const medal = p => p === 1 ? '🥇' : p === 2 ? '🥈' : p === 3 ? '🥉' : esc(p);
+let _data = null, _view = 0;
 
-  load();
-  setInterval(load, 10000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+async function load() {
+  if (!id) { msg('No id in this link.'); return; }
+  try {
+    const res = await fetch(DB + '/' + encodeURIComponent(id) + '.json', { cache: 'no-store' });
+    const d = await res.json();
+    if (!d) { msg('This board is not available - it may not be shared, or sharing was stopped.'); return; }
+    _data = d; render();
+  } catch (e) { const u = document.getElementById('upd'); if (u) u.textContent = 'Reconnecting…'; }
+}
+function msg(html) { document.getElementById('tabs').innerHTML = ''; document.getElementById('board').innerHTML = '<div class="msg">' + html + '</div>'; }
+function views() { return _data.views || (_data.rows ? [{ id:'main', label:'', rows:_data.rows }] : []); }
+function setView(i) { _view = i; render(); }
+function render() {
+  const d = _data; document.getElementById('title').textContent = d.title || 'Live';
+  const vs = views(); if (_view >= vs.length) _view = 0;
+  document.getElementById('tabs').innerHTML = vs.length > 1
+    ? vs.map((v, i) => '<div class="tab holes-toggle ' + (i === _view ? 'active' : '') + '" onclick="setView(' + i + ')">' + esc(v.label) + '</div>').join('')
+    : '';
+  const rows = ((vs[_view] || {}).rows || []).map((r, i) =>
+    '<tr' + (i === 0 ? ' class="lead"' : '') + '><td class="pos">' + medal(r.pos) + '</td><td class="name">' + esc(r.name) +
+    '</td><td class="pri">' + esc(r.primary) + '</td><td class="sec">' + esc(r.secondary || '') + '</td></tr>'
+  ).join('');
+  document.getElementById('board').innerHTML = rows
+    ? '<table><tbody>' + rows + '</tbody></table>'
+    : '<div class="msg">No scores posted yet.</div>';
+  if (d.updated) document.getElementById('upd').textContent = 'Updated ' + new Date(d.updated).toLocaleTimeString();
+}
+
+load();
+setInterval(load, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 </script>
 </body>
 </html>

@@ -8828,6 +8828,8 @@ smoke('leagueCurrentSession returns session', () => {
   const pl = sandbox.liveUnitPayload('trip', tripA, tripA.days[day].rounds[0]);
   expect('trip unit payload title from passed trip', pl.title.indexOf('Away Trip') >= 0, true);
   expect('trip unit payload has Round + Trip views', JSON.stringify(pl.views.map(v=>v.id)), JSON.stringify(['round','trip']));
+  // Trip view shows NET STROKES, not to-par: all 5s on 18 par 4s = 90, CH 10 → 80 (no "+").
+  expect('trip view shows net strokes as a plain total', pl.views[1].rows[0].primary, '80');
 }
 
 // ── 177. League championship flag: social sessions excluded from season standings ─
@@ -9084,6 +9086,40 @@ smoke('leagueCurrentSession returns session', () => {
   expect('test trip: the round in the trip is the one returned', m.trip.days['2026-10-05'].rounds[0] === m.round, true);
   expect('test trip: no course -> null', sandbox.tripTestTrip({ players: st.players, courses: [] }, '2026-10-05', id), null);
   expect('test trip: one player -> null', sandbox.tripTestTrip({ players: [st.players[0]], courses: st.courses }, '2026-10-05', id), null);
+}
+
+// ── 192. Mid-round boards: to par through the holes played (BZ, 2026-10-05) ──
+// By hand, three par-4 holes rated 1,2,3, after hole 1 only.
+{
+  const H = [1,2,3].map(n => ({ num:n, par:4, hcpRating:n }));
+  const ind = { activeHoles:H, hcpScale:18, is9:false, format:'stroke', settings:{},
+    players:[{id:'A',name:'A',courseHcp:10},{id:'B',name:'B',courseHcp:0}], groups:[{playerIds:['A','B']}],
+    scores:{ A:{1:6}, B:{1:4} } };
+  const r1 = sandbox.computeRoundResults(ind);
+  // A: 6 - 1 stroke - par 4 = +1; B: 4 - 0 - 4 = 0. B leads (old: A "net -4" led).
+  expect('mid-round: B leads at E', r1.entries[0].playerId + ' ' + r1.entries[0].toPar, 'B 0');
+  expect('mid-round: A at +1 thru 1', r1.entries[1].toPar + ' ' + r1.entries[1].thru, '1 1');
+  const lr = sandbox.liveRoundRows(ind, false);
+  expect('live row: leader shows E thru 1', lr[0].name + ' ' + lr[0].primary + ' ' + lr[0].secondary.split(' · ')[0], 'B E thru 1');
+  // A finished round still ranks by net: A 6,5,5 = 16 - 10 = 6 (net -6 vs par 12... to par = 16-3-12 = +1)
+  const done = Object.assign({}, ind, { scores:{ A:{1:6,2:5,3:5}, B:{1:4,2:4,3:5} } });
+  const r2 = sandbox.computeRoundResults(done);
+  // A: 16 - 3 strokes (CH 10 → one on each hole) - 12 = +1; B: 13 - 0 - 12 = +1 → tie, both F
+  expect('finished: both +1', r2.entries.map(e => e.toPar).join(), '1,1');
+
+  const team = { activeHoles:H, hcpScale:18, is9:false, format:'best2', settings:{ borrows:[] },
+    players:['W','X','Y','Z'].map(id => ({ id, name:id, courseHcp:0 })), groups:[{ playerIds:['W','X','Y','Z'] }],
+    scores:{ W:{1:4}, X:{1:4}, Y:{1:5}, Z:{1:5} } };
+  const rt = sandbox.computeRoundResults(team);
+  // best two nets 4+4 = 8 against a two-ball par of 8 → E (old: par for all three holes, -16)
+  expect('best balls mid-round: E thru 1', rt.entries[0].netVsPar + ' ' + rt.entries[0].thru, '0 1');
+
+  const scr = { activeHoles:H, hcpScale:18, is9:false, format:'scramble', course:{ slope:113, rating:72, holes:H },
+    settings:{ scramblePcts:[] }, players:[{id:'S1',name:'S1',courseHcp:0},{id:'S2',name:'S2',courseHcp:0}],
+    groups:[{ playerIds:['S1','S2'] }], scores:{ grp_0:{1:3} } };
+  const rs = sandbox.computeRoundResults(scr);
+  // no handicap: 3 on a par 4 → -1 thru 1 (old: 3 - par 12 = -9)
+  expect('scramble mid-round: -1 thru 1', rs.entries[0].netVsPar + ' ' + rs.entries[0].thru, '-1 1');
 }
 
 // ── 186. One list-section header, centered by its class (2026-10-04) ─────────

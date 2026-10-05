@@ -714,22 +714,26 @@ async function walk(ctx, page, store, context) {
     sp = await context.newPage();
     ctx.page = sp; listen(sp, ctx.rep);
     await sp.goto(ORIGIN + '/score.html?id=' + shareId + '&g=0');
-    await sp.waitForSelector('.prow', { timeout: 5000 });
-    const names = (await sp.locator('.prow .nm').allInnerTexts()).map(s => s.trim()).sort();
+    // The page is the app's own scorecard (renderScorecardGroup): one score box
+    // per player per hole, keyed by data-pid.
+    await sp.waitForSelector('#app input.game-score-input', { timeout: 5000 });
+    const pids = await sp.evaluate(() => [...new Set([...document.querySelectorAll('#app input[data-pid]')].map(i => i.dataset.pid))].sort());
     const live = store.read('/bz-apps/golf/live/' + shareId);
-    const want = live.groups[0].players.map(p => p.name).sort();
-    expect(names.join() === want.join(), 'the scoring page shows [' + names + '], group 1 is [' + want + ']');
+    const want = live.groups[0].players.map(p => p.id).sort();
+    expect(pids.join() === want.join(), 'the scoring card shows [' + pids + '], group 1 is [' + want + ']');
+    const boxes = await sp.locator('#app input.game-score-input').count();
+    expect(boxes === want.length * live.course.holes.length, boxes + ' score boxes, expected ' + want.length + ' players x ' + live.course.holes.length + ' holes');
     expect(store.log.some(e => e.op === 'identity'), 'score.html did not sign in anonymously');
-    return names.length + ' players, hole 1';
+    return pids.length + ' players, ' + boxes + ' boxes';
   });
-  await step(ctx, 'score.html: tapping + saves the score to the live board', async () => {
+  await step(ctx, 'score.html: typing a score saves it to the live board', async () => {
     expect(sp, 'the scoring page never loaded');
     const live = store.read('/bz-apps/golf/live/' + shareId);
     const pid = live.groups[0].players[0].id;
-    await sp.locator('.prow').first().locator('button:has-text("+")').click();
+    await sp.locator(`#app input[data-pid="${pid}"][data-hole="1"]`).fill('5');
     await sp.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });
     const saved = store.read('/bz-apps/golf/live/' + shareId + '/scores/' + pid + '/1');
-    expect(saved === 5, 'hole 1 for ' + pid + ' stored ' + saved + ', expected par 4 + 1 = 5');
+    expect(saved === 5, 'hole 1 for ' + pid + ' stored ' + saved + ', expected 5');
     return 'live/' + shareId + '/scores/' + pid + '/1 = 5';
   });
   ctx.page = page;

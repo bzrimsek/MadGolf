@@ -464,28 +464,23 @@ async function main() {
     const phone = async gi => {
       const sp = await context.newPage(); listen(sp, rep);
       await sp.goto(ORIGIN + '/score.html?id=' + shareId + '&g=' + gi);
-      await sp.waitForSelector('.prow', { timeout: 6000 });
+      await sp.waitForSelector('#app input.game-score-input', { timeout: 6000 });
       const pids = live.groups[gi].players.map(p => p.id);
+      // Typed like a thumb, hole by hole: one digit per box, and the card
+      // moves focus on (the app's own By Hole order).
       for (let h = 0; h < holes.length; h++) {
         for (let k = 0; k < pids.length; k++) {
           const want = grossFor(pids[k], holes[h].num, holes[h].par, 4);
-          const row = sp.locator('.prow').nth(k);
-          let cur = null;
-          for (let guard = 0; guard < 12 && cur !== want; guard++) {
-            const v = (await row.locator('.val').innerText()).trim();
-            cur = /^\d+$/.test(v) ? Number(v) : null;
-            if (cur === want) break;
-            const base = cur == null ? holes[h].par : cur;
-            await row.locator(base < want || (cur == null && want >= holes[h].par) ? 'button:has-text("+")' : 'button:has-text("−")').click();
-            await sp.waitForTimeout(40);
-            if (cur == null && want === holes[h].par) {   // first tap sets par +/-1; come back to par
-              await row.locator('button:has-text("−")').click(); await sp.waitForTimeout(40);
-            }
-          }
+          await sp.locator(`#app input[data-pid="${pids[k]}"][data-hole="${holes[h].num}"]`).fill(String(want));
+          await sp.waitForTimeout(25);
           (remoteTyped[pids[k]] = remoteTyped[pids[k]] || {})[holes[h].num] = want;
         }
-        if (h < holes.length - 1) { await sp.locator('button.done').click(); await sp.waitForTimeout(40); }
       }
+      await sp.evaluate(() => window.scrollTo(0, 0)); await shot(sp, 'score-page-group' + (gi + 1));
+      // The card's own totals agree with what was typed.
+      const shown = await sp.evaluate(p => { const e = document.getElementById('T_' + p); return e ? e.textContent.trim() : ''; }, pids[0]);
+      const sum = Object.values(remoteTyped[pids[0]]).reduce((a, b) => a + b, 0);
+      if (Number(shown) !== sum) rep.fail('score.html total for ' + pids[0] + ' shows ' + shown + ', typed ' + sum);
       await sp.waitForTimeout(600);
       await sp.close();
     };
@@ -548,9 +543,11 @@ async function main() {
     await lp.goto(ORIGIN + '/live.html?id=' + shareId);
     await lp.waitForSelector('#board tr', { timeout: 6000 });
     const tabs = await lp.locator('#tabs .tab').allInnerTexts();
+    await shot(lp, 'live-board-round');
     const tripTab = lp.locator('#tabs .tab').filter({ hasText: /^Trip$/i });
     expect(await tripTab.count(), 'the live board has no Trip tab (tabs: ' + tabs.join('/') + ')');
     await tripTab.first().click(); await lp.waitForTimeout(300);
+    await shot(lp, 'live-board-trip');
     const names = (await lp.locator('#board tr td.name').allInnerTexts()).map(s => s.trim());
     const t = await tripNow(page);
     const want = expectedBoard(t, PLAYERS).map(e => e.name);
@@ -748,12 +745,12 @@ async function main() {
     const live = store.read('/bz-apps/golf/live/' + sid);
     const sp = await context.newPage(); listen(sp, rep);
     await sp.goto(ORIGIN + '/score.html?id=' + sid + '&g=0');
-    await sp.waitForSelector('.prow', { timeout: 6000 });
-    await sp.locator('.prow').first().locator('button:has-text("+")').click();
-    await sp.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });
-    await sp.close();
+    await sp.waitForSelector('#app input.game-score-input', { timeout: 6000 });
     const pid = live.groups[0].players[0].id;
     const par1 = live.course.holes[0].par;
+    await sp.locator(`#app input[data-pid="${pid}"][data-hole="1"]`).fill(String(par1 + 1));
+    await sp.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });
+    await sp.close();
     const saved = store.read('/bz-apps/golf/live/' + sid + '/scores/' + pid + '/1');
     expect(saved === par1 + 1, 'the phone saved ' + saved + ' for hole 1, expected par + 1 = ' + (par1 + 1));
     await page.evaluate(() => liveMonitorPoll()); await pause(page, 800);

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.24  Build 2026-10-05 02:58 PM ET
+     Version : v0.91.25  Build 2026-10-05 03:22 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.25  2026-10-05  The scoring link and the live board now use the app's own look.
 // v0.91.24  2026-10-05  Fixed: the Text button for each group's scoring link on the live share sheet did nothing.
 // v0.91.23  2026-10-05  New Settings button, Test live scoring: one tap makes a throwaway Test Trip (you plus three regulars, your home course, one round today, already…
 // v0.91.22  2026-10-05  Nine holes always play off half the handicap index, as WHS says.
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.18  2026-08-29  Leaderboard image share for outings + trips (foursome keeps the scorecard).
 // v0.91.17  2026-08-29  Scorecard view + share.
 // v0.91.16  2026-08-07  Live board — the FULL game, no cop-out (open items 1-5).
-// v0.91.15  2026-08-01  Two outing fixes from on-device testing.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -1220,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.24';
-const BUILD_TIME = '2026-10-05 02:58 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.25';
+const BUILD_TIME = '2026-10-05 03:22 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -3189,9 +3189,15 @@ function computeRoundResults(ctx) {
       if (!gross) return null;
       const tCH   = scrambleTeamCH(gp, ctx.course, is9, pcts);
       const net   = gross - tCH;
+      // Against par over the holes PLAYED, strokes on those holes only: mid-round
+      // the full team handicap came off a few holes (2026-10-05). Finished, it
+      // equals net - par.
+      let thru = 0, toPar = 0;
+      activeHoles.forEach(h => { const g = parseInt((scores[key] || {})[h.num]) || 0; if (!g) return;
+        thru++; toPar += g - strokesOnHole(tCH, h.hcpRating || 0, hcpScale) - h.par; });
       return { gi, label: grp.label, names: gp.map(p => (p.name||'').split(',')[0]||p.name).join(' / '),
-               gross, teamCH: tCH, net, netVsPar: net - parTot };
-    }).filter(Boolean).sort((a, b) => a.net - b.net);
+               gross, teamCH: tCH, net, netVsPar: toPar, thru };
+    }).filter(Boolean).sort((a, b) => a.netVsPar - b.netVsPar);
     return { type: 'scramble', entries };
   }
 
@@ -3207,20 +3213,21 @@ function computeRoundResults(ctx) {
       if (!gp.length) return null;
       const hasAny = gp.some(p => activeHoles.some(h => parseInt((scores[p.id]||{})[h.num]) > 0));
       if (!hasAny) return null;
-      let teamNet = 0;
+      // Par counted for the scores actually used on each hole: the target
+      // was the whole round's, so two holes in a team stood ~60 under (2026-10-05).
+      let teamNet = 0, parEq = 0, thru = 0;
       activeHoles.forEach(h => {
         const nets = use321
           ? threeTwoOneBestNets(gp, scores, h, hcpScale)
           : bestBallsHoleNet(gp, scores, h, hcpScale);
         teamNet += nets.reduce((a, v) => a + v, 0);
+        parEq   += h.par * nets.length;
+        if (nets.length) thru++;
       });
-      const parEq = use321
-        ? activeHoles.reduce((a, h) => { const tk=h.par===3?3:h.par===4?2:1; return a+h.par*tk; }, 0)
-        : activeHoles.reduce((a, h) => a + h.par * 2, 0);
       const homeNames = homePids.map(id => { const p=players.find(x=>x.id===id); return p?(p.name||'').split(',')[0]:'?'; });
       const xNames    = extraPids.map(id => { const p=players.find(x=>x.id===id); return p?(p.name||'').split(',')[0]+' (B)':'?'; });
       return { gi, label: grp.label, names: [...homeNames,...xNames].join(' / '),
-               teamNet, parEq, netVsPar: teamNet - parEq, hasBorrow: extraPids.length > 0 };
+               teamNet, parEq, netVsPar: teamNet - parEq, thru, hasBorrow: extraPids.length > 0 };
     }).filter(Boolean).sort((a, b) => a.netVsPar - b.netVsPar);
     return { type: 'team', entries, use321 };
   }
@@ -3232,6 +3239,12 @@ function computeRoundResults(ctx) {
     const gross = activeHoles.reduce((a, h) => a + (parseInt(sc[h.num]) || 0), 0);
     if (!gross) return null;
     const net   = gross - p.courseHcp;
+    // Against par over the holes PLAYED, strokes on those holes only. Mid-round
+    // "gross so far minus the whole handicap" put the highest handicap in the
+    // lead after one hole (BZ, 2026-10-05). Finished, it equals net - par.
+    let thru = 0, toPar = 0;
+    activeHoles.forEach(h => { const g = parseInt(sc[h.num]) || 0; if (!g) return;
+      thru++; toPar += g - strokesOnHole(p.courseHcp, h.hcpRating || 0, hcpScale) - h.par; });
     let pts = 0;
     if (isSF) {
       activeHoles.forEach(h => {
@@ -3239,9 +3252,9 @@ function computeRoundResults(ctx) {
         pts += stablefordPts((g2 - strokesOnHole(p.courseHcp, h.hcpRating||0, hcpScale)) - h.par, sfCfg);
       });
     }
-    return { playerId: p.id, name: p.name, ch: p.courseHcp, gross, net, pts,
+    return { playerId: p.id, name: p.name, ch: p.courseHcp, gross, net, toPar, thru, pts,
              quota: pointTarget(p.courseHcp, is9) };
-  }).filter(Boolean).sort((a, b) => isSF ? sfRankOrder(a, b) : a.net - b.net);
+  }).filter(Boolean).sort((a, b) => isSF ? sfRankOrder(a, b) : a.toPar - b.toPar);
   return { type: 'individual', entries, isSF };
 }
 
@@ -14278,15 +14291,19 @@ function liveRoundRows(ctx, skinsOn) {
   const skinStr = (key,kind) => (skins.anyWins && skins.type===kind && skins.wins[key]) ? (' \u00b7 '+skins.wins[key]+' skin'+(skins.wins[key]>1?'s':'')) : '';
   const es = res.entries.filter(Boolean), rows = [];
   if (res.type === 'individual') {
-    const sorted = es.slice().sort((a,b)=> res.isSF ? sfRankOrder(a,b) : ((a.net??1e9)-(b.net??1e9)));
-    sorted.forEach((e,i)=>rows.push({ pos:i+1, name:e.name,
-      primary: res.isSF ? ((e.pts||0)+' pts') : netStr(e.net),
-      secondary: (res.isSF ? netStr(e.net) : ((e.gross||0)+' gr')) + skinStr(e.playerId,'individual') }));
+    const holes = ctx.activeHoles.length;
+    const thruStr = e => e.thru >= holes ? 'F' : 'thru ' + e.thru;
+    const vsPar = n => n === 0 ? 'E' : netStr(n);
+    // The engine's order; net against par through the holes played (2026-10-05).
+    es.forEach((e,i)=>rows.push({ pos:i+1, name:e.name,
+      primary: res.isSF ? ((e.pts||0)+' pts') : vsPar(e.toPar),
+      secondary: thruStr(e) + (res.isSF ? ' · ' + vsPar(e.toPar) : ' · ' + (e.gross||0) + ' gr') + skinStr(e.playerId,'individual') }));
   } else {
     const net = e => (e.netVsPar!=null?e.netVsPar:(e.net!=null?e.net:e.teamNet));
+    const holes = ctx.activeHoles.length;
     es.slice().sort((a,b)=>net(a)-net(b)).forEach((e,i)=>rows.push({ pos:i+1, name: e.names||e.label||('Team '+(i+1)),
-      primary: netStr(net(e)),
-      secondary: (e.gross!=null?(e.gross+' gr'):'') + skinStr(e.gi,'team') }));
+      primary: net(e) === 0 ? 'E' : netStr(net(e)),
+      secondary: (e.thru != null ? (e.thru >= holes ? 'F' : 'thru ' + e.thru) + ' · ' : '') + (e.gross!=null?(e.gross+' gr'):'') + skinStr(e.gi,'team') }));
   }
   return rows;
 }
@@ -14303,8 +14320,13 @@ function liveOutingRows(o) {
   return arr.filter(p=>(p.totalGross||0)>0).sort((a,b)=>(a.totalNet??1e9)-(b.totalNet??1e9))
     .map((p,i)=>({ pos:i+1, name:p.name, primary:netStr(p.totalNet), secondary:(p.totalGross||0)+' gr' }));
 }
-function liveRoster(course, pool, groupsSrc) {
-  const c = { name: course.name, holes: course.holes.map(h=>({num:h.num,par:h.par,hcp:h.hcp})) };
+/** What the scoring link needs to draw the app's scorecard: the holes PLAYED
+ *  (re-ranked on a nine, from the scoring ctx), the stroke scale, the format,
+ *  and each group's players with their course handicaps. */
+function liveRoster(course, pool, groupsSrc, ctx) {
+  const holes = (ctx && ctx.activeHoles) || course.holes;
+  const c = { name: course.name, hcpScale: (ctx && ctx.hcpScale) || holes.length || 18, format: (ctx && ctx.format) || 'stroke',
+    holes: holes.map(h=>({num:h.num,par:h.par,hcp:h.hcp,hcpRating:h.hcpRating!=null?h.hcpRating:h.hcp})) };
   const byId={}; (pool||[]).forEach(p=>byId[p.id]=p);
   const groups = (groupsSrc||[]).map((g,i)=>({ idx:i, label:g.teetime||g.label||('Group '+(i+1)),
     players:(g.playerIds||[]).map(pid=>({ id:pid, name:(byId[pid]||{}).name||'?', ch:(byId[pid]||{}).courseHcp||0 })) }));
@@ -14319,7 +14341,7 @@ function liveUnitPayload(kind, ev, unit) {
     const cw = leagueSessionCtx(lg, s);
     if (cw) {
       views.push({ id:'night', label:'Tonight', rows: liveRoundRows(cw.ctx, !!lg.skins) });
-      ({course, groups} = liveRoster(cw.course, cw.pool, s.groups));
+      ({course, groups} = liveRoster(cw.course, cw.pool, s.groups, cw.ctx));
     }
     const st = leagueComputeStandings(lg, false);
     views.push({ id:'season', label:'Season', rows: st.rows.map((p,i)=>({pos:i+1, name:p.name, primary:(st.points[p.id]||0)+' pts', secondary:(st.wins[p.id]||0)+' W'})) });
@@ -14330,16 +14352,18 @@ function liveUnitPayload(kind, ev, unit) {
     if (cw) {
       views.push({ id:'round', label:(r.label||'Round'), rows: liveRoundRows(cw, true) });
       if (r.twoMan && r.twoMan.game) views.push({ id:'twoman', label:'2-Man', rows: tripTwoManRows(tripTwoManResults(cw, r), cw.activeHoles.length) });
-      ({course, groups} = liveRoster(cw.course, cw.players, r.groups));
+      ({course, groups} = liveRoster(cw.course, cw.players, r.groups, cw));
     }
-    views.push({ id:'trip', label:'Trip', rows: tripLeaderboard(t).map((e,i)=>({pos:i+1, name:(fsPlayerById(e.playerId)||{}).name||'?', primary:netStr(e.totalNet), secondary:(e.rounds||0)+' rds'})) });
+    // The trip game is NET STROKES (BZ), shown as the app's leaderboard shows it:
+    // a total, not a score against par - "+240" read as 240 over (2026-10-05).
+    views.push({ id:'trip', label:'Trip', rows: tripLeaderboard(t).map((e,i)=>({pos:i+1, name:(fsPlayerById(e.playerId)||{}).name||'?', primary:e.totalNet==null?'—':String(e.totalNet), secondary:(e.rounds||0)+' rds'})) });
   } else if (kind === 'outing') {
     const o=unit; title = o.name || 'Outing';
     views.push({ id:'board', label:'Leaderboard', rows: liveOutingRows(o) });
     const octx = outingScoringCtx(o);
-    if (octx) ({course, groups} = liveRoster(octx.course, octx.players, o.groups));
+    if (octx) ({course, groups} = liveRoster(octx.course, octx.players, o.groups, octx));
   }
-  return { v:2, kind, title, updated:Date.now(), views, course, groups };
+  return { v:2, kind, title, updated:Date.now(), views, course, groups, format: course ? course.format : 'stroke' };
 }
 // ── Live standings publish (shareable, near-real-time via live.html) ──────────
 const LIVE_BASE = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';

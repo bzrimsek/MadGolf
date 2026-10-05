@@ -148,6 +148,19 @@ def run_audit(html_path):
         else:
             ok(f'CHANGELOG.md entry for v{version}')
 
+    # ── 12. score.html / live.html carry the app's scorecard code ─
+    # They COPY the app's scorecard functions and styles (BZ, 2026-10-05:
+    # "use the UX we already have"); pages.py writes the copies, and a copy
+    # that no longer matches index.html is a page drifting from the app.
+    pages = os.path.join(base, 'pages.py')
+    if os.path.exists(pages):
+        r = subprocess.run([sys.executable, pages, '--check'], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', cwd=base)
+        if r.returncode != 0:
+            failures += 1; fail((r.stdout + r.stderr).strip().replace('  ✖ ', ''))
+        else:
+            ok('score.html and live.html carry the app\'s current scorecard code')
+
     # ── Summary ───────────────────────────────────────────────────
     print()
     if failures == 0:
