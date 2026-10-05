@@ -9086,6 +9086,18 @@ smoke('leagueCurrentSession returns session', () => {
   expect('test trip: one round today', Object.keys(m.trip.days).join() + ' ' + m.trip.days['2026-10-05'].rounds.length, '2026-10-05 1');
   expect('test trip: already paired as one group of four', m.round.groups.length + ' ' + m.round.groups[0].playerIds.length, '1 4');
   expect('test trip: the round in the trip is the one returned', m.trip.days['2026-10-05'].rounds[0] === m.round, true);
+  // ONE Test Trip, rounds added: two on a day, then the next day (BZ, 2026-10-05).
+  const m2 = sandbox.tripTestTrip(st, '2026-10-05', id, m.trip);
+  const m3 = sandbox.tripTestTrip(st, '2026-10-05', id, m.trip);
+  expect('test trip: later taps add to the same trip', m2.isNew + ' ' + m3.isNew + ' ' + (m3.trip === m.trip), 'false false true');
+  expect('test trip: rounds numbered', [m.round, m2.round, m3.round].map(r => r.label).join(), 'Test round 1,Test round 2,Test round 3');
+  expect('test trip: two rounds on the first day', m.trip.days['2026-10-05'].rounds.length, 2);
+  expect('test trip: the third goes to the next day', m.trip.days['2026-10-06'].rounds[0] === m3.round, true);
+  expect('test trip: dates stretch to fit', m.trip.startDate + ' ' + m.trip.endDate, '2026-10-05 2026-10-06');
+  // A Test Trip last used on an earlier day: the next round is today's.
+  const old = sandbox.tripTestTrip(st, '2026-10-01', id).trip;
+  const m4 = sandbox.tripTestTrip(st, '2026-10-05', id, old);
+  expect('test trip: an old trip gets today’s round', Object.keys(old.days).sort().join() + ' ' + old.endDate, '2026-10-01,2026-10-05 2026-10-05');
   expect('test trip: no course -> null', sandbox.tripTestTrip({ players: st.players, courses: [] }, '2026-10-05', id), null);
   expect('test trip: one player -> null', sandbox.tripTestTrip({ players: [st.players[0]], courses: st.courses }, '2026-10-05', id), null);
 }

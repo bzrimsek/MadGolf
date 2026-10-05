@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.28  ·  2026-10-05 07:46 PM ET
+
+Test live scoring now builds one Test Trip with several rounds, as a real trip has. The first tap makes the trip; each later tap adds the next round to it - up to two rounds on a day, then the next day - with the same players and course, and each round gets its own scoring link and board. Saving a round's results adds it to the Trip standings. Before, every tap made a new Test Trip, so a scoring link and a board link could belong to different trips and the board showed nothing. The most recent Test Trip is reused.
+
 ## v0.91.27  ·  2026-10-05 03:58 PM ET
 
 Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text). Gross and Net are through the holes played, +/- is net against par for those holes; a Stableford round adds Pts and its +/- is against quota; best-ball team rounds show Net, +/-, Thru; a Skins column when skins are on. The Trip tab shows Gross, Net, +/- against the par of the rounds counted, and Rnds. The 2-Man tab shows +/- or Pts and Thru. Ships with v0.91.26's changes, whose gate GitHub cancelled during its Actions outage before any step ran.

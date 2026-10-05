@@ -760,6 +760,22 @@ async function main() {
     return 'Test Trip live, hole 1 = ' + saved + ' from the phone, in the app';
   });
 
+  await step(ctx, 'Settings: tapping Test live scoring again adds rounds to the same trip - two a day, then the next day', async () => {
+    for (let k = 0; k < 2; k++) {
+      await page.click('#tab-settings'); await pause(page, 300);
+      await tap(page, 'button:has-text("Test live scoring")'); await pause(page, 600);
+      await tap(page, '#liveShareModal button:has-text("Done")');
+    }
+    const tests = (await trips(page)).filter(t => t.destination === 'Test Trip');
+    expect(tests.length === 1, tests.length + ' Test Trips - each tap should add to the one trip');
+    const days = Object.keys(tests[0].days).sort();
+    const shape = days.map(d => tests[0].days[d].rounds.map(r => r.label).join('+')).join(' | ');
+    expect(shape === 'Test round 1+Test round 2 | Test round 3', 'rounds landed as ' + shape);
+    const live = days.flatMap(d => tests[0].days[d].rounds).filter(r => r.live && r.shareId).map(r => r.shareId);
+    expect(new Set(live).size === 3, live.length + ' live rounds with ' + new Set(live).size + ' distinct links, expected 3');
+    return shape;
+  });
+
   /* ---- AND ON EVERY STEP: the app never wrote before its first load. */
   await step(ctx, 'nothing was written to the database before the first load', async () => {
     const firstLoad = store.log.find(e => e.op === 'get' && e.path === STATE_PATH && e.servedSeq);

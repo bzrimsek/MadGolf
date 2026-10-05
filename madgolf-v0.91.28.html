@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.27  Build 2026-10-05 03:58 PM ET
+     Version : v0.91.28  Build 2026-10-05 07:46 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.28  2026-10-05  Test live scoring now builds one Test Trip with several rounds, as a real trip has.
 // v0.91.27  2026-10-05  Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text).
 // v0.91.26  2026-10-05  Boards show net only and mark ties.
 // v0.91.25  2026-10-05  The scoring link and the live board now use the app's own look.
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.21  2026-10-05  Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from…
 // v0.91.20  2026-10-04  Headers are centered and action buttons stay on one line on every screen.
 // v0.91.19  2026-10-03  Moved MadGolf to the Bottlefolio-style pipeline: push.py sends each build to a build branch and the cloud gate (audit, 2866 tests, lint, wiring…
-// v0.91.18  2026-08-29  Leaderboard image share for outings + trips (foursome keeps the scorecard).
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -628,7 +628,7 @@ input:checked+.slider:before{transform:translateX(20px);}
     <!-- Test live scoring -->
     <div class="card">
       <div class="card-title">Test Live Scoring</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Makes a throwaway "Test Trip" (you + three regulars, your home course, one round today), puts it live and opens the scoring links. Delete it from Trips when done.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Adds the next round to your "Test Trip" (you + three regulars, your home course; up to two rounds a day, then the next day), puts it live and opens its links. Save a round's results in the trip to see the Trip standings add up. Delete Test Trip from Trips when done.</div>
       <button class="btn btn-outline btn-full" onclick="tripTestLive()">📡 Test live scoring</button>
     </div>
 
@@ -1220,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.27';
-const BUILD_TIME = '2026-10-05 03:58 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.28';
+const BUILD_TIME = '2026-10-05 07:46 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -14560,38 +14560,59 @@ function liveShowRoundPicker(t, rounds) {
 }
 function livePickRound(i) { const c=_liveRoundPick; if(!c)return; closeModal('liveRoundPicker'); unitShareLive('trip', c.t, c.rounds[i]); }
 function leagueShareLive() { const lg = leagueCurrent(); unitShareLive('league', lg, leagueCurrentSession()); }
-/** A throwaway trip for testing live scoring in one tap (BZ, 2026-10-05: "it's
- *  a lot to set up a trip just to test"). You (Settings -> My Player) plus the
- *  next three regulars, your home course, one stroke round TODAY in your own
- *  timezone, already paired as one group. Pure: takes the state, the date and
- *  an id maker; returns {trip, round} or null when there is no course or
+/** The test trip for live scoring in one tap (BZ, 2026-10-05: "it's a lot to
+ *  set up a trip just to test"; then "multiple rounds in a trip ... 1 or 2
+ *  rounds a day"). ONE Test Trip: the first tap makes it, each later tap adds
+ *  a round to it - up to two on a day, then the next day - so the Trip tab
+ *  totals rounds as a real trip does. You (Settings -> My Player) plus the
+ *  next three regulars on your home course, paired as one group. Pure: takes
+ *  the state, today (your own date), an id maker and the existing Test Trip
+ *  or null; returns {trip, round, isNew} or null when there is no course or
  *  fewer than two players. */
-function tripTestTrip(state, today, newId) {
+function tripTestTrip(state, today, newId, existing) {
   const players = state.players || [], courses = state.courses || [];
   const course = courses.find(c => c.homeCourse) || courses[0];
   if (!course || players.length < 2) return null;
   const me = players.find(p => p.id === (state.config || {}).myPlayerId);
   const pool = [me].concat(players.filter(p => p !== me && p.regular), players.filter(p => p !== me && !p.regular))
     .filter(Boolean).slice(0, 4);
-  const round = { id: newId(), label: 'Test round', courseId: course.id, format: 'stroke', nineMode: 'all',
+  const trip = existing || { id: newId(), type: 'trip', destination: 'Test Trip', test: true, startDate: today, endDate: today,
+    players: pool.map(p => ({ id: p.id, manager: false })), courseIds: [course.id], days: {}, settings: {} };
+  trip.days = trip.days || {};
+  // The day for the next round: today if it has room, else the day after the
+  // last day that holds a round - two rounds a day at most (tripSaveRound's limit).
+  const used = Object.keys(trip.days).filter(d => (trip.days[d].rounds || []).length).sort();
+  let day = today;
+  if (used.length && used[used.length - 1] >= today) {
+    const last = used[used.length - 1];
+    if ((trip.days[last].rounds || []).length < 2) day = last;
+    else { const d = new Date(last + 'T12:00:00'); d.setDate(d.getDate() + 1); day = d.toISOString().slice(0, 10); }
+  }
+  if (!trip.startDate || day < trip.startDate) trip.startDate = day;
+  if (!trip.endDate || day > trip.endDate) trip.endDate = day;
+  const n = Object.values(trip.days).reduce((a, d) => a + (d.rounds || []).length, 0) + 1;
+  const ids = (trip.players || []).map(r => r.id);
+  const round = { id: newId(), label: 'Test round ' + n, courseId: (trip.courseIds || [])[0] || course.id, format: 'stroke', nineMode: 'all',
     championship: false, teeTimes: [], resultMethod: null, twoMan: null,
-    groups: [{ playerIds: pool.map(p => p.id), teetime: 'Test group' }], scores: {}, borrows: [], completed: false };
-  const trip = { id: newId(), type: 'trip', destination: 'Test Trip', startDate: today, endDate: today,
-    players: pool.map(p => ({ id: p.id, manager: false })), courseIds: [course.id],
-    days: { [today]: { rounds: [round] } }, settings: {} };
-  return { trip, round };
+    groups: [{ playerIds: ids.length ? ids : pool.map(p => p.id), teetime: 'Test group' }], scores: {}, borrows: [], completed: false };
+  (trip.days[day] = trip.days[day] || { rounds: [] }).rounds.push(round);
+  return { trip, round, isNew: !existing };
 }
-/** Settings -> Test live scoring: build the test trip and put its round live,
- *  opening the share sheet with the board link and the group's scoring link. */
+/** Settings -> Test live scoring: add the next round to the Test Trip (making
+ *  it the first time) and put that round live, opening the share sheet. The
+ *  most recent trip called Test Trip is reused, so older ones can be deleted. */
 function tripTestLive() {
   const d = new Date();
   const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  const made = tripTestTrip(S, today, uid);
+  const tests = (S.events || []).filter(e => e.type === 'trip' && (e.test || e.destination === 'Test Trip'));
+  const existing = tests.length ? tests[tests.length - 1] : null;
+  if (existing) existing.test = true;
+  const made = tripTestTrip(S, today, uid, existing);
   if (!made) return toast('Add a course and at least two players first');
-  if (!S.events) S.events = [];
-  S.events.push(made.trip);
+  if (made.isNew) { if (!S.events) S.events = []; S.events.push(made.trip); }
   S.activeTripId = made.trip.id;
   scheduleWrite();
+  toast(made.round.label + ' added to Test Trip');
   unitShareLive('trip', made.trip, made.round);
 }
 function tripShareLive() {
