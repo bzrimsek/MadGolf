@@ -309,10 +309,11 @@ expect('calcCourseHcp scratch 0/130/74.2/72',
 expect('calcCourseHcp plus -2/113/72/72',
   calcCourseHcp(-2.0, 113, 72.0, 72, false), -2);
 
-// 9-hole: rating<50 → NO halving (raw rating used directly)
-// idx=16, slope=113, rating=36.5, par=36 → raw=16+0.5=16.5 → CH=17
-expect('calcCourseHcp 9h rating<50 no-halve',
-  calcCourseHcp(16.0, 113, 36.5, 36, true), 17);
+// 9-hole course (rating<50 is a 9-hole rating, used as is) - the index is
+// still halved, as WHS says every nine is (BZ, 2026-10-05):
+// idx=16→8.0, slope=113, rating=36.5, par=36 → raw=8+0.5=8.5 → CH=9
+expect('calcCourseHcp 9h course: half index, own rating',
+  calcCourseHcp(16.0, 113, 36.5, 36, true), 9);
 
 // 9-hole: rating>=50 → halve both idx and rating
 // idx=16→8.0, r=72→36, slope=113, par=36 → raw=8+(36-36)=8 → CH=8
@@ -3041,7 +3042,8 @@ expect('fmtHcp(undefined)=—',  fmtHcp(undefined), '—');
     {id:'a',hcp:0,courseHcp:0},{id:'b',hcp:8,courseHcp:8},
     {id:'c',hcp:16,courseHcp:16},{id:'d',hcp:24,courseHcp:24},
   ];
-  expect('4p scramble CH 9-hole (rating=36) = 32', outingScrambleTeamCH(p4, TC9, TC9.holes), 32);
+  // Nine holes play off half the index: CHs 0/4/8/12; 0 + 4*.85 + 8*.70 + 12*.60 = 16.2 → 16
+  expect('4p scramble CH 9-hole (rating=36) = 16', outingScrambleTeamCH(p4, TC9, TC9.holes), 16);
 }
 
 
@@ -3394,12 +3396,12 @@ expect('fmtHcp(undefined)=—',  fmtHcp(undefined), '—');
   const rScr = sandbox.outingComputeResults(gScr);
   expect('9h scramble: activeHoles=9', rScr.activeHoles.length, 9);
   expect('9h scramble: gross=39',      rScr.teamResults[0].gross, 39);
-  // teamCH=32 (same as 18h: players [0,8,16,24] pcts [100,85,70,60], no halving needed)
-  expect('9h scramble: teamCH=32', rScr.teamResults[0].teamCH, 32);
-  // teamNet = 39-32=7, parEq=9×4=36, netVsPar=7-36=-29
-  expect('9h scramble: teamNet=7',     rScr.teamResults[0].teamNet, 7);
+  // Nine holes play off half the index: CHs 0/4/8/12 → teamCH 16.2 → 16
+  expect('9h scramble: teamCH=16', rScr.teamResults[0].teamCH, 16);
+  // teamNet = 39-16=23, parEq=9×4=36, netVsPar=23-36=-13
+  expect('9h scramble: teamNet=23',    rScr.teamResults[0].teamNet, 23);
   expect('9h scramble: parEq=36',      rScr.teamResults[0].parEq, 36);
-  expect('9h scramble: netVsPar=-29',  rScr.teamResults[0].netVsPar, -29);
+  expect('9h scramble: netVsPar=-13',  rScr.teamResults[0].netVsPar, -13);
 
   sandbox.fsGetCourse = origFGCnine;
 
@@ -3797,9 +3799,9 @@ const ENG_P4 = [
   // pcts2=[35,15]: 3*35/100 + 10*15/100 = 1.05+1.5 = 2.55 → 3
   const p2_9h = [{id:'e1',name:'A',hcp:5},{id:'e2',name:'B',hcp:18}];
   const expected9 = Math.round(3*35/100 + 10*15/100); // 3
-  // C9 slope=120: CH(hcp=5)=5, CH(hcp=18)=19; scramCH=round(5*35/100+19*15/100)=round(4.6)=5
-  expect('scrambleTeamCH 9-hole: 5',
-    scrambleTeamCH(p2_9h, ENG_C9, true, pcts2), 5);
+  // (the working above is right: nine holes play off half the index)
+  expect('scrambleTeamCH 9-hole: 3',
+    scrambleTeamCH(p2_9h, ENG_C9, true, pcts2), expected9);
 }
 
 // ── 48. bestBallsHoleNet ─────────────────────────────────────
@@ -7083,7 +7085,8 @@ smoke('leagueCurrentSession returns session', () => {
   expect('courseHcp 18@90%',           courseHandicap(18,113,72,72,90,false), 16);
   expect('courseHcp 20 slope130@100%', courseHandicap(20,130,70,72,100,false), 21);
   expect('courseHcp 20 slope130@85%',  courseHandicap(20,130,70,72,85,false), 18);
-  expect('courseHcp 9-hole @100%',     courseHandicap(10,113,35,36,100,true), 9);
+  // nine holes: index 10 → 5.0; 5 + (35 - 36) = 4
+  expect('courseHcp 9-hole @100%',     courseHandicap(10,113,35,36,100,true), 4);
   // 100% allowance == plain course handicap (backward-compatible for the common case)
   expect('100% == calcCourseHcp', courseHandicap(20,130,70,72,100,false), calcCourseHcp(20,130,70,72,false));
   // both scoring-context engines must use the shared function (no drift back to divergent hcp math)

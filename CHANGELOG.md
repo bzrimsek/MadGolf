@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.22  ·  2026-10-05 01:36 PM ET
+
+Nine holes always play off half the handicap index, as WHS says. At a 9-hole course the index was not halved, so a 10.0 played off 9 instead of 4; the course's own 9-hole rating is still used as is, and a nine off an 18-hole course was already right. Fixed in the one shared formula, so Foursome, League, Trip and the scramble team handicaps all follow it; six tests that held the old values now carry worked WHS figures.
+
 ## v0.91.21  ·  2026-10-05 01:19 PM ET
 
 Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from their own phones and the public board read back, with every standing worked out independently. Fixed: a nine-hole round added about 36 strokes to every player's trip total (the 18-hole par went into the nine-hole handicap; the shared engine now uses the nine's own par and re-ranks hole difficulty, which also fixes League nines); the trip leaderboard ignored locked handicaps, the stroke allowance and tees; countback mishandled plus handicaps; a card short of holes could lead the trip (only complete cards count now); an organizer's correction to a phone score was undone by the next poll (newest edit wins); the League scoring screen and results used different handicaps, and the season allowance never reached scoring. New: the championship round seats the field by standing with the leaders off last. New: daily 2-man games over a stroke or Stableford round - 2-man best ball (net) or 2-man Stableford (better ball or both added) - A/B teams in each foursome with Re-pair, ranked against the whole field for that day on the results screen and a 2-Man tab on the live board. The trip game stays net strokes over every round.

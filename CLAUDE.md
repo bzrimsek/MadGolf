@@ -169,11 +169,9 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
 
 ## Open items (2026-10-03)
 
-- **Decision for BZ (2026-10-05): a 9-hole COURSE plays off the full index.**
-  `calcRawCourseHcp` halves the index only when the rating is an 18-hole one
-  (>= 50), so a 10.0 at a 9-hole course plays off 9; WHS says 4. Six tests
-  assert the current behaviour ("9h rating<50 no-halve"), so it looks
-  deliberate and was left alone. A nine off an 18-hole course is right.
+- Nine holes always play off half the index (WHS; BZ, 2026-10-05). The
+  rating decides only whether it is halved too: an 18-hole rating (>= 50) is,
+  a 9-hole course's own rating is not (`calcRawCourseHcp`).
 
 - **Firebase rules automation waits on a MadGolf admin key.** BZ runs
   `npx firebase login` (or downloads a key to
@@ -181,8 +179,9 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
   makes `firebase-rules.json` from the LIVE rules, `FIREBASE_SA` becomes a
   repo secret, and `rulestest.js` + the `rules` gate step join. Until then
   the rules are managed in the console and the gate never deploys them.
-- From the August handoff, still open: Anonymous Auth must be enabled in the
-  Firebase console before `score.html` can write; regenerate the RapidAPI
+- Anonymous Auth: ENABLED by BZ on 2026-10-05 (Google + Anonymous), so
+  `score.html` can sign in and write a live round's scores.
+- From the August handoff, still open: regenerate the RapidAPI
   key (it was pasted in chat) and update `GOLF_API_KEY`; on-device check of
   live scoring end to end, the v0.91.15 outing group fix, and both share
   images; #5b the organizer's screen does not auto-refresh on merged scores.
