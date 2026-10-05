@@ -2,6 +2,14 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.27  ·  2026-10-05 03:58 PM ET
+
+Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text). Gross and Net are through the holes played, +/- is net against par for those holes; a Stableford round adds Pts and its +/- is against quota; best-ball team rounds show Net, +/-, Thru; a Skins column when skins are on. The Trip tab shows Gross, Net, +/- against the par of the rounds counted, and Rnds. The 2-Man tab shows +/- or Pts and Thru. Ships with v0.91.26's changes, whose gate GitHub cancelled during its Actions outage before any step ran.
+
+## v0.91.26  ·  2026-10-05 03:42 PM ET
+
+Boards show net only and mark ties. Gross is gone from every leaderboard row (BZ: the card shows the strokes, the board the result), so a row reads Thru 4, Final or Not started, plus skins. Tied players share a position shown as T1, T3, ranked on what the board ranks by (Stableford on points against quota). Medals go to an untied first, second and third on the live board and the shared image. The Text leaderboard image shows trip totals as plain net strokes, from the same rows as the live Trip tab.
+
 ## v0.91.25  ·  2026-10-05 03:22 PM ET
 
 The scoring link and the live board now use the app's own look. The scoring link shows the group's card in the app's scorecard grid - front and back nines, par and handicap rows, stroke dots, out/in/total - and you type a score as in the app; it saves and moves to the next box. The board shows the app's header, tabs and leaderboard rows. Both carry the app's code copied exactly by pages.py, and the audit fails if a copy drifts. Fixed: a round in progress was ranked on gross so far minus the whole handicap, so the highest handicap led after one hole; every board now shows net against par through the holes played (thru N), for individual, scramble and best-ball rounds alike. The Trip tab showed the net-stroke total with a plus sign; it shows the plain total, as the app does.

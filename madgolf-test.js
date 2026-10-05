@@ -8830,6 +8830,8 @@ smoke('leagueCurrentSession returns session', () => {
   expect('trip unit payload has Round + Trip views', JSON.stringify(pl.views.map(v=>v.id)), JSON.stringify(['round','trip']));
   // Trip view shows NET STROKES, not to-par: all 5s on 18 par 4s = 90, CH 10 → 80 (no "+").
   expect('trip view shows net strokes as a plain total', pl.views[1].rows[0].primary, '80');
+  // Trip columns: Gross 90, Net 80, +/- 80 - 72 = +8, 1 round.
+  expect('trip view columns', pl.views[1].cols.join('|') + ' ' + pl.views[1].rows[0].vals.join('|'), 'Gross|Net|+/−|Rnds 90|80|+8|1');
 }
 
 // ── 177. League championship flag: social sessions excluded from season standings ─
@@ -9100,7 +9102,7 @@ smoke('leagueCurrentSession returns session', () => {
   expect('mid-round: B leads at E', r1.entries[0].playerId + ' ' + r1.entries[0].toPar, 'B 0');
   expect('mid-round: A at +1 thru 1', r1.entries[1].toPar + ' ' + r1.entries[1].thru, '1 1');
   const lr = sandbox.liveRoundRows(ind, false);
-  expect('live row: leader shows E thru 1', lr[0].name + ' ' + lr[0].primary + ' ' + lr[0].secondary.split(' · ')[0], 'B E thru 1');
+  expect('live row: leader shows E thru 1', lr[0].name + ' ' + lr[0].primary + ' ' + lr[0].secondary.split(' · ')[0], 'B E Thru 1');
   // A finished round still ranks by net: A 6,5,5 = 16 - 10 = 6 (net -6 vs par 12... to par = 16-3-12 = +1)
   const done = Object.assign({}, ind, { scores:{ A:{1:6,2:5,3:5}, B:{1:4,2:4,3:5} } });
   const r2 = sandbox.computeRoundResults(done);
@@ -9120,6 +9122,32 @@ smoke('leagueCurrentSession returns session', () => {
   const rs = sandbox.computeRoundResults(scr);
   // no handicap: 3 on a par 4 → -1 thru 1 (old: 3 - par 12 = -9)
   expect('scramble mid-round: -1 thru 1', rs.entries[0].netVsPar + ' ' + rs.entries[0].thru, '-1 1');
+}
+
+// ── 193. Board wording and ties, from BZ's screenshot (2026-10-05) ───────────
+// Four players thru 4 par-4 holes, no handicap: A 4,4,4,3 = -1; B 3,4,4,4 = -1;
+// C and D all 4s = E. Shown T1, T1, T3, T3 and "Thru 4 · Gross 15" (was "thru 4 · 15 gr").
+{
+  const H = Array.from({ length: 18 }, (_, i) => ({ num: i + 1, par: 4, hcpRating: i + 1 }));
+  const four = v => ({ 1: v[0], 2: v[1], 3: v[2], 4: v[3] });
+  const ctx = { activeHoles: H, hcpScale: 18, is9: false, format: 'stroke', settings: {},
+    players: ['A','B','C','D'].map(id => ({ id, name: id, courseHcp: 0 })), groups: [{ playerIds: ['A','B','C','D'] }],
+    scores: { A: four([4,4,4,3]), B: four([3,4,4,4]), C: four([4,4,4,4]), D: four([4,4,4,4]) } };
+  const rows = sandbox.liveRoundRows(ctx, false);
+  expect('board ties: T1 T1 T3 T3', rows.map(r => r.pos).join(' '), 'T1 T1 T3 T3');
+  // Net only - the card carries the strokes (BZ: "what is gross even for?").
+  expect('board wording: net only, thru N', rows.find(r => r.name === 'A').secondary, 'Thru 4');
+  expect('board status: final and not started', sandbox.boardStatus(18, 18) + ' / ' + sandbox.boardStatus(0, 18), 'Final / Not started');
+  expect('no tie, plain position', sandbox.boardTie([{}, {}], [1, 2]).map(r => r.pos).join(' '), '1 2');
+
+  // COLUMNS (BZ: "Gross, Net, +/- ... not random text"), his screenshot's case:
+  // CH 3 (strokes on the three hardest holes), four par 4s in 5,5,4,4 →
+  // Gross 18, Net 18 - 3 = 15, +/- 15 - 16 = -1, Thru 4.
+  const ctx2 = Object.assign({}, ctx, { players: [{ id: 'Z', name: 'Z', courseHcp: 3 }], groups: [{ playerIds: ['Z'] }],
+    scores: { Z: four([5,5,4,4]) } });
+  const view = sandbox.liveRoundView('round', 'Round', ctx2, false);
+  expect('round view columns', view.cols.join('|'), 'Gross|Net|+/−|Thru');
+  expect('round view values', view.rows[0].vals.join('|'), '18|15|-1|4');
 }
 
 // ── 186. One list-section header, centered by its class (2026-10-04) ─────────
