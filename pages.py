@@ -20,19 +20,19 @@ INDEX = (HERE / 'index.html').read_text(encoding='utf-8')
 
 # What each page borrows from the app.
 FUNCS = {
-    'score.html': ['esc', 'lastNameOf', 'firstNameOf', 'scorecardName', 'strokesOnHole',
-                   'scoreCell', 'scorecardHdr', 'renderScorecardGroup',
-                   'buildScoringIndex', 'advanceToNext'],
-    'live.html': ['esc'],
+    # live.html is the one page for everyone in a round (BZ, 2026-10-05):
+    # the app's scorecard for players, the board for all. score.html only
+    # forwards old links there and carries no copies.
+    'live.html': ['esc', 'lastNameOf', 'firstNameOf', 'scorecardName', 'strokesOnHole',
+                  'scoreCell', 'scorecardHdr', 'renderScorecardGroup',
+                  'buildScoringIndex', 'advanceToNext'],
 }
-CONSTS = {'score.html': ['GROUP_COLORS', 'GROUP_BORDERS'], 'live.html': []}
+CONSTS = {'live.html': ['GROUP_COLORS', 'GROUP_BORDERS']}
 CSS = {
-    'score.html': [':root', '*', 'header', '.hdr-inner', '.hdr-left', '.hdr-logo', '.hdr-title',
-                   '.hdr-sub', '.card', '.hole-grid', '.hole-cell', '.hole-cell.header',
-                   '.hole-cell.total', '.hole-cell.par-cell', '.game-score-input',
-                   '.game-score-input:focus'],
     'live.html': [':root', '*', 'header', '.hdr-inner', '.hdr-left', '.hdr-logo', '.hdr-title',
-                  '.hdr-sub', '.card', '.holes-toggle', '.holes-toggle.active'],
+                  '.hdr-sub', '.card', '.hole-grid', '.hole-cell', '.hole-cell.header',
+                  '.hole-cell.total', '.hole-cell.par-cell', '.game-score-input',
+                  '.game-score-input:focus', '.holes-toggle', '.holes-toggle.active'],
 }
 
 
@@ -96,7 +96,7 @@ def main():
             print('  ✖ pages: %s copy the app\'s scorecard code and it has changed - run python pages.py'
                   % ', '.join(stale))
             sys.exit(1)
-        print('  ✓ pages: score.html and live.html carry the app\'s current scorecard code')
+        print('  ✓ pages: live.html carries the app\'s current scorecard code')
     else:
         print('rewrote: %s' % (', '.join(stale) or 'nothing (already current)'))
 

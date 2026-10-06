@@ -9,7 +9,7 @@
  * Every trip is built by tapping and typing, as the organizer would: trip,
  * roster, courses, rounds (format, nine, tee times, championship), handicaps,
  * pairings, scoring group by group, results. Two groups score from their own
- * phones (score.html) while a third scores in the app, and the public board
+ * phones (live.html, each picking a name) while a third scores in the app, and the public board
  * (live.html) is read back.
  *
  * EXPECTED VALUES ARE WORKED OUT HERE, NOT ASKED OF THE APP (rule 28): course
@@ -445,27 +445,51 @@ async function main() {
 
   /* ---- THE CHAMPIONSHIP, LIVE: two groups on their own phones, one in the app. */
   let shareId = null;
-  await step(ctx, 'Trip 1 championship: go live - board and one scoring link per group', async () => {
+  await step(ctx, 'Trip 1 championship: go live - one link, all three groups listed', async () => {
     await hubCard(page, 'results');
     await tap(page, 'button:has-text("Go Live & share links")'); await pause(page, 500);
     const url = await page.locator('#liveShareUrl').innerText();
     shareId = (url.match(/[?&]id=([a-z0-9]+)/) || [])[1];
     expect(shareId, 'no share id in "' + url + '"');
-    const links = await page.locator('#liveShareGroups button:has-text("Text")').count();
-    expect(links === 3, links + ' scoring links, expected 3');
+    const listed = await page.locator('#liveShareGroups b').count();
+    expect(listed === 3, listed + ' groups listed on the share sheet, expected 3');
     await tap(page, '#liveShareModal button:has-text("Done")');
     return 'live/' + shareId;
   });
   const remoteTyped = {};
-  await step(ctx, 'score.html: groups 1 and 2 score all 18 holes from their own phones at once', async () => {
+  /* A player's phone: the one link, then their name from the list. Phones in
+     one test browser share localStorage, so a page that already remembers
+     someone else is told "Not you?" first, as a borrowed phone would be. */
+  const phoneAs = async (sp, sid, pid) => {
+    await sp.goto(ORIGIN + '/live.html?id=' + sid);
+    await sp.waitForSelector('#who .who-p, #app input.game-score-input', { timeout: 6000 });
+    if (!(await sp.locator('#whoPane').isVisible())) {
+      await sp.locator('#cardPane button:has-text("Not you?")').click();
+      await sp.waitForSelector('#who .who-p', { timeout: 3000 });
+    }
+    await shot(sp, 'who-are-you');
+    await sp.locator('#who .who-p[data-pid="' + pid + '"]').click();
+    await sp.waitForSelector('#app input.game-score-input', { timeout: 6000 });
+  };
+  // Someone only watching: the one link, then "Just watching".
+  const watchBoard = async (lp, sid) => {
+    await lp.goto(ORIGIN + '/live.html?id=' + sid);
+    await lp.waitForSelector('#who .who-p, #app input.game-score-input', { timeout: 6000 });
+    if (!(await lp.locator('#whoPane').isVisible())) {
+      await lp.locator('#cardPane button:has-text("Not you?")').click();
+      await lp.waitForSelector('#who .who-w', { timeout: 3000 });
+    }
+    await lp.locator('#who .who-w').click();
+    await lp.waitForSelector('#board tr', { timeout: 6000 });
+  };
+  await step(ctx, 'live.html: groups 1 and 2 score all 18 holes from their own phones at once', async () => {
     expect(shareId, 'no live round');
     const live = store.read('/bz-apps/golf/live/' + shareId);
     const holes = live.course.holes;
     const phone = async gi => {
       const sp = await context.newPage(); listen(sp, rep);
-      await sp.goto(ORIGIN + '/score.html?id=' + shareId + '&g=' + gi);
-      await sp.waitForSelector('#app input.game-score-input', { timeout: 6000 });
       const pids = live.groups[gi].players.map(p => p.id);
+      await phoneAs(sp, shareId, pids[pids.length - 1]);
       // Typed like a thumb, hole by hole: one digit per box, and the card
       // moves focus on (the app's own By Hole order).
       for (let h = 0; h < holes.length; h++) {
@@ -480,7 +504,7 @@ async function main() {
       // The card's own totals agree with what was typed.
       const shown = await sp.evaluate(p => { const e = document.getElementById('T_' + p); return e ? e.textContent.trim() : ''; }, pids[0]);
       const sum = Object.values(remoteTyped[pids[0]]).reduce((a, b) => a + b, 0);
-      if (Number(shown) !== sum) rep.fail('score.html total for ' + pids[0] + ' shows ' + shown + ', typed ' + sum);
+      if (Number(shown) !== sum) rep.fail('live.html total for ' + pids[0] + ' shows ' + shown + ', typed ' + sum);
       await sp.waitForTimeout(600);
       await sp.close();
     };
@@ -540,8 +564,7 @@ async function main() {
     expect(shareId, 'no live round');
     await page.evaluate(() => scheduleLiveRepublish && scheduleLiveRepublish()); await pause(page, 4800);
     const lp = await context.newPage(); listen(lp, rep);
-    await lp.goto(ORIGIN + '/live.html?id=' + shareId);
-    await lp.waitForSelector('#board tr', { timeout: 6000 });
+    await watchBoard(lp, shareId);
     const tabs = await lp.locator('#tabs .tab').allInnerTexts();
     await shot(lp, 'live-board-round');
     const tripTab = lp.locator('#tabs .tab').filter({ hasText: /^Trip$/i });
@@ -669,8 +692,7 @@ async function main() {
     const r = t.days[Object.keys(t.days).sort()[1]].rounds[1];
     const want = expectedTwoMan(t, r).map(w => w.name);
     const lp = await context.newPage(); listen(lp, rep);
-    await lp.goto(ORIGIN + '/live.html?id=' + sid);
-    await lp.waitForSelector('#board tr', { timeout: 6000 });
+    await watchBoard(lp, sid);
     const tab = lp.locator('#tabs .tab').filter({ hasText: /^2-Man$/ });
     expect(await tab.count(), 'no 2-Man tab on the live board');
     await tab.first().click(); await lp.waitForTimeout(300);
@@ -728,25 +750,21 @@ async function main() {
     const url = await page.locator('#liveShareUrl').innerText();
     const sid = (url.match(/[?&]id=([a-z0-9]+)/) || [])[1];
     expect(sid, 'the share sheet did not open with a live link');
-    const links = await page.locator('#liveShareGroups button:has-text("Text")').count();
-    expect(links === 1, links + ' scoring links, expected 1 (one group)');
-    // TAP Text, as BZ did: the button must hand liveTextScore a whole scoring
-    // link and the group's name. Counting the button was not enough - it was
-    // there and dead (2026-10-05). The SMS hand-off itself is the phone's.
-    await page.evaluate(() => { window.__sms = null; window.liveTextScore = (u, l) => { window.__sms = { u, l }; }; });
-    await page.locator('#liveShareGroups button:has-text("Text")').first().click(); await pause(page, 200);
+    expect(/live\.html\?id=[a-z0-9]+$/.test(url), 'the one link is ' + url);
+    // TAP "Text the link", as BZ will: it must reach an SMS with the whole
+    // link. Counting a button is not enough - one was there and dead
+    // (2026-10-05). The SMS hand-off itself is the phone's.
+    await page.evaluate(() => { window.__sms = null; window.liveTextLink = () => { window.__sms = document.getElementById('liveShareUrl').textContent; }; });
+    await page.locator('#liveShareModal button:has-text("Text the link")').click(); await pause(page, 200);
     const sms = await page.evaluate(() => window.__sms);
-    expect(sms, 'tapping Text did nothing - the button never reached liveTextScore');
-    expect(/score\.html\?id=[a-z0-9]+&g=0$/.test(sms.u), 'Text would send a broken link: ' + sms.u);
-    expect(sms.l === 'Test group', 'Text would label the link "' + sms.l + '"');
+    expect(sms === url, 'tapping Text the link did nothing (got ' + sms + ')');
     await tap(page, '#liveShareModal button:has-text("Done")');
     const t = await tripNow(page);
     expect(t && t.destination === 'Test Trip' && t.players.length === 4, 'no 4-player Test Trip was made');
     const live = store.read('/bz-apps/golf/live/' + sid);
     const sp = await context.newPage(); listen(sp, rep);
-    await sp.goto(ORIGIN + '/score.html?id=' + sid + '&g=0');
-    await sp.waitForSelector('#app input.game-score-input', { timeout: 6000 });
     const pid = live.groups[0].players[0].id;
+    await phoneAs(sp, sid, pid);
     const par1 = live.course.holes[0].par;
     await sp.locator(`#app input[data-pid="${pid}"][data-hole="1"]`).fill(String(par1 + 1));
     await sp.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });

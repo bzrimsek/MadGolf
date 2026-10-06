@@ -55,6 +55,15 @@ PAGES.forEach((file, i) => {
   }
   blocks.push.apply(blocks, mine);
 });
+/* board.js, the leaderboard both pages load (2026-10-05). Linted as a file of
+   its own; it reads the page's esc(), and the pages that load it may use
+   MGBoard. */
+const BOARD = path.join(__dirname, 'board.js');
+const usesBoard = new Set();
+if (fs.existsSync(BOARD)) {
+  blocks.push({ file: 'board.js', module: false, code: fs.readFileSync(BOARD, 'utf8'), line: 1 });
+  PAGES.forEach(f => { if (/<script src="board\.js">/.test(fs.readFileSync(f, 'utf8'))) usesBoard.add(path.basename(f)); });
+}
 
 /* The app's own top-level names, PER PAGE. They are one scope at runtime
    within a page; a linter handed one block cannot know what another declared.
@@ -118,6 +127,8 @@ blocks.forEach(b => {
   if (!scopes[b.file]) {
     const g = Object.assign({}, PLATFORM);
     declaredIn(b.file).forEach(n => { g[n] = 'writable'; });
+    if (b.file === 'board.js') g.esc = 'readonly';
+    if (usesBoard.has(b.file)) g.MGBoard = 'readonly';
     scopes[b.file] = g;
   }
   const config = {

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.28  Build 2026-10-05 07:46 PM ET
+     Version : v0.91.29  Build 2026-10-05 08:07 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.29  2026-10-05  One link for the whole round, like Golf Genius.
 // v0.91.28  2026-10-05  Test live scoring now builds one Test Trip with several rounds, as a real trip has.
 // v0.91.27  2026-10-05  Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text).
 // v0.91.26  2026-10-05  Boards show net only and mark ties.
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.22  2026-10-05  Nine holes always play off half the handicap index, as WHS says.
 // v0.91.21  2026-10-05  Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from…
 // v0.91.20  2026-10-04  Headers are centered and action buttons stay on one line on every screen.
-// v0.91.19  2026-10-03  Moved MadGolf to the Bottlefolio-style pipeline: push.py sends each build to a build branch and the cloud gate (audit, 2866 tests, lint, wiring…
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -900,10 +900,10 @@ input:checked+.slider:before{transform:translateX(20px);}
   <div class="modal">
     <h2>📡 Live Standings</h2>
     <div id="liveShareTitle" style="font-size:13px;font-weight:600;margin-bottom:8px;"></div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Anyone with this link can watch the standings update live — no login:</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">One link for everyone — players pick their name and score their foursome, everyone sees the leaderboard. No login:</div>
     <div id="liveShareUrl" style="font-size:12px;word-break:break-all;background:var(--surf2);padding:8px;border-radius:6px;border:1px solid var(--surf3);margin-bottom:12px;"></div>
     <div style="display:flex;gap:8px;">
-      <button class="btn btn-gold" style="flex:1;" onclick="liveTextLink()">Text board link</button>
+      <button class="btn btn-gold" style="flex:1;" onclick="liveTextLink()">Text the link</button>
       <button class="btn btn-outline" style="flex:1;" onclick="liveCopyLink()">Copy</button>
     </div>
     <div id="liveShareGroups" style="margin-top:16px;"></div>
@@ -1220,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.28';
-const BUILD_TIME = '2026-10-05 07:46 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.29';
+const BUILD_TIME = '2026-10-05 08:07 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -14288,7 +14288,7 @@ function leagueCmpCountback(a, b) {
 // Reuses the tested standings engines; the viewer just renders {pos,name,primary,secondary} rows.
 // Multi-view payload for a LIVE UNIT (a league session / trip round / outing). Views mirror a pro
 // event: league [Tonight, Season], trip [Round, Trip], outing [Board]. Also carries roster + course
-// + groups so score.html can render a foursome. Reuses the tested engines (computeRoundResults for the
+// + groups so live.html can render a foursome. Reuses the tested engines (computeRoundResults for the
 // live round via the session/round ctx; leagueComputeStandings / tripLeaderboard / outingComputeResults
 // for the cumulative view). unit = the session/round/outing being played.
 /* Board wording, spelled out (BZ, 2026-10-05: "what is 18g?"). A board shows
@@ -14432,9 +14432,8 @@ function liveNewShareId() {
   return b ? Array.from(b).map(x => (x % 36).toString(36)).join('')
     : (Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12));
 }
-function liveScoreUrl(shareId, gi) { return location.origin + location.pathname.replace(/[^/]*$/, '') + 'score.html?id=' + shareId + '&g=' + gi; }
 // Publish one live unit's multi-view board + roster + course + groups. Uses PATCH so the sibling
-// live/{shareId}/scores sub-path (written by score.html) is never clobbered by a re-publish.
+// live/{shareId}/scores sub-path (written by live.html) is never clobbered by a re-publish.
 async function publishLiveUnit(kind, ev, unit) {
   if (!unit || !window._currentUser) return null;
   if (!unit.shareId) unit.shareId = liveNewShareId();
@@ -14463,9 +14462,9 @@ function scheduleLiveRepublish() {
   if (!liveUnits().length) return;
   _liveTimer = setTimeout(() => { _liveTimer = null; liveUnits().forEach(u => publishLiveUnit(u.kind, u.ev, u.unit)); }, 4000);
 }
-// ── Monitor merge: pull scores entered on score.html (other foursomes) into the live unit, so the app
+// ── Monitor merge: pull scores entered on live.html (other foursomes) into the live unit, so the app
 // (the compute hub) runs the engines on the full field and republishes results. The organizer's own
-// group is scored natively; score.html writes only its group's holes to live/{shareId}/scores, so this
+// group is scored natively; live.html writes only its group's holes to live/{shareId}/scores, so this
 // is a union — no native score is overwritten. Runs only while a unit is live (self-gating).
 /** Fold phone scores into the unit. NEWEST EDIT WINS: a phone's value is taken
  *  only when the phone has CHANGED it since the last poll (unit.remoteSeen
@@ -14522,25 +14521,17 @@ async function unitShareLive(kind, ev, unit) {
   const pl = liveUnitPayload(kind, ev, unit);
   document.getElementById('liveShareTitle').textContent = pl.title || '';
   document.getElementById('liveShareUrl').textContent = _liveShareUrl;
+  // ONE link for the whole round (BZ, 2026-10-05, after Golf Genius): the page
+  // asks "Who are you?" from this list, so the list is what the sheet shows.
   const groups = pl.groups || [], gEl = document.getElementById('liveShareGroups');
   gEl.innerHTML = groups.length
-    ? '<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:8px;">SCORING LINKS &mdash; one per foursome</div>'
-      + groups.map(g => {
-          const url = liveScoreUrl(shareId, g.idx), who = g.players.map(p=>firstWord(p.name)).join(', ');
-          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--surf3);">
-            <div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:600;">${esc(g.label)}</div>
-            <div style="font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(who)}</div></div>
-            <button class="btn btn-sm btn-gold" data-url="${encodeURIComponent(url)}" data-label="${esc(g.label)}" onclick="liveTextScore(decodeURIComponent(this.dataset.url),this.dataset.label)">Text</button></div>`;
-          /* Data fields, never JSON.stringify, inside onclick="...": its double
-             quotes ended the attribute, so this button did nothing on BZ's
-             phone (2026-10-05). The link is URL-encoded, not esc()'d - esc
-             strips '&', which would break ?id=..&g=.. */
-        }).join('')
-    : '<div style="font-size:11px;color:var(--muted);">Assign groups to generate per-foursome scoring links.</div>';
+    ? '<div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:6px;">WHO CAN PICK THEIR NAME</div>'
+      + groups.map(g => `<div style="padding:5px 0;border-bottom:1px solid var(--surf3);font-size:12px;"><b>${esc(g.label)}</b>
+          <span style="color:var(--muted);">${esc(g.players.map(p=>firstWord(p.name)).join(', '))}</span></div>`).join('')
+    : '<div style="font-size:11px;color:var(--muted);">Assign groups so players can pick their name and score.</div>';
   openModal('liveShareModal');
 }
-function liveTextScore(url, label) { window.location.href = 'sms:?body=' + encodeURIComponent(label + " \u2014 enter your group's scores: " + url); }
-function liveTextLink() { if (_liveShareUrl) window.location.href = 'sms:?body=' + encodeURIComponent((document.getElementById('liveShareTitle').textContent || '') + ' \u2014 live board: ' + _liveShareUrl); }
+function liveTextLink() { if (_liveShareUrl) window.location.href = 'sms:?body=' + encodeURIComponent((document.getElementById('liveShareTitle').textContent || '') + ' \u2014 scores and leaderboard (pick your name): ' + _liveShareUrl); }
 function liveCopyLink() { if (_liveShareUrl && navigator.clipboard) { navigator.clipboard.writeText(_liveShareUrl); toast('Board link copied \u2713'); } }
 function liveStopSharing() {
   if (_liveShareUnit && _liveShareUnit.unit) { _liveShareUnit.unit.live = false; scheduleWrite(); toast('Live event off (board stays up)'); }

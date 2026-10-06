@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.29  ·  2026-10-05 08:07 PM ET
+
+One link for the whole round, like Golf Genius. live.html now opens on Who are you?, a list of the round's players by foursome to pick from (never typed), plus Just watching. A player then gets two kinds of tab: Scorecard, their own foursome on the app's own card, and the leaderboard views. The phone remembers who it is for that round; Not you? asks again. The share sheet offers that one link and lists the foursomes instead of a Text button per group. score.html now only forwards an old per-group link to live.html, its foursome listed first. The walk and the trip simulator open the one page, pick a name, score, and watch.
+
 ## v0.91.28  ·  2026-10-05 07:46 PM ET
 
 Test live scoring now builds one Test Trip with several rounds, as a real trip has. The first tap makes the trip; each later tap adds the next round to it - up to two rounds on a day, then the next day - with the same players and course, and each round gets its own scoring link and board. Saving a round's results adds it to the Trip standings. Before, every tap made a new Test Trip, so a scoring link and a board link could belong to different trips and the board showed nothing. The most recent Test Trip is reused.

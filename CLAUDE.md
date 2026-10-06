@@ -64,7 +64,7 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
 |---|---|
 | `index.html` | the app |
 | `sw.js` | service worker; `CACHE_NAME` bumps with the version and is what makes phones update |
-| `live.html` `score.html` `rsvp.html` | public live board, per-foursome score entry, RSVP |
+| `live.html` `rsvp.html` | the one round page (who are you → Scorecard + Leaderboard tabs), RSVP; `score.html` only forwards old links to live.html |
 | `madgolf-test.js` | the unit harness |
 | `checks.json` `check.js` `gate.py` | which checks exist, run here, run in the cloud |
 | `consistency-sizes.json` | rule 30f allowance: functions over 100 code lines, by name, never to grow |
@@ -132,11 +132,11 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
 - **Rule 21's guard here is `_fbLoaded`.** `fbWrite` (authed REST PUT of
   `/state.json?auth=<token>`) throws if it is false. `scheduleWrite()`
   normalizes, saves locally, debounces the remote write and republishes live.
-- The web API key in index.html/score.html/rsvp.html is not a secret; it
+- The web API key in index.html/live.html/rsvp.html is not a secret; it
   identifies the project and authorises nothing.
 - Admin UID `QTKjcW0ArKPae2Y0uGicSKhwjnr1`.
 - Live scoring: `live/{shareId}` is public read; the organizer publishes
-  (`publishLiveUnit`, PATCH so `scores` survives); `score.html` signs in
+  (`publishLiveUnit`, PATCH so `scores` survives); `live.html` (once a player picks their name) signs in
   anonymously and writes only `live/{shareId}/scores/{pid}/{hole}`.
   `liveMonitorPoll` (15s) folds those in with `liveMergeScores`, a union
   that never overwrites the organizer's own group.
@@ -180,7 +180,7 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
   repo secret, and `rulestest.js` + the `rules` gate step join. Until then
   the rules are managed in the console and the gate never deploys them.
 - Anonymous Auth: ENABLED by BZ on 2026-10-05 (Google + Anonymous), so
-  `score.html` can sign in and write a live round's scores.
+  `live.html` can sign in and write a live round's scores.
 - From the August handoff, still open: regenerate the RapidAPI
   key (it was pasted in chat) and update `GOLF_API_KEY`; on-device check of
   live scoring end to end, the v0.91.15 outing group fix, and both share

@@ -502,19 +502,22 @@ async function walk(ctx, page, store, context) {
     expect(/SKINS/i.test(await activeText(page)), 'no skins on the outing results');
     return '8 rows, gross correct';
   });
-  await step(ctx, 'Outing: go live - the board and scoring links are published', async () => {
+  await step(ctx, 'Outing: go live - one link, both foursomes listed', async () => {
     await tap(page, 'button:has-text("Go Live & share links")');
     await pause(page, 400);
     expect(await modalOpen(page, 'liveShareModal'), 'the live share sheet did not open');
     const url = await page.locator('#liveShareUrl').innerText();
     shareId = (url.match(/[?&]id=([a-z0-9]+)/) || [])[1];
     expect(shareId, 'no share id in the live link "' + url + '"');
-    const links = await page.locator('#liveShareGroups button:has-text("Text")').count();
-    expect(links === 2, links + ' scoring links, expected one per group (2)');
+    expect(/live\.html\?id=/.test(url), 'the one link is ' + url);
+    const links = await page.locator('#liveShareGroups button').count();
+    expect(links === 0, links + ' per-group buttons - there is one link for everyone now');
+    const listed = await page.locator('#liveShareGroups b').count();
+    expect(listed === 2, listed + ' foursomes listed, expected 2');
     const live = store.read('/bz-apps/golf/live/' + shareId);
     expect(live && live.views && live.groups, 'nothing was published at live/' + shareId);
     await tap(page, '#liveShareModal button:has-text("Done")');
-    return 'live/' + shareId + ', 2 scoring links';
+    return 'live/' + shareId + ', one link, 2 foursomes listed';
   });
   await step(ctx, 'Outing: save, and the outing is complete', async () => {
     await tap(page, 'button:has-text("💾 Save")');
@@ -699,7 +702,14 @@ async function walk(ctx, page, store, context) {
     const lp = await context.newPage();
     ctx.page = lp; listen(lp, ctx.rep);
     await lp.goto(ORIGIN + '/live.html?id=' + shareId);
+    // One page for everyone: it asks who you are first, from a list.
+    await lp.waitForSelector('#who .who-p', { timeout: 5000 });
+    const names = await lp.locator('#who .who-p').count();
+    expect(names === 8, '"Who are you?" lists ' + names + ' players, expected 8');
+    expect(await lp.locator('#who input').count() === 0, '"Who are you?" asks for typing, not a pick');
+    await lp.locator('#who .who-w').click();
     await lp.waitForSelector('#board tr', { timeout: 5000 });
+    expect(!(await lp.locator('#tabs .tab:has-text("Scorecard")').count()), 'someone just watching is offered a Scorecard');
     const rows = await lp.locator('#board tr').count();
     const title = await lp.locator('#title').innerText();
     expect(title === 'Walk Invitational', 'the board is titled "' + title + '"');
@@ -709,24 +719,30 @@ async function walk(ctx, page, store, context) {
     return rows + ' rows, led by ' + firstName;
   });
   let sp = null;
-  await step(ctx, 'score.html: a group scoring link loads its own players', async () => {
+  await step(ctx, 'live.html: picking your name opens your foursome\'s card', async () => {
     expect(shareId, 'the outing was never published, so there is no scoring link');
     sp = await context.newPage();
     ctx.page = sp; listen(sp, ctx.rep);
-    await sp.goto(ORIGIN + '/score.html?id=' + shareId + '&g=0');
-    // The page is the app's own scorecard (renderScorecardGroup): one score box
-    // per player per hole, keyed by data-pid.
+    // An old per-group link forwards to the one page, its foursome listed first.
+    await sp.goto(ORIGIN + '/score.html?id=' + shareId + '&g=1');
+    await sp.waitForSelector('#who .who-p', { timeout: 5000 });
+    expect(/live\.html\?id=[a-z0-9]+&g=1$/.test(sp.url()), 'score.html forwarded to ' + sp.url());
+    const live = store.read('/bz-apps/golf/live/' + shareId);
+    const firstPick = await sp.locator('#who .who-p').first().getAttribute('data-pid');
+    expect(firstPick === live.groups[1].players[0].id, 'the old link for group 2 lists ' + firstPick + ' first');
+    await sp.locator('#who .who-p[data-pid="' + live.groups[0].players[1].id + '"]').click();
+    // The app's own scorecard (renderScorecardGroup): one score box per player
+    // per hole, keyed by data-pid.
     await sp.waitForSelector('#app input.game-score-input', { timeout: 5000 });
     const pids = await sp.evaluate(() => [...new Set([...document.querySelectorAll('#app input[data-pid]')].map(i => i.dataset.pid))].sort());
-    const live = store.read('/bz-apps/golf/live/' + shareId);
     const want = live.groups[0].players.map(p => p.id).sort();
     expect(pids.join() === want.join(), 'the scoring card shows [' + pids + '], group 1 is [' + want + ']');
     const boxes = await sp.locator('#app input.game-score-input').count();
     expect(boxes === want.length * live.course.holes.length, boxes + ' score boxes, expected ' + want.length + ' players x ' + live.course.holes.length + ' holes');
-    expect(store.log.some(e => e.op === 'identity'), 'score.html did not sign in anonymously');
+    expect(store.log.some(e => e.op === 'identity'), 'the scorecard did not sign in anonymously');
     return pids.length + ' players, ' + boxes + ' boxes';
   });
-  await step(ctx, 'score.html: typing a score saves it to the live board', async () => {
+  await step(ctx, 'live.html: typing a score saves it to the live board', async () => {
     expect(sp, 'the scoring page never loaded');
     const live = store.read('/bz-apps/golf/live/' + shareId);
     const pid = live.groups[0].players[0].id;
@@ -735,6 +751,31 @@ async function walk(ctx, page, store, context) {
     const saved = store.read('/bz-apps/golf/live/' + shareId + '/scores/' + pid + '/1');
     expect(saved === 5, 'hole 1 for ' + pid + ' stored ' + saved + ', expected 5');
     return 'live/' + shareId + '/scores/' + pid + '/1 = 5';
+  });
+  await step(ctx, 'live.html: the leaderboard is a tab beside the scorecard', async () => {
+    expect(sp, 'the scoring page never loaded');
+    const tabs = (await sp.locator('#tabs .tab').allInnerTexts()).map(s => s.trim());
+    expect(tabs[0] === 'Scorecard' && tabs.length >= 2, 'the scoring page tabs are [' + tabs.join(', ') + ']');
+    await sp.locator('#tabs .tab').nth(1).click();
+    await sp.waitForSelector('#board tr td.name', { timeout: 5000 });
+    const rows = await sp.locator('#board tbody tr').count();
+    const live = store.read('/bz-apps/golf/live/' + shareId);
+    const want = (live.views[0].rows || []).length;
+    expect(rows === want, 'the ' + tabs[1] + ' tab shows ' + rows + ' rows, the board has ' + want);
+    expect(!(await sp.locator('#cardPane').isVisible()), 'the scorecard still shows under the leaderboard tab');
+    await sp.locator('#tabs .tab').first().click();
+    await sp.waitForSelector('#app input.game-score-input', { timeout: 4000 });
+    expect(await sp.locator('#app input.game-score-input').first().isVisible(), 'back on Scorecard, the card is not showing');
+    return tabs.join(' · ') + ' - ' + rows + ' rows';
+  });
+  await step(ctx, 'live.html: the phone remembers who you are; "Not you?" asks again', async () => {
+    expect(sp, 'the scoring page never loaded');
+    await sp.reload();
+    await sp.waitForSelector('#app input.game-score-input', { timeout: 5000 });
+    expect(!(await sp.locator('#whoPane').isVisible()), 'a reload asked "Who are you?" again');
+    await sp.locator('#cardPane button:has-text("Not you?")').click();
+    await sp.waitForSelector('#who .who-p', { timeout: 3000 });
+    return 'remembered, then asked again';
   });
   ctx.page = page;
 }

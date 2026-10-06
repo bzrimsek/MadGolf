@@ -46,33 +46,38 @@ header{
   margin-bottom:12px;
   box-shadow:var(--shadow);
 }
+.hole-grid{display:grid;gap:3px;margin-bottom:6px;}
+.hole-cell{text-align:center;font-size:11px;padding:4px 1px;border-radius:4px;background:var(--surf2);}
+.hole-cell.header{font-weight:700;font-size:10px;color:var(--muted);background:none;}
+.hole-cell.total{font-weight:700;font-size:11px;background:var(--surf2);}
+.hole-cell.par-cell{font-weight:600;}
+.game-score-input{width:100%;border:none;border-bottom:1.5px solid var(--surf3);background:transparent;text-align:center;font-size:12px;padding:3px 1px;font-family:'DM Sans',sans-serif;outline:none;}
+.game-score-input:focus{border-bottom-color:var(--gold);}
 .holes-toggle{padding:8px 14px;border-radius:8px;border:1.5px solid var(--surf3);background:var(--surf2);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;user-select:none;-webkit-user-select:none;touch-action:manipulation;}
 .holes-toggle.active{background:var(--g800);color:var(--gold);border-color:var(--g800);}
 /* END COPIED-CSS */
-/* This page only: the leaderboard laid out as the app's Results screens are. */
+/* This page only. ONE page for everyone in a round (BZ, 2026-10-05, after
+   Golf Genius: the link gets you in, you pick your name from a list, then you
+   have Scorecard and Leaderboard tabs). */
 body{font-family:'DM Sans',sans-serif;background:var(--surf2);color:var(--text);padding-top:env(safe-area-inset-top);}
 .wrap{max-width:560px;margin:0 auto;padding:12px 10px 40px;}
 .evt{text-align:center;margin:4px 0 8px;}
 .evt .t{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;color:var(--g800);}
+.evt .s{font-size:12px;color:var(--muted);}
 .live{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--gold);font-weight:700;letter-spacing:.5px;}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--gold);animation:pulse 1.6s infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
-.tabs{display:flex;gap:6px;margin-bottom:8px;}
-.tabs .tab{flex:1;text-align:center;}
-table{width:100%;border-collapse:collapse;font-size:13px;}
-td{padding:8px 6px;border-bottom:1px solid var(--surf3);}
-td.pos{width:34px;text-align:center;color:var(--muted);font-size:12px;}
-td.name{font-weight:600;}
-td.pri{text-align:center;font-weight:700;}
-tr.lead td.name{font-weight:700;}
-tr.lead td.pri{color:var(--gold);font-size:15px;}
-td.sec{text-align:right;color:var(--muted);font-size:11px;white-space:nowrap;}
-th{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:4px 4px 6px;border-bottom:2px solid var(--surf3);text-align:left;}
-th.num,td.num{text-align:center;padding-left:3px;padding-right:3px;white-space:nowrap;}
-td.num{font-variant-numeric:tabular-nums;}
-th.pos{text-align:center;}
-.upd{color:var(--muted);font-size:11px;margin-top:10px;text-align:center;}
+.upd,.hint{color:var(--muted);font-size:11px;margin-top:8px;text-align:center;}
+.saved{text-align:center;font-size:12px;color:var(--muted);height:16px;margin-top:6px;}
 .msg{color:var(--muted);text-align:center;padding:36px 12px;line-height:1.5;}
+.who-h{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);text-align:center;margin-bottom:8px;}
+.who-g{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-align:center;padding:10px 0 4px;}
+.who-p{display:block;width:100%;padding:12px;margin:0 0 6px;border:1.5px solid var(--surf3);border-radius:8px;background:var(--surf);
+  font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;color:var(--g800);cursor:pointer;text-align:center;}
+.who-p:active{background:var(--surf2);}
+.who-w{display:block;width:100%;padding:12px;margin-top:10px;border:none;background:none;color:var(--muted);font-size:13px;
+  font-family:'DM Sans',sans-serif;cursor:pointer;text-decoration:underline;}
+.link{background:none;border:none;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;font-family:'DM Sans',sans-serif;}
 </style>
 </head>
 <body>
@@ -80,80 +85,384 @@ th.pos{text-align:center;}
   <div class="hdr-inner">
     <div class="hdr-left">
       <img class="hdr-logo" src="logo.webp" alt="MadGolf" onerror="this.style.display='none'">
-      <div><div class="hdr-title">MadGolf</div><div class="hdr-sub">Live leaderboard</div></div>
+      <div><div class="hdr-title">MadGolf</div><div class="hdr-sub" id="hsub">Live</div></div>
     </div>
     <span class="live"><span class="dot"></span>LIVE</span>
   </div>
 </header>
 <div class="wrap">
-  <div class="evt"><div class="t" id="title">Live</div></div>
-  <div class="card" style="padding:12px;">
-    <div id="tabs" class="tabs"></div>
-    <div id="board"></div>
+  <div class="evt"><div class="t" id="title">Live</div><div class="s" id="sub"></div></div>
+  <div id="tabs" class="mgb-tabs"></div>
+  <div id="whoPane" style="display:none;"><div class="card" style="padding:12px;" id="who"></div></div>
+  <div id="cardPane" style="display:none;">
+    <div class="card" style="padding:10px;"><div id="app"></div></div>
+    <div class="saved" id="saved"></div>
+    <div class="hint">Type a score in a box; it saves and moves to the next.
+      <button class="link" onclick="notMe()">Not you?</button></div>
   </div>
-  <div class="upd" id="upd"></div>
+  <div id="boardPane" style="display:none;">
+    <div class="card" style="padding:12px;"><div id="board"></div></div>
+    <div class="upd" id="upd"></div>
+  </div>
 </div>
+<script src="board.js"></script>
 <script>
 /* COPIED-JS from index.html by pages.py - do not edit here */
+const GROUP_COLORS  = ['#e8f5e9','#e3f2fd','#fff9e6','#fce4ec','#f3e5f5','#e0f7fa'];
+const GROUP_BORDERS = ['#27ae60','#2471a3','#c9a227','#e91e63','#9c27b0','#00bcd4'];
 function esc(str) {
   return String(str || '').replace(/[<>"'&]/g, '').trim().slice(0, 100);
 }
+function lastNameOf(n) {
+  const s = (n || '').trim();
+  if (s.includes(',')) return s.split(',')[0].trim().toLowerCase();
+  const p = s.split(' ');
+  return p[p.length - 1].toLowerCase();
+}
+function firstNameOf(n) {
+  const s = (n || '').trim();
+  if (s.includes(',')) { const f = s.split(',')[1]; return f ? f.trim().split(' ')[0] : ''; }
+  return s.split(' ')[0];
+}
+function scorecardName(player, groupPlayers) {
+  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const last = lastNameOf(player.name);
+  if (!last) return player.name || '?';
+  const sameLastName = groupPlayers.filter(p => p.id !== player.id && lastNameOf(p.name) === last);
+  if (!sameLastName.length) return cap(last);
+  const first = firstNameOf(player.name) || '';
+  const sameInitial = sameLastName.filter(p => (firstNameOf(p.name)||'')[0]?.toLowerCase() === first[0]?.toLowerCase());
+  if (!sameInitial.length) return cap(last) + (first ? ', ' + first[0].toUpperCase() + '.' : '');
+  return cap(last) + (first ? ', ' + first : '');
+}
+function strokesOnHole(courseHcp, holeHcpRating, hcpScale) {
+  const mod = hcpScale || 18;
+  if (courseHcp >= 0) {
+    return Math.floor(courseHcp / mod) + (holeHcpRating <= courseHcp % mod ? 1 : 0);
+  } else {
+    const a = Math.abs(courseHcp);
+    return -(Math.floor(a / mod) + (holeHcpRating > mod - a % mod ? 1 : 0));
+  }
+}
+function scoreCell(value, strokes, pidAttr, pid, holeNum, handler) {
+  const bg  = strokes > 0 ? 'background:#fde8e8;' : strokes < 0 ? 'background:#e8f4ec;' : '';
+  const dot = strokes > 0
+    ? `<span style="position:absolute;top:1px;right:2px;color:#c0392b;font-size:8px;">${'\u2022'.repeat(Math.min(strokes,3))}</span>`
+    : strokes < 0
+    ? `<span style="position:absolute;top:1px;right:2px;color:#27ae60;font-size:8px;">${'\u2022'.repeat(Math.min(Math.abs(strokes),3))}</span>`
+    : '';
+  // No handler = a card to READ (History). It used to stay typeable, and the
+  // foursome handler writes to the game IN PROGRESS, so a tap on a finished
+  // card changed the live game (found by the walk, 2026-10-03).
+  const entry = handler ? `oninput="${handler}"` : 'readonly tabindex="-1"';
+  return `<div class="hole-cell" style="position:relative;padding:0;${bg}"><input type="text" inputmode="numeric" maxlength="1" value="${value}" ${pidAttr}="${pid}" data-hole="${holeNum}" ${entry} class="game-score-input">${dot}</div>`;
+}
+function scorecardHdr(holes, lbl, totLbl, nameColW, totColW, hcpRow) {
+  const nw   = nameColW || '80px';
+  const tw   = totColW  || '36px';
+  const cols = `${nw} repeat(${holes.length},1fr) ${tw}`;
+  const parTot = holes.reduce((a, h) => a + h.par, 0);
+  let out = `
+    <div class="hole-grid" style="grid-template-columns:${cols};">
+      <div class="hole-cell" style="background:var(--g800);color:rgba(255,255,255,.5);font-size:9px;font-weight:700;">${lbl}</div>
+      ${holes.map(h => `<div class="hole-cell" style="background:var(--g800);color:var(--gold);font-size:10px;font-weight:700;">${h.num}</div>`).join('')}
+      <div class="hole-cell" style="background:var(--g800);color:rgba(255,255,255,.5);font-size:9px;font-weight:700;">${totLbl}</div>
+    </div>
+    <div class="hole-grid" style="grid-template-columns:${cols};">
+      <div class="hole-cell header">Par</div>
+      ${holes.map(h => `<div class="hole-cell par-cell">${h.par}</div>`).join('')}
+      <div class="hole-cell total">${parTot}</div>
+    </div>`;
+  if (hcpRow) {
+    out += `
+    <div class="hole-grid" style="grid-template-columns:${cols};">
+      <div class="hole-cell header" style="color:var(--muted);">HCP</div>
+      ${holes.map(h => `<div class="hole-cell" style="font-size:10px;color:var(--muted);">${h.hcp || ''}</div>`).join('')}
+      <div class="hole-cell"></div>
+    </div>`;
+  }
+  return out;
+}
+function renderScorecardGroup(ctx, gi, grp, opts) {
+  const { players, activeHoles, hcpScale, scores, format } = ctx;
+  const gp      = grp.playerIds.map(id => players.find(p => p.id === id)).filter(Boolean);
+  if (!gp.length) return '';
+  const rowA    = activeHoles.slice(0, 9);
+  const rowB    = activeHoles.slice(9);
+  const isScram = format === 'scramble';
+  const col     = GROUP_COLORS[gi % 6];
+  const brd     = GROUP_BORDERS[gi % 6];
+  const o       = opts || {};
+  const pidAttr = o.pidAttr  || 'data-pid';
+  const grpAttr = o.grpAttr  || 'data-grpkey';
+  const onInput = o.onInput  || '';
+  const onTeam  = o.onTeam   || 'outingUpdateTeamScore(this)';
+  const pfxA    = o.pfxA     || 'out_A_';
+  const pfxB    = o.pfxB     || 'out_B_';
+  const pfxT    = o.pfxT     || 'out_tot_';
+  const chLabelFn = o.chLabel || (pp => (pp.teeColor?`<span style="font-size:8px;color:var(--gold);font-weight:700;">${esc(pp.teeColor)}</span> `:'') + '<span style="color:var(--muted);font-weight:400;font-size:9px;">CH' + pp.courseHcp + '</span>');
+  const hcpRow  = o.hcpRow  || false;
+
+  function playerRow(p, holes, secPfx) {
+    const sc   = scores[p.id] || {};
+    const tot  = holes.reduce((a, h) => a + (parseInt(sc[h.num]) || 0), 0);
+    const cols = `80px repeat(${holes.length},1fr) 36px`;
+    const displayName = scorecardName(p, gp);
+    return `<div class="hole-grid" style="grid-template-columns:${cols};">
+      <div class="hole-cell header" style="text-align:left;padding-left:4px;line-height:1.2;white-space:normal;overflow:hidden;">
+        ${esc(displayName)}
+        <br>${chLabelFn(p)}
+      </div>
+      ${holes.map(h => scoreCell(sc[h.num] != null ? sc[h.num] : '', strokesOnHole(p.courseHcp, h.hcpRating||0, hcpScale), pidAttr, p.id, h.num, onInput)).join('')}
+      <div class="hole-cell total" id="${secPfx}${p.id}">${tot||''}</div>
+    </div>`;
+  }
+
+  function scramRow(key, holes, secPfx) {
+    const sc  = scores[key] || {};
+    const tot = holes.reduce((a,h) => a+(parseInt(sc[h.num])||0), 0);
+    const cols = `80px repeat(${holes.length},1fr) 36px`;
+    return `<div class="hole-grid" style="grid-template-columns:${cols};">
+      <div class="hole-cell header" style="text-align:left;padding-left:4px;line-height:1.2;">
+        TEAM<br><span style="color:var(--muted);font-weight:400;font-size:9px;">Gross</span>
+      </div>
+      ${holes.map(h => {
+        const v = sc[h.num] != null ? sc[h.num] : '';
+        return `<div class="hole-cell" style="padding:0;">
+          <input type="text" inputmode="numeric" maxlength="1" value="${v}"
+            ${grpAttr}="${key}" data-hole="${h.num}" oninput="${onTeam}"
+            class="game-score-input">
+        </div>`;
+      }).join('')}
+      <div class="hole-cell total" id="${secPfx}${key}">${tot||''}</div>
+    </div>`;
+  }
+
+  const key   = `grp_${gi}`;
+  const names = gp.map(p => esc(p.name)).join(', ');
+  const extraHtml = o.extraInfo
+    ? `<span style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:400;opacity:.7;margin-left:8px;">${o.extraInfo}</span>`
+    : '';
+
+  const frontRows = isScram ? scramRow(key, rowA, pfxA) : gp.map(p => playerRow(p, rowA, pfxA)).join('');
+  const backRows  = rowB.length ? (isScram ? scramRow(key, rowB, pfxB) : gp.map(p => playerRow(p, rowB, pfxB)).join('')) : '';
+
+  let totalsHtml;
+  if (isScram) {
+    const sc  = scores[key] || {};
+    const tot = activeHoles.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
+    totalsHtml = `<div style="display:flex;justify-content:space-between;font-size:12px;">
+      <span style="font-weight:600;">Team Gross</span>
+      <span style="font-weight:700;color:var(--g800);" id="${pfxT}${key}">${tot||'\u2014'}</span>
+    </div>`;
+  } else {
+    totalsHtml = gp.map(p => {
+      const sc  = scores[p.id] || {};
+      const tot = activeHoles.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
+      return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:1px 0;">
+        <span style="font-weight:600;">${esc(p.name)}</span>
+        <span style="font-weight:700;color:var(--g800);">Total: <span id="${pfxT}${p.id}">${tot||'\u2014'}</span></span>
+      </div>`;
+    }).join('');
+  }
+
+  return `<div style="margin-bottom:20px;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);
+         padding:8px 12px;background:${col};border-left:4px solid ${brd};border-radius:6px 6px 0 0;text-align:center;">
+      ${esc(grp.label)}
+      <span style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;letter-spacing:0;margin-left:6px;">${names}</span>
+      ${extraHtml}
+    </div>
+    <div style="border:1px solid var(--surf3);border-top:none;border-radius:0 0 8px 8px;overflow:hidden;padding:6px;">
+      ${scorecardHdr(rowA, rowB.length?'FRONT':'HOLES', rowB.length?'OUT':'TOT', null, null, hcpRow)}
+      ${frontRows}
+      ${rowB.length?`<div style="border-top:2px solid var(--surf3);padding-top:4px;margin-top:4px;">
+        ${scorecardHdr(rowB,'BACK','IN', null, null, hcpRow)}${backRows}
+      </div>`:''}
+      <div style="border-top:2px solid var(--surf3);padding:6px 4px;margin-top:4px;">${totalsHtml}</div>
+    </div>
+  </div>`;
+}
+function buildScoringIndex(container, selector, mode) {
+  selector = selector || '.game-score-input';
+  const inputs = Array.from(container.querySelectorAll(selector));
+  // mode: 'live'=hole-major (advance by hole, all players), 'post'=player-major (all holes, then next player)
+  mode = mode || 'post';
+  let ordered;
+  if (mode === 'live') {
+    // Hole-major: group by hole number, all players per hole in DOM order
+    const byHole = {};
+    inputs.forEach(inp => {
+      const h = inp.dataset.hole || inp.dataset.grpkey || '0';
+      if (!byHole[h]) byHole[h] = [];
+      byHole[h].push(inp);
+    });
+    ordered = Object.keys(byHole).map(Number).sort((a,b)=>a-b).flatMap(h => byHole[h]);
+  } else {
+    // Player-major: DOM order (each scorecard renders player rows already)
+    ordered = inputs;
+  }
+  window._fsHoleMajorIdx = ordered; // keeps fsUpdateGameScore working
+  return ordered;
+}
+function advanceToNext(input, ordered) {
+  const idx = ordered.indexOf(input);
+  if (idx < 0) return;
+  for (let i = idx + 1; i < ordered.length; i++) {
+    const v = parseInt(ordered[i].value);
+    if (isNaN(v) || v < 1) {
+      setTimeout(() => { ordered[i].focus({ preventScroll:true }); ordered[i].select(); }, 50);
+      return;
+    }
+  }
+}
 /* END COPIED-JS */
 
-/* This page only. The rows are worked out by the app (liveUnitPayload) and
-   published; this draws them and nothing else, so it cannot disagree with
-   the app's numbers. */
+/* This page only. The scorecard is the app's renderScorecardGroup and the
+   board is board.js, so both look and add up exactly as the app does. */
+const API_KEY = 'AIzaSyDk1_QEihU-02Fyzs5LUYRNjcpmBYsRnCM';
 const DB = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';
-const id = new URLSearchParams(location.search).get('id');
-// Positions arrive as text ('1', 'T3'): a medal for an untied 1-3, the label otherwise.
-const medal = p => { const q = String(p); return q === '1' ? '🥇' : q === '2' ? '🥈' : q === '3' ? '🥉' : esc(q); };
-let _data = null, _view = 0;
+const params = new URLSearchParams(location.search);
+const id = params.get('id');
+const KEY = 'mg-me-' + id;                       // who this phone is, for this round
+let _data = null, _me = null, _gi = -1, _watch = false, _tab = 0, _token = null, _scores = {}, _order = [], _boardT = null;
 
-async function load() {
+const store = { get() { try { return localStorage.getItem(KEY); } catch (e) { return null; } },
+                set(v) { try { if (v) localStorage.setItem(KEY, v); else localStorage.removeItem(KEY); } catch (e) {} } };
+function show(pane) { ['whoPane', 'cardPane', 'boardPane'].forEach(p => { document.getElementById(p).style.display = p === pane ? '' : 'none'; }); }
+function msg(html) { document.getElementById('tabs').innerHTML = ''; show('boardPane'); document.getElementById('board').innerHTML = '<div class="msg">' + html + '</div>'; }
+
+async function fetchRound() {
+  const res = await fetch(DB + '/' + encodeURIComponent(id) + '.json', { cache: 'no-store' });
+  return res.json();
+}
+
+async function boot() {
   if (!id) { msg('No id in this link.'); return; }
-  try {
-    const res = await fetch(DB + '/' + encodeURIComponent(id) + '.json', { cache: 'no-store' });
-    const d = await res.json();
-    if (!d) { msg('This board is not available - it may not be shared, or sharing was stopped.'); return; }
-    _data = d; render();
-  } catch (e) { const u = document.getElementById('upd'); if (u) u.textContent = 'Reconnecting…'; }
-}
-function msg(html) { document.getElementById('tabs').innerHTML = ''; document.getElementById('board').innerHTML = '<div class="msg">' + html + '</div>'; }
-function views() { return _data.views || (_data.rows ? [{ id:'main', label:'', rows:_data.rows }] : []); }
-function setView(i) { _view = i; render(); }
-function render() {
-  const d = _data; document.getElementById('title').textContent = d.title || 'Live';
-  const vs = views(); if (_view >= vs.length) _view = 0;
-  document.getElementById('tabs').innerHTML = vs.length > 1
-    ? vs.map((v, i) => '<div class="tab holes-toggle ' + (i === _view ? 'active' : '') + '" onclick="setView(' + i + ')">' + esc(v.label) + '</div>').join('')
-    : '';
-  /* COLUMNS, like a pro leaderboard with one more (BZ, 2026-10-05: "Gross,
-     Net, +/- would be the three columns. Not random text."). A view that names
-     its cols gets a header row and one cell per value; the +/- column is the
-     one that decides, so it carries the leader's gold. */
-  const v = vs[_view] || {};
-  const cols = v.cols || null;
-  const key = cols ? cols.findIndex(c => /^\+\//.test(c) || c === 'Pts') : -1;
-  const rows = (v.rows || []).map((r, i) => {
-    const lead = i === 0 ? ' class="lead"' : '';
-    if (cols && r.vals) {
-      return '<tr' + lead + '><td class="pos">' + medal(r.pos) + '</td><td class="name">' + esc(r.name) + '</td>'
-        + r.vals.map((x, j) => '<td class="num' + (j === key ? ' pri' : '') + '">' + esc(x) + '</td>').join('') + '</tr>';
-    }
-    return '<tr' + lead + '><td class="pos">' + medal(r.pos) + '</td><td class="name">' + esc(r.name) +
-      '</td><td class="pri">' + esc(r.primary) + '</td><td class="sec">' + esc(r.secondary || '') + '</td></tr>';
-  }).join('');
-  const head = cols ? '<thead><tr><th class="pos">Pos</th><th class="name">Player</th>'
-    + cols.map(c => '<th class="num">' + esc(c) + '</th>').join('') + '</tr></thead>' : '';
-  document.getElementById('board').innerHTML = rows
-    ? '<table>' + head + '<tbody>' + rows + '</tbody></table>'
-    : '<div class="msg">No scores posted yet.</div>';
-  if (d.updated) document.getElementById('upd').textContent = 'Updated ' + new Date(d.updated).toLocaleTimeString();
+  try { _data = await fetchRound(); } catch (e) { msg('Could not load. Check the link and your connection.'); return; }
+  if (!_data) { msg('This round is not available - it may not be shared, or sharing was stopped.'); return; }
+  document.getElementById('title').textContent = _data.title || 'Live';
+  document.getElementById('sub').textContent = (_data.course && _data.course.name) || '';
+  // Who this phone was last time in this round; otherwise ask.
+  const was = store.get();
+  if (was && findGroup(was) >= 0) { pick(was); return; }
+  who();
 }
 
-load();
-setInterval(load, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+function findGroup(pid) { return (_data.groups || []).findIndex(g => (g.players || []).some(p => p.id === pid)); }
+
+/* WHO ARE YOU: the round's players to pick from, never to type (BZ). An old
+   per-group link (score.html?id=..&g=N) puts that foursome first. */
+function who() {
+  _me = null; _gi = -1; _watch = false; stopBoard();
+  document.getElementById('tabs').innerHTML = '';
+  const first = parseInt(params.get('g'), 10);
+  const gs = (_data.groups || []).map((g, i) => ({ g, i }));
+  if (first >= 0 && first < gs.length) gs.unshift(gs.splice(first, 1)[0]);
+  document.getElementById('who').innerHTML = '<div class="who-h">Who are you?</div>'
+    + gs.map(({ g }) => '<div class="who-g">' + esc(g.label || '').toUpperCase() + '</div>'
+      + (g.players || []).map(p => '<button class="who-p" data-pid="' + esc(p.id) + '" onclick="pick(this.dataset.pid)">' + esc(p.name) + '</button>').join('')).join('')
+    + '<button class="who-w" onclick="watch()">Just watching</button>';
+  show('whoPane');
+  document.getElementById('hsub').textContent = 'Live';
+}
+function pick(pid) {
+  _me = pid; _gi = findGroup(pid); _watch = false; store.set(pid);
+  const p = (_data.groups[_gi].players || []).find(x => x.id === pid);
+  document.getElementById('hsub').textContent = p ? p.name : 'Live';
+  tabTo(0);
+}
+function notMe() { store.set(null); who(); }
+function watch() { _watch = true; _me = null; _gi = -1; tabTo(0); }
+
+/* Tabs: Scorecard (players only), then each board view the app publishes. */
+function tabList() { return (_watch ? [] : [{ label: 'Scorecard' }]).concat(MGBoard.views(_data)); }
+function tabs() { document.getElementById('tabs').innerHTML = MGBoard.tabs(tabList(), _tab, 'tabTo'); }
+async function tabTo(i) {
+  _tab = i; tabs(); stopBoard();
+  if (!_watch && i === 0) { await card(); return; }
+  show('boardPane');
+  await boardNow();
+  _boardT = setInterval(boardNow, 10000);
+}
+function stopBoard() { if (_boardT) { clearInterval(_boardT); _boardT = null; } }
+
+async function boardNow() {
+  try {
+    const d = await fetchRound(); if (!d) return;
+    _data.views = d.views; _data.updated = d.updated;
+    document.getElementById('board').innerHTML = MGBoard.table(tabList()[_tab]);
+    if (d.updated) document.getElementById('upd').textContent = 'Updated ' + new Date(d.updated).toLocaleTimeString();
+    tabs();
+  } catch (e) { document.getElementById('upd').textContent = 'Reconnecting…'; }
+}
+
+/* THE SCORECARD: this player's foursome, the app's own card. Signing in
+   (anonymously) happens here, so someone only watching never needs it. */
+async function card() {
+  show('cardPane');
+  const app = document.getElementById('app');
+  if (!_token) {
+    app.innerHTML = '<div class="msg">Starting scoring…</div>';
+    try { _token = await anonToken(); } catch (e) { app.innerHTML = '<div class="msg">Could not start scoring (sign-in). Ask the organizer to check anonymous sign-in.</div>'; return; }
+  }
+  try { const r = await fetch(DB + '/' + encodeURIComponent(id) + '/scores.json', { cache: 'no-store' }); _scores = (await r.json()) || {}; } catch (e) {}
+  render();
+}
+async function anonToken() {
+  const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + API_KEY,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true }) });
+  const d = await r.json();
+  if (!d.idToken) throw new Error(d.error ? d.error.message : 'auth failed');
+  return d.idToken;
+}
+/* The round as the app's scorecard wants it: the holes PLAYED (re-ranked on a
+   nine), each player's course handicap, the stroke scale, the format. */
+function ctxNow() {
+  const c = _data.course, g = _data.groups[_gi];
+  const holes = (c.holes || []).map(h => Object.assign({}, h, { hcpRating: h.hcpRating != null ? h.hcpRating : (h.hcp || 0) }));
+  return { players: (g.players || []).map(p => ({ id: p.id, name: p.name, courseHcp: p.ch || 0 })),
+    activeHoles: holes, hcpScale: c.hcpScale || holes.length || 18, scores: _scores, format: _data.format || c.format || 'stroke' };
+}
+function render() {
+  const g = _data.groups[_gi], app = document.getElementById('app');
+  app.innerHTML = renderScorecardGroup(ctxNow(), _gi, { playerIds: (g.players || []).map(p => p.id), label: g.label },
+    { pidAttr: 'data-pid', grpAttr: 'data-grpkey', onInput: 'scInput(this)', onTeam: 'scInput(this)',
+      hcpRow: true, pfxA: 'A_', pfxB: 'B_', pfxT: 'T_' });
+  _order = buildScoringIndex(app, '.game-score-input', 'live');   // hole by hole, as the app's By Hole
+}
+/* One digit, 1-9, as the app's own score boxes take it. */
+function scInput(el) {
+  const raw = el.value.replace(/[^1-9]/g, '').slice(0, 1);
+  if (el.value !== raw) el.value = raw;
+  const key = el.dataset.pid || el.dataset.grpkey, hole = el.dataset.hole;
+  const v = raw ? parseInt(raw, 10) : null;
+  _scores[key] = _scores[key] || {};
+  if (v == null) delete _scores[key][hole]; else _scores[key][hole] = v;
+  totals(key); save(key, hole, v);
+  if (v != null) advanceToNext(el, _order);
+}
+function totals(key) {
+  const holes = ctxNow().activeHoles, sc = _scores[key] || {};
+  const sum = hs => hs.reduce((a, h) => a + (parseInt(sc[h.num]) || 0), 0);
+  const set = (eid, n) => { const e = document.getElementById(eid); if (e) e.textContent = n || (eid.indexOf('T_') === 0 ? '—' : ''); };
+  set('A_' + key, sum(holes.slice(0, 9))); set('B_' + key, sum(holes.slice(9))); set('T_' + key, sum(holes));
+}
+async function save(key, hole, v) {
+  flash('Saving…');
+  try {
+    const r = await fetch(DB + '/' + encodeURIComponent(id) + '/scores/' + encodeURIComponent(key) + '/' + hole + '.json?auth=' + _token,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    flash('Saved ✓');
+  } catch (e) { flash('Not saved - check your signal and type it again'); }
+}
+let _flashT = null;
+function flash(t) { const el = document.getElementById('saved'); el.textContent = t; if (_flashT) clearTimeout(_flashT); _flashT = setTimeout(() => { el.textContent = ''; }, 1800); }
+
+Object.assign(window, { pick, notMe, watch, tabTo, scInput });
+boot();
+document.addEventListener('visibilitychange', () => { if (!document.hidden && _boardT) boardNow(); });
 </script>
 </body>
 </html>

@@ -58,7 +58,7 @@ TRANSIENT = re.compile(r'HTTP 5\d\d|timed out|timeout|connection (reset|refused)
 # What the site serves. The gate publishes exactly these (gate.yml, "The
 # site, and only the site"); consistency.js fails if the two lists disagree.
 APP = ['index.html', 'sw.js', 'manifest.json', 'logo.webp',
-       'live.html', 'score.html', 'rsvp.html']
+       'live.html', 'score.html', 'rsvp.html', 'board.js']
 DOCS = ['CHANGELOG.md', 'CLAUDE.md', 'DEV-RULES.md', 'README.md']
 TOOLING = ['madgolf-test.js', 'audit.py', 'bump.py', 'push.py', 'gate.py',
            'check.js', 'checks.json', 'lint.js', 'consistency.js',
