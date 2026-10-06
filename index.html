@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.34  Build 2026-10-05 09:42 PM ET
+     Version : v0.91.35  Build 2026-10-05 10:14 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.35  2026-10-05  Closing a round, and the trip standings during one (BZ: yes to all three).
 // v0.91.34  2026-10-05  The leaderboard says its delay and counts down (BZ: a note about the delay and, if reasonable, a timer).
 // v0.91.33  2026-10-05  Two phones scoring one foursome now see each other's scores.
 // v0.91.32  2026-10-05  Comments name the live-board functions by their final names (liveViews, liveSrc, liveFromSrc).
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.28  2026-10-05  Test live scoring now builds one Test Trip with several rounds, as a real trip has.
 // v0.91.27  2026-10-05  Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text).
 // v0.91.26  2026-10-05  Boards show net only and mark ties.
-// v0.91.25  2026-10-05  The scoring link and the live board now use the app's own look.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -371,6 +371,10 @@ main{
 /* An action button's label is one line (BZ, 2026-10-04): "Close" broke onto
    two lines in the History modal when flex squeezed it. */
 .modal-actions .btn{white-space:nowrap;}
+/* A row of action buttons that share the line and never wrap (BZ, 2026-10-05:
+   "buttons should not wrap"): each shrinks to an equal share. */
+.btn-line{display:flex;gap:8px;margin-bottom:10px;}
+.btn-line>.btn{flex:1 1 0;min-width:0;white-space:nowrap;justify-content:center;}
 
 /* ── Confirm modal ─ z-index 300 above nav ───────────────────── */
 #confirmModal{z-index:300;}
@@ -1220,8 +1224,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.34';
-const BUILD_TIME = '2026-10-05 09:42 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.35';
+const BUILD_TIME = '2026-10-05 10:14 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -8896,7 +8900,7 @@ function outingRenderResults(g, r) {
   const { playerData, grossSkins, netSkins, grossTally, netTally, activeHoles } = r;
 
   // ── Leaderboard ──
-  let lb = '<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="outingShareLive()">📡 Go Live & share links</button><button class="btn btn-sm btn-outline" style="margin-bottom:10px;margin-left:8px;" onclick="outingShareLeaderboard()">📤 Text leaderboard</button>';
+  let lb = '<div class="btn-line"><button class="btn btn-sm btn-outline" onclick="outingShareLive()">📡 Go Live &amp; share links</button><button class="btn btn-sm btn-outline" onclick="outingShareLeaderboard()">📤 Text leaderboard</button></div>';
 
   if (isStab) {
     const sorted = [...playerData].sort(sfRankOutingRows);
@@ -12008,15 +12012,34 @@ function tripCountback(pid, t) {
   return [back9, back6, back3, last1];
 }
 
-function tripLeaderboard(t) {
+/** The trip standings. live, when given, is a round IN PROGRESS counted as
+ *  far as it has been played (BZ, 2026-10-05: the live Trip tab moves hole by
+ *  hole, like a pro board's running total): each player's net and par through
+ *  the holes entered, from the round's own engine. Then the order is net
+ *  against par, which compares a player thru 7 with one thru 12; on full
+ *  cards it is the same order as net strokes. Without live, only saved rounds
+ *  count - the official standings. */
+function tripLeaderboard(t, live) {
   t = t || tripActive(); if (!t) return [];
-  const net={}, rnds={}, teamWins={}, grossT={}, parT={};
+  const net={}, rnds={}, teamWins={}, grossT={}, parT={}, thruNow={};
+  const inProgress = !!(live && !live.completed);
   const players = tripPlayers(t);
   tripDays(t).forEach(d => {
     const dr = t.days && t.days[d]; if (!dr) return;
     (dr.rounds||[]).forEach(r => {
-      if (!isCompFormat(r.format) || !r.completed) return;
+      if (!isCompFormat(r.format) || !(r.completed || (inProgress && r === live))) return;
       const ctx = tripScoringCtx(t, r); if (!ctx) return;
+      if (!r.completed) {
+        if (isTeamFormat(r.format)) return;   // a team day counts when it is won
+        (computeRoundResults(ctx).entries || []).forEach(e => {
+          if (!e || !e.thru || !players.some(x => x.id === e.playerId)) return;
+          net[e.playerId]    = (net[e.playerId]||0) + e.netThru;
+          grossT[e.playerId] = (grossT[e.playerId]||0) + e.gross;
+          parT[e.playerId]   = (parT[e.playerId]||0) + (e.netThru - e.toPar);
+          thruNow[e.playerId] = e.thru >= ctx.activeHoles.length ? 'F' : String(e.thru);
+        });
+        return;
+      }
       if (isTeamFormat(r.format)) {
         const res = computeRoundResults(ctx);
         const entries = res.entries||[];
@@ -12048,6 +12071,7 @@ function tripLeaderboard(t) {
     totalGross: grossT[pid],
     totalPar: parT[pid],
     rounds:   rnds[pid]||0,
+    thru:     thruNow[pid] || null,
     teamWins: teamWins[pid]||0,
     cb:       tripCountback(pid, t)   // [back9, back6, back3, last1]
   }));
@@ -12055,11 +12079,12 @@ function tripLeaderboard(t) {
     if (!net[pid]) entries.push({playerId:pid, totalNet:null, rounds:0, teamWins:teamWins[pid], cb:[0,0,0,0]});
   });
 
+  const key = e => e.totalNet === null ? null : inProgress ? e.totalNet - e.totalPar : e.totalNet;
   entries.sort((a, b) => {
-    if (a.totalNet !== b.totalNet) {
-      if (a.totalNet === null) return 1;
-      if (b.totalNet === null) return -1;
-      return a.totalNet - b.totalNet;
+    if (key(a) !== key(b)) {
+      if (key(a) === null) return 1;
+      if (key(b) === null) return -1;
+      return key(a) - key(b);
     }
     // USGA countback: back 9 → back 6 → back 3 → last hole
     for (let i = 0; i < 4; i++) {
@@ -12193,7 +12218,9 @@ function renderRoundResultsHtml(res,skins,ctx){
   const th = (txt,left) => `<th style="padding:5px 6px;font-size:11px;color:var(--muted);font-weight:700;text-align:${left?'left':'center'};">${txt}</th>`;
   const td = (txt,opts='') => `<td style="padding:7px 6px;border-bottom:1px solid var(--surf3);text-align:center;${opts}">${txt}</td>`;
   const tdL = (txt,opts='') => `<td style="padding:7px 6px;border-bottom:1px solid var(--surf3);text-align:left;${opts}">${txt}</td>`;
-  const tbl = (hdr,body) => `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;"><thead><tr style="border-bottom:2px solid var(--surf3);">${hdr}</tr></thead><tbody>${body}</tbody></table>`;
+  // No rows, no table: headings over nothing read as a fault (BZ's screenshot, 2026-10-05).
+  const tbl = (hdr,body) => !body ? `<div style="font-size:13px;color:var(--muted);padding:4px 0;text-align:center;">No scores yet.</div>`
+    : `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;"><thead><tr style="border-bottom:2px solid var(--surf3);">${hdr}</tr></thead><tbody>${body}</tbody></table>`;
   const medal = i => i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1;
 
   const secHdr = txt => `<div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:1px;color:var(--g800);margin:12px 0 6px;padding-bottom:3px;border-bottom:1px solid var(--surf3);text-align:center;">${txt}</div>`;
@@ -12212,7 +12239,7 @@ function renderRoundResultsHtml(res,skins,ctx){
     html+=tbl(th('#')+th('Team',true)+th('Net vs Par'),rows);
     html+=secHdr('Individual');
     let iRows='';
-    players.forEach(p=>{const gross=activeHoles.reduce((a,h)=>a+(parseInt((ctx.scores[p.id]||{})[h.num])||0),0);if(!gross)return;iRows+=tdL(esc(p.name),'font-weight:600;')+td(p.courseHcp,'color:var(--muted);')+td(gross)+td(gross-p.courseHcp,'font-weight:600;');});
+    players.forEach(p=>{const gross=activeHoles.reduce((a,h)=>a+(parseInt((ctx.scores[p.id]||{})[h.num])||0),0);if(!gross)return;iRows+='<tr>'+tdL(esc(p.name),'font-weight:600;')+td(p.courseHcp,'color:var(--muted);')+td(gross)+td(gross-p.courseHcp,'font-weight:600;')+'</tr>';});
     html+=tbl(th('Player',true)+th('CH')+th('Gross')+th('Net'),iRows);
   }else{
     const isSF=res.isSF;
@@ -12233,19 +12260,38 @@ function renderRoundResultsHtml(res,skins,ctx){
   }else if(skins.type==='team'){
     const teamNames=groups.map(grp=>grp.playerIds.map(id=>{const p=players.find(x=>x.id===id);return p?lastNameOf(p.name)||p.name:'?';}).join('/'));
     let rows='';
-    groups.forEach((_,gi)=>{if(skins.wins[gi]>0)rows+=tdL(esc(teamNames[gi]),'font-weight:600;')+td(skins.wins[gi],'font-weight:700;color:var(--gold);');});
+    groups.forEach((_,gi)=>{if(skins.wins[gi]>0)rows+='<tr>'+tdL(esc(teamNames[gi]),'font-weight:600;')+td(skins.wins[gi],'font-weight:700;color:var(--gold);')+'</tr>';});
     html+=tbl(th('Team',true)+th('Skins'),rows);
   }else{
     let rows='';
-    [...players].sort((a,b)=>(skins.wins[b.id]||0)-(skins.wins[a.id]||0)).forEach(p=>{if(skins.wins[p.id]>0)rows+=tdL(esc(p.name),'font-weight:600;')+td(skins.wins[p.id],'font-weight:700;color:var(--gold);');});
+    [...players].sort((a,b)=>(skins.wins[b.id]||0)-(skins.wins[a.id]||0)).forEach(p=>{if(skins.wins[p.id]>0)rows+='<tr>'+tdL(esc(p.name),'font-weight:600;')+td(skins.wins[p.id],'font-weight:700;color:var(--gold);')+'</tr>';});
     html+=tbl(th('Player',true)+th('Skins'),rows);
   }
   return html;
 }
-function tripSaveRoundComplete(dayIdx,rndIdx){
+/** SAVE A ROUND (BZ, 2026-10-05): first take in the phones' latest scores - the
+ *  15-second poll could leave the last putts out - then, if a card is still
+ *  short of holes, say whose and ask. Nothing closes a round by itself: one
+ *  that closed on the 18th score would lock in a typo nobody had checked. */
+async function tripSaveRoundComplete(dayIdx,rndIdx){
   const sctx=_tripScoringCtx;if(!sctx)return;const t=tripById(sctx.tid);if(!t)return;
   const dateStr=tripDays(t)[dayIdx];const r=t.days&&t.days[dateStr]&&t.days[dateStr].rounds&&t.days[dateStr].rounds[rndIdx];if(!r)return;
-  r.completed=true;S.activeRound=null;scheduleWrite();_tripScoringCtx=null;tripGoScreen('results');toast('Round saved \u2713');
+  if(r.live&&r.shareId){
+    try{const res=await fetchWithTimeout(`${LIVE_BASE}/${r.shareId}/scores.json`,{cache:'no-store'});if(res.ok)liveMergeScores(r,await res.json());}
+    catch(e){appLog('save: phone scores not fetched: '+e.message);}
+  }
+  const short=tripShortCards(t,r);
+  const done=()=>{r.completed=true;S.activeRound=null;scheduleWrite();_tripScoringCtx=null;tripGoScreen('results');toast('Round saved ✓');};
+  if(!short.length){done();return;}
+  openConfirm('Cards not finished',`${short.map(x=>`<b>${esc(x.name)}</b> &mdash; ${x.missing} hole${x.missing===1?'':'s'} missing`).join('<br>')}<br><br>A card with holes missing does not count in the trip standings. Save anyway?`,done);
+}
+/** Who in a round is short of holes: each player's card, or a scramble
+ *  group's one card. */
+function tripShortCards(t,r){
+  const ctx=tripScoringCtx(t,r);if(!ctx)return [];
+  const miss=key=>ctx.activeHoles.filter(h=>!(parseInt(((ctx.scores||{})[key]||{})[h.num])>0)).length;
+  if(r.format==='scramble')return (ctx.groups||[]).map((g,gi)=>({name:g.label||('Group '+(gi+1)),missing:miss('grp_'+gi)})).filter(x=>x.missing);
+  return ctx.players.map(p=>({name:p.name,missing:miss(p.id)})).filter(x=>x.missing);
 }
 
 // ── RESULTS SCREEN ────────────────────────────────────────────
@@ -12255,7 +12301,7 @@ function tripRenderResultsScreen(){
   let html='';
 
   // ── Trip leaderboard ──────────────────────────────────────────
-  html+=`<button class="btn btn-sm btn-outline" style="margin-bottom:10px;" onclick="tripShareLive()">📡 Go Live & share links</button><button class="btn btn-sm btn-outline" style="margin-bottom:10px;margin-left:8px;" onclick="tripShareLeaderboard()">📤 Text leaderboard</button>`;
+  html+=`<div class="btn-line"><button class="btn btn-sm btn-outline" onclick="tripShareLive()">📡 Go Live &amp; share links</button><button class="btn btn-sm btn-outline" onclick="tripShareLeaderboard()">📤 Text leaderboard</button></div>`;
   html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1px;color:var(--g800);border-bottom:2px solid var(--gold);padding-bottom:4px;text-align:center;margin-bottom:10px;">Trip Leaderboard</div>`;
   const board=tripLeaderboard();
   if(board.length){
@@ -14307,15 +14353,18 @@ function boardTie(rows, keys) {
 }
 /** The trip standings as board rows: net strokes as a plain total (BZ's trip
  *  game), rounds counted - one builder for the live Trip tab and the share image. */
-function tripBoardRows(t) {
-  const board = tripLeaderboard(t);
+function tripBoardRows(t, live) {
+  // With a round in progress the rows carry a Thru column (tripBoardCols).
+  const board = tripLeaderboard(t, live), going = !!(live && !live.completed);
+  const thru = e => going ? [e.thru || '—'] : [];
   return boardTie(board.map((e, i) => ({ pos: i + 1, name: (fsPlayerById(e.playerId) || {}).name || '?',
     primary: e.totalNet == null ? '—' : String(e.totalNet),
     secondary: (e.rounds || 0) + ((e.rounds || 0) === 1 ? ' round' : ' rounds'),
-    vals: e.totalNet == null ? ['—', '—', '—', String(e.rounds || 0)]
-      : [String(e.totalGross), String(e.totalNet), (d => d === 0 ? 'E' : d > 0 ? '+' + d : '' + d)(e.totalNet - e.totalPar), String(e.rounds || 0)]
-  })), board.map(e => e.totalNet));
+    vals: e.totalNet == null ? ['—', '—', '—', ...thru(e), String(e.rounds || 0)]
+      : [String(e.totalGross), String(e.totalNet), (d => d === 0 ? 'E' : d > 0 ? '+' + d : '' + d)(e.totalNet - e.totalPar), ...thru(e), String(e.rounds || 0)]
+  })), board.map(e => e.totalNet == null ? null : going ? e.totalNet - e.totalPar : e.totalNet));
 }
+function tripBoardCols(live) { return ['Gross', 'Net', '+/−', ...(live && !live.completed ? ['Thru'] : []), 'Rnds']; }
 function liveRoundRows(ctx, skinsOn) {
   const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
   const res = computeRoundResults(ctx);
@@ -14402,7 +14451,7 @@ function liveTripViews(t, r) {
   }
   // The trip game is NET STROKES (BZ), shown as the app's leaderboard shows it:
   // a total, not a score against par - "+240" read as 240 over (2026-10-05).
-  views.push({ id:'trip', label:'Trip', cols: ['Gross', 'Net', '+/−', 'Rnds'], rows: tripBoardRows(t) });
+  views.push({ id:'trip', label:'Trip', cols: tripBoardCols(r), rows: tripBoardRows(t, r) });
   return { title, views, course, groups };
 }
 /** A league night's board: tonight, and the season. */

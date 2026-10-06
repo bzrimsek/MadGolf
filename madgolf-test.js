@@ -8439,6 +8439,21 @@ smoke('leagueCurrentSession returns session', () => {
   expect('results html: tie shows halved with', tieHtml.includes('halved with'), true);
 }
 
+// ── Round results: one row per player, and no headings over nothing ─────────
+// Team rounds built the Individual and Skins rows without <tr>, so every
+// player landed on one line; an unscored round showed column headings over
+// nothing (BZ's screenshot, 2026-10-05).
+{
+  const ctx = { players: [{ id: 'a', name: 'Al', courseHcp: 5 }, { id: 'b', name: 'Bo', courseHcp: 10 }],
+    groups: [{ playerIds: ['a', 'b'] }], format: 'best2', activeHoles: [{ num: 1, par: 4 }, { num: 2, par: 4 }],
+    scores: { a: { 1: 4, 2: 5 }, b: { 1: 5, 2: 4 } } };
+  const html = sandbox.renderRoundResultsHtml({ type: 'team', entries: [{ names: 'Al / Bo', netVsPar: -1 }], use321: false },
+    { anyWins: true, type: 'individual', wins: { a: 1, b: 2 } }, ctx);
+  expect('round results: team 1 + individual 2 + skins 2 rows', (html.match(/<tr>/g) || []).length, 5);
+  const empty = sandbox.renderRoundResultsHtml({ type: 'individual', entries: [], isSF: false }, { anyWins: false }, ctx);
+  expect('round results: unscored says so, no empty table', empty.includes('No scores yet.') && !empty.includes('<table'), true);
+}
+
 // ── 160. Skins "stroke off low man" — shared effective-handicap helper ────────
 // Per-instance skins config in League/Outing/Trip all route through skinsEffHcp so the setting
 // behaves identically. Low man plays off scratch; everyone else off the difference, floored at 0.

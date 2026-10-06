@@ -205,9 +205,19 @@ async function scoreRound(page, dayIdx, rndIdx, roundKey, onlyGroups) {
   }
   return typed;
 }
-async function saveRound(page) {
+/* Save asks only when a card is short (BZ, 2026-10-05): short names the
+   players expected in that warning; a round of full cards must save without
+   one. */
+async function saveRound(page, short) {
   await tap(page, 'button:has-text("Results →")');
   await tap(page, 'button:has-text("💾 Save")');
+  await pause(page, 400);
+  const open = await page.evaluate(() => document.getElementById('confirmModal').classList.contains('open'));
+  if (!short) { expect(!open, 'Save asked about short cards on a round of full cards'); return; }
+  expect(open, 'Save did not warn that ' + short.join(', ') + ' had holes missing');
+  const msg = await page.locator('#confirmMsg').innerText();
+  short.forEach(n => expect(msg.includes(n), 'the warning does not name ' + n + ': "' + msg + '"'));
+  await tap(page, '#confirmModal button:has-text("Confirm")'); await pause(page, 300);
 }
 
 /* The trip leaderboard as the screen shows it: [name, net] in order. */
@@ -537,6 +547,25 @@ async function main() {
     await shot(lp, 'live-board-app-shut');
     await lp.close();
     expect(fin(v) === 8, 'with the app shut the board shows ' + fin(v) + ' of 8 phone scorers finished');
+    // THE TRIP TAB MOVES WITH THE ROUND (BZ): each player's trip net is the
+    // saved rounds (worked out independently here) plus today's net so far,
+    // a Thru column says how far, and the order is net against par.
+    const tv = await (async () => { const p2 = await context.newPage(); listen(p2, rep); await watchBoard(p2, shareId);
+      const x = await p2.evaluate(() => _data.views.find(w => w.id === 'trip')); await p2.close(); return x; })();
+    expect(tv.cols.includes('Thru'), 'the Trip tab has no Thru column mid-round (cols ' + tv.cols.join('/') + ')');
+    const ci = c => tv.cols.indexOf(c), prior = {};
+    expectedBoard(await tripNow(page), PLAYERS).forEach(e => { prior[e.name] = e.net; });
+    const today = {}; v.rows.forEach(r => { today[r.name] = r.vals[v.cols.indexOf('Net')]; });
+    let bad = [];
+    tv.rows.forEach(r => {
+      const want = prior[r.name] + (today[r.name] != null ? Number(today[r.name]) : 0);
+      if (Number(r.vals[ci('Net')]) !== want) bad.push(r.name + ' trip net ' + r.vals[ci('Net')] + ', saved ' + prior[r.name] + ' + today ' + today[r.name]);
+      const thru = r.vals[ci('Thru')];
+      if ((today[r.name] != null) !== (thru !== '—')) bad.push(r.name + ' Thru ' + thru);
+    });
+    const pm = r => { const x = r.vals[ci('+/−')]; return x === 'E' ? 0 : Number(x); };
+    tv.rows.forEach((r, i) => { if (i && pm(r) < pm(tv.rows[i - 1])) bad.push('order: ' + r.name + ' ' + pm(r) + ' below ' + tv.rows[i - 1].name + ' ' + pm(tv.rows[i - 1])); });
+    expect(!bad.length, bad.slice(0, 4).join(' | '));
     return fin(v) + " finished on the board, 0 in the app's last publish";
   });
   await step(ctx, 'the app takes in the remote scores and the third group scores in the app', async () => {
@@ -576,7 +605,22 @@ async function main() {
     return 'the correction held';
   });
   await step(ctx, 'Trip 1: save the championship; final standings match the scorecards', async () => {
+    // A phone fixes a score and the organizer taps Save at once, before any
+    // poll (the poll is stopped here): Save must take the phone's score in.
+    const live = store.read('/bz-apps/golf/live/' + shareId);
+    const pid = live.groups[0].players[1].id;
+    const was = Number((((await tripNow(page)).days[Object.keys((await tripNow(page)).days).sort()[2]].rounds[0].scores || {})[pid] || {})[18]);
+    const now = was >= 9 ? was - 1 : was + 1;
+    const sp = await context.newPage(); listen(sp, rep);
+    await phoneAs(sp, shareId, pid);
+    await sp.locator(`#app input[data-pid="${pid}"][data-hole="18"]`).fill(String(now));
+    await sp.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });
+    await sp.close();
+    await page.evaluate(() => { window.__u = window._currentUser; window._currentUser = null; });
     await saveRound(page);
+    await page.evaluate(() => { window._currentUser = window.__u; });
+    const got = Number((await tripNow(page)).days[Object.keys((await tripNow(page)).days).sort()[2]].rounds[0].scores[pid][18]);
+    expect(got === now, 'Save kept ' + got + ' for hole 18; the phone had just changed it from ' + was + ' to ' + now);
     const t = await tripNow(page);
     const want = expectedBoard(t, PLAYERS);
     const bad = compareBoards(want, await boardOnScreen(page));
@@ -762,7 +806,7 @@ async function main() {
       .filter(i => +i.dataset.hole > 9 && i.dataset.tpid !== 'p9')
       .forEach(i => { i.value = '4'; i.dispatchEvent(new Event('input', { bubbles: true })); }));
     await pause(page, 300);
-    await saveRound(page);
+    await saveRound(page, ['Ryan Caito']);
     const got = await boardOnScreen(page);
     const p9 = (got || []).find(r => r.name === 'Ryan Caito');
     const leader = (got || [])[0];

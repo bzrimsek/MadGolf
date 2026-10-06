@@ -125,8 +125,15 @@ const PROBE = `(() => {
          not two buttons of different heights side by side. */
       rows.forEach(p => {
         const ps = getComputedStyle(p);
-        if (ps.display.indexOf('flex') < 0 || ps.flexDirection.indexOf('column') === 0) return;
-        const bs = [...p.children].filter(c => (c.matches('button, .btn')) && shown(c));
+        /* Buttons laid inline in a plain block flow wrap too: Go Live and
+           Text leaderboard sat on two lines on BZ's phone (2026-10-05) and
+           this check, looking only at flex rows, passed it. Inline-level
+           buttons are a row; block ones stack on purpose. */
+        const flexRow = ps.display.indexOf('flex') >= 0 && ps.flexDirection.indexOf('column') !== 0;
+        const inlineRow = !/flex|grid/.test(ps.display);
+        if (!flexRow && !inlineRow) return;
+        const bs = [...p.children].filter(c => (c.matches('button, .btn')) && shown(c)
+          && (flexRow || getComputedStyle(c).display.indexOf('inline') === 0));
         if (bs.length < 2) return;
         const rs = bs.map(c => c.getBoundingClientRect());
         const spilled = rs.some(a => rs.some(b => a.top >= b.bottom - 2));

@@ -1080,15 +1080,27 @@ function tripCountback(pid, t) {
   });
   return [back9, back6, back3, last1];
 }
-function tripLeaderboard(t) {
+function tripLeaderboard(t, live) {
   t = t || tripActive(); if (!t) return [];
-  const net={}, rnds={}, teamWins={}, grossT={}, parT={};
+  const net={}, rnds={}, teamWins={}, grossT={}, parT={}, thruNow={};
+  const inProgress = !!(live && !live.completed);
   const players = tripPlayers(t);
   tripDays(t).forEach(d => {
     const dr = t.days && t.days[d]; if (!dr) return;
     (dr.rounds||[]).forEach(r => {
-      if (!isCompFormat(r.format) || !r.completed) return;
+      if (!isCompFormat(r.format) || !(r.completed || (inProgress && r === live))) return;
       const ctx = tripScoringCtx(t, r); if (!ctx) return;
+      if (!r.completed) {
+        if (isTeamFormat(r.format)) return;   // a team day counts when it is won
+        (computeRoundResults(ctx).entries || []).forEach(e => {
+          if (!e || !e.thru || !players.some(x => x.id === e.playerId)) return;
+          net[e.playerId]    = (net[e.playerId]||0) + e.netThru;
+          grossT[e.playerId] = (grossT[e.playerId]||0) + e.gross;
+          parT[e.playerId]   = (parT[e.playerId]||0) + (e.netThru - e.toPar);
+          thruNow[e.playerId] = e.thru >= ctx.activeHoles.length ? 'F' : String(e.thru);
+        });
+        return;
+      }
       if (isTeamFormat(r.format)) {
         const res = computeRoundResults(ctx);
         const entries = res.entries||[];
@@ -1120,6 +1132,7 @@ function tripLeaderboard(t) {
     totalGross: grossT[pid],
     totalPar: parT[pid],
     rounds:   rnds[pid]||0,
+    thru:     thruNow[pid] || null,
     teamWins: teamWins[pid]||0,
     cb:       tripCountback(pid, t)   // [back9, back6, back3, last1]
   }));
@@ -1127,11 +1140,12 @@ function tripLeaderboard(t) {
     if (!net[pid]) entries.push({playerId:pid, totalNet:null, rounds:0, teamWins:teamWins[pid], cb:[0,0,0,0]});
   });
 
+  const key = e => e.totalNet === null ? null : inProgress ? e.totalNet - e.totalPar : e.totalNet;
   entries.sort((a, b) => {
-    if (a.totalNet !== b.totalNet) {
-      if (a.totalNet === null) return 1;
-      if (b.totalNet === null) return -1;
-      return a.totalNet - b.totalNet;
+    if (key(a) !== key(b)) {
+      if (key(a) === null) return 1;
+      if (key(b) === null) return -1;
+      return key(a) - key(b);
     }
     // USGA countback: back 9 → back 6 → back 3 → last hole
     for (let i = 0; i < 4; i++) {
@@ -1273,15 +1287,18 @@ function boardTie(rows, keys) {
   });
   return rows;
 }
-function tripBoardRows(t) {
-  const board = tripLeaderboard(t);
+function tripBoardRows(t, live) {
+  // With a round in progress the rows carry a Thru column (tripBoardCols).
+  const board = tripLeaderboard(t, live), going = !!(live && !live.completed);
+  const thru = e => going ? [e.thru || '—'] : [];
   return boardTie(board.map((e, i) => ({ pos: i + 1, name: (fsPlayerById(e.playerId) || {}).name || '?',
     primary: e.totalNet == null ? '—' : String(e.totalNet),
     secondary: (e.rounds || 0) + ((e.rounds || 0) === 1 ? ' round' : ' rounds'),
-    vals: e.totalNet == null ? ['—', '—', '—', String(e.rounds || 0)]
-      : [String(e.totalGross), String(e.totalNet), (d => d === 0 ? 'E' : d > 0 ? '+' + d : '' + d)(e.totalNet - e.totalPar), String(e.rounds || 0)]
-  })), board.map(e => e.totalNet));
+    vals: e.totalNet == null ? ['—', '—', '—', ...thru(e), String(e.rounds || 0)]
+      : [String(e.totalGross), String(e.totalNet), (d => d === 0 ? 'E' : d > 0 ? '+' + d : '' + d)(e.totalNet - e.totalPar), ...thru(e), String(e.rounds || 0)]
+  })), board.map(e => e.totalNet == null ? null : going ? e.totalNet - e.totalPar : e.totalNet));
 }
+function tripBoardCols(live) { return ['Gross', 'Net', '+/−', ...(live && !live.completed ? ['Thru'] : []), 'Rnds']; }
 function liveRoundRows(ctx, skinsOn) {
   const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
   const res = computeRoundResults(ctx);
@@ -1359,7 +1376,7 @@ function liveTripViews(t, r) {
   }
   // The trip game is NET STROKES (BZ), shown as the app's leaderboard shows it:
   // a total, not a score against par - "+240" read as 240 over (2026-10-05).
-  views.push({ id:'trip', label:'Trip', cols: ['Gross', 'Net', '+/−', 'Rnds'], rows: tripBoardRows(t) });
+  views.push({ id:'trip', label:'Trip', cols: tripBoardCols(r), rows: tripBoardRows(t, r) });
   return { title, views, course, groups };
 }
 function liveLeagueViews(lg, s) {
