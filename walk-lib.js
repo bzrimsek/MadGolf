@@ -781,6 +781,26 @@ async function walk(ctx, page, store, context) {
     expect(saved === 5, 'hole 1 for ' + pid + ' stored ' + saved + ', expected 5');
     return 'live/' + shareId + '/scores/' + pid + '/1 = 5';
   });
+  await step(ctx, 'live.html: two phones on one foursome see each other\'s scores', async () => {
+    expect(sp, 'the scoring page never loaded');
+    const live = store.read('/bz-apps/golf/live/' + shareId);
+    const pid = live.groups[0].players[2].id;
+    const sp2 = await context.newPage(); listen(sp2, ctx.rep);
+    await sp2.goto(ORIGIN + '/live.html?id=' + shareId);   // this browser remembers the same foursome
+    await sp2.waitForSelector('#app input.game-score-input', { timeout: 5000 });
+    await sp2.locator(`#app input[data-pid="${pid}"][data-hole="2"]`).fill('4');
+    await sp2.waitForFunction(() => /Saved/.test(document.getElementById('saved').textContent), null, { timeout: 4000 });
+    await sp2.close();
+    // The first phone, mid-entry, picks it up on its next refresh (10s).
+    await sp.waitForFunction(p => (document.querySelector(`#app input[data-pid="${p}"][data-hole="2"]`) || {}).value === '4',
+      pid, { timeout: 13000 });
+    const total = await sp.evaluate(p => document.getElementById('T_' + p).textContent.trim(), pid);
+    expect(total === '4', 'the first phone shows hole 2 but its total reads ' + total);
+    // And the first phone's own score was not wiped by the refresh.
+    const own = await sp.locator(`#app input[data-pid="${live.groups[0].players[0].id}"][data-hole="1"]`).inputValue();
+    expect(own === '5', 'the refresh changed this phone\'s own hole 1 to "' + own + '"');
+    return 'hole 2 = 4 reached the other phone, total ' + total;
+  });
   await step(ctx, 'live.html: the leaderboard is a tab beside the scorecard', async () => {
     expect(sp, 'the scoring page never loaded');
     const tabs = (await sp.locator('#tabs .tab').allInnerTexts()).map(s => s.trim());

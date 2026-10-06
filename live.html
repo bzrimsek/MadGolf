@@ -1534,7 +1534,7 @@ function tabList() { return (_watch ? [] : [{ label: 'Scorecard' }]).concat(MGBo
 function tabs() { document.getElementById('tabs').innerHTML = MGBoard.tabs(tabList(), _tab, 'tabTo'); }
 async function tabTo(i) {
   _tab = i; tabs(); stopBoard();
-  if (!_watch && i === 0) { await card(); return; }
+  if (!_watch && i === 0) { await card(); _boardT = setInterval(cardRefresh, 10000); return; }
   show('boardPane');
   await boardNow();
   _boardT = setInterval(boardNow, 10000);
@@ -1577,6 +1577,38 @@ async function card() {
   try { const r = await fetch(DB + '/' + encodeURIComponent(id) + '/scores.json', { cache: 'no-store' }); _scores = (await r.json()) || {}; } catch (e) {}
   render();
 }
+/* TWO PHONES ON ONE FOURSOME (BZ, 2026-10-05: "what if two people enter
+   scores for the same group?"). Each box saves on its own and the newest save
+   wins; this keeps each card showing the other phone's saves, every ten
+   seconds. A box this phone changed in the last 15 seconds keeps its own
+   value - its save may still be on the way - and so does the box being typed
+   in. */
+const _typedAt = {};
+async function cardRefresh() {
+  let remote;
+  try { const r = await fetch(DB + '/' + encodeURIComponent(id) + '/scores.json', { cache: 'no-store' }); remote = (await r.json()) || {}; }
+  catch (e) { return; }
+  // The players' own rows, and the group's row a scramble card scores under.
+  const pids = (_data.groups[_gi].players || []).map(p => p.id).concat('grp_' + _gi), now = Date.now(), changed = [];
+  pids.forEach(pid => {
+    const mine = _scores[pid] || {}, theirs = remote[pid] || {};
+    new Set([...Object.keys(mine), ...Object.keys(theirs)]).forEach(h => {
+      if (mine[h] === theirs[h] || now - (_typedAt[pid + '/' + h] || 0) < 15000) return;
+      _scores[pid] = _scores[pid] || {};
+      if (theirs[h] == null) delete _scores[pid][h]; else _scores[pid][h] = theirs[h];
+      changed.push([pid, h]);
+    });
+  });
+  if (!changed.length) return;
+  const typing = document.activeElement && document.activeElement.classList.contains('game-score-input');
+  if (!typing) { render(); return; }
+  // Mid-entry: fill in the other boxes without moving the cursor.
+  changed.forEach(([pid, h]) => {
+    const el = document.querySelector('#app input[data-pid="' + pid + '"][data-hole="' + h + '"], #app input[data-grpkey="' + pid + '"][data-hole="' + h + '"]');
+    if (el && el !== document.activeElement) el.value = (_scores[pid] || {})[h] || '';
+  });
+  new Set(changed.map(c => c[0])).forEach(totals);
+}
 async function anonToken() {
   const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + API_KEY,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true }) });
@@ -1605,6 +1637,7 @@ function scInput(el) {
   if (el.value !== raw) el.value = raw;
   const key = el.dataset.pid || el.dataset.grpkey, hole = el.dataset.hole;
   const v = raw ? parseInt(raw, 10) : null;
+  _typedAt[key + '/' + hole] = Date.now();
   _scores[key] = _scores[key] || {};
   if (v == null) delete _scores[key][hole]; else _scores[key][hole] = v;
   totals(key); save(key, hole, v);

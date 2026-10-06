@@ -2,6 +2,10 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.33  ·  2026-10-05 09:21 PM ET
+
+Two phones scoring one foursome now see each other's scores. Each box saves on its own and the newest save wins, but a phone's card only loaded the others' scores when it opened, so each showed blanks and short totals for holes the other had entered (BZ asked what happens when two people score one group). The card now picks up the other phone's saves every ten seconds, including a scramble's group row; the box being typed in and any box this phone changed in the last fifteen seconds keep their own value. The walk scores from a second phone and requires the first to show it, with its total, and without losing its own entry; with the refresh switched off the step goes red.
+
 ## v0.91.32  ·  2026-10-05 09:14 PM ET
 
 Comments name the live-board functions by their final names (liveViews, liveSrc, liveFromSrc).
