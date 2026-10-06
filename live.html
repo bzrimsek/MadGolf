@@ -110,6 +110,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--surf2);color:var(--text);
 /* COPIED-JS from index.html by pages.py - do not edit here */
 const GROUP_COLORS  = ['#e8f5e9','#e3f2fd','#fff9e6','#fce4ec','#f3e5f5','#e0f7fa'];
 const GROUP_BORDERS = ['#27ae60','#2471a3','#c9a227','#e91e63','#9c27b0','#00bcd4'];
+const TEAM_FORMATS = new Set(['scramble','shamble','twoBestBall','threeTwoOne','best2','321']);
+const COMP_FORMATS = new Set(['stroke','stableford','scramble','shamble','twoBestBall','threeTwoOne','best2','321']);
 function esc(str) {
   return String(str || '').replace(/[<>"'&]/g, '').trim().slice(0, 100);
 }
@@ -124,16 +126,31 @@ function firstNameOf(n) {
   if (s.includes(',')) { const f = s.split(',')[1]; return f ? f.trim().split(' ')[0] : ''; }
   return s.split(' ')[0];
 }
-function scorecardName(player, groupPlayers) {
-  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-  const last = lastNameOf(player.name);
-  if (!last) return player.name || '?';
-  const sameLastName = groupPlayers.filter(p => p.id !== player.id && lastNameOf(p.name) === last);
-  if (!sameLastName.length) return cap(last);
-  const first = firstNameOf(player.name) || '';
-  const sameInitial = sameLastName.filter(p => (firstNameOf(p.name)||'')[0]?.toLowerCase() === first[0]?.toLowerCase());
-  if (!sameInitial.length) return cap(last) + (first ? ', ' + first[0].toUpperCase() + '.' : '');
-  return cap(last) + (first ? ', ' + first : '');
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+function roundHalfAwayZero(x) {
+  return x >= 0 ? Math.floor(x + 0.5) : Math.ceil(x - 0.5);
+}
+function roundHalfUp1dp(x) {
+  return Math.floor(x * 10 + 0.5) / 10;
+}
+function calcRawCourseHcp(hcpIdx, slope, rating, par, nineHole) {
+  /* NINE HOLES PLAY OFF HALF THE INDEX, always (WHS; BZ, 2026-10-05: "the
+     issue needs resolved"). The rating says which course it is: an 18-hole
+     rating (>= 50) is halved for the nine played; a 9-hole course's own
+     rating is used as is. The index used to be halved only in the first case,
+     so a 10.0 at a 9-hole course played off 9 instead of 4. */
+  let idx = hcpIdx, r = rating;
+  if (nineHole) { idx = roundHalfUp1dp(hcpIdx / 2); if (rating >= 50) r = rating / 2; }
+  return idx * (slope / 113) + (r - par);
+}
+function calcCourseHcp(hcpIdx, slope, rating, par, nineHole) {
+  return roundHalfAwayZero(calcRawCourseHcp(hcpIdx, slope, rating, par, nineHole));
+}
+function coursePar(course) {
+  if (course && course.holes && course.holes.length) return course.holes.reduce((a, h) => a + (h.par || 0), 0);
+  return (course && course.par) || 72;
 }
 function strokesOnHole(courseHcp, holeHcpRating, hcpScale) {
   const mod = hcpScale || 18;
@@ -143,6 +160,55 @@ function strokesOnHole(courseHcp, holeHcpRating, hcpScale) {
     const a = Math.abs(courseHcp);
     return -(Math.floor(a / mod) + (holeHcpRating > mod - a % mod ? 1 : 0));
   }
+}
+function calcPlayingHcp(raw, adjPct) {
+  const adj = (adjPct || 100) / 100;
+  if (raw < 0) return roundHalfAwayZero(roundHalfAwayZero(raw) * adj);
+  return roundHalfAwayZero(raw * adj);
+}
+function courseHandicap(hcpIdx, slope, rating, par, allowance, nineHole) {
+  return calcPlayingHcp(calcRawCourseHcp(hcpIdx, slope, rating, par, nineHole), allowance);
+}
+function sfRankOrder(a, b) {
+  return ((b.pts - b.quota) - (a.pts - a.quota)) || (b.pts - a.pts);
+}
+function pointTarget(courseHcp, nineHole) {
+  return (nineHole ? 18 : 36) - courseHcp;
+}
+function effectiveHcpRatings(course, activeHoles) {
+  if (!course.nineHole && activeHoles.length === 18) return null;
+  const max = Math.max(...activeHoles.map(h => h.hcpRating||h.hcp||0));
+  if (max <= 9) return null;
+  const sorted = [...activeHoles].sort((a,b) => (a.hcpRating||a.hcp||0) - (b.hcpRating||b.hcp||0));
+  const rankMap = {};
+  sorted.forEach((h, i) => { rankMap[h.num] = i + 1; });
+  return rankMap;
+}
+function strokesOnHoleHalf(courseHcp, holeHcpRating, hcpScale) {
+  return strokesOnHole(courseHcp, holeHcpRating, hcpScale) * 0.5;
+}
+function skinsEffHcp(courseHcp, lowCH, strokeOffBest) {
+  return strokeOffBest ? Math.max(0, courseHcp - lowCH) : courseHcp;
+}
+function skinsNetOnHole(gross, courseHcp, holeHcpRating, hcpScale, halfStroke) {
+  if (!(gross > 0)) return 0;
+  const str = halfStroke ? strokesOnHoleHalf(courseHcp, holeHcpRating, hcpScale)
+                         : strokesOnHole(courseHcp, holeHcpRating, hcpScale);
+  return gross - (halfStroke ? str : Math.floor(str));
+}
+function stablefordPts(grossVsPar, s) {
+  if (grossVsPar <= -3) return s.dblEagle ?? s.ptsDblEagle ?? 8;
+  if (grossVsPar === -2) return s.eagle    ?? s.ptsEagle    ?? 4;
+  if (grossVsPar === -1) return s.birdie   ?? s.ptsBirdie   ?? 2;
+  if (grossVsPar ===  0) return s.par      ?? s.ptsPar      ?? 1;
+  if (grossVsPar ===  1) return s.bogey    ?? s.ptsBogey    ?? 0;
+  return s.dbl ?? s.ptsDbl ?? 0;
+}
+function getActiveHoles(course, nineMode) {
+  const holes = course.holes || [];
+  if (nineMode === 'front') return holes.slice(0, 9);
+  if (nineMode === 'back')  return holes.slice(9, 18);
+  return holes;
 }
 function scoreCell(value, strokes, pidAttr, pid, holeNum, handler) {
   const bg  = strokes > 0 ? 'background:#fde8e8;' : strokes < 0 ? 'background:#e8f4ec;' : '';
@@ -182,6 +248,245 @@ function scorecardHdr(holes, lbl, totLbl, nameColW, totColW, hcpRow) {
     </div>`;
   }
   return out;
+}
+function scorecardName(player, groupPlayers) {
+  const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const last = lastNameOf(player.name);
+  if (!last) return player.name || '?';
+  const sameLastName = groupPlayers.filter(p => p.id !== player.id && lastNameOf(p.name) === last);
+  if (!sameLastName.length) return cap(last);
+  const first = firstNameOf(player.name) || '';
+  const sameInitial = sameLastName.filter(p => (firstNameOf(p.name)||'')[0]?.toLowerCase() === first[0]?.toLowerCase());
+  if (!sameInitial.length) return cap(last) + (first ? ', ' + first[0].toUpperCase() + '.' : '');
+  return cap(last) + (first ? ', ' + first : '');
+}
+function scrambleTeamCH(players, course, is9, pcts) {
+  if (!players || !players.length || !pcts || !pcts.length) return 0;
+  const ranked = [...players]
+    .map(p => calcCourseHcp(p.hcp || 0, course.slope || 113, course.rating || 72, coursePar(course), is9))
+    .sort((a, b) => a - b);
+  const raw = ranked.reduce((sum, ch, i) => sum + ch * (pcts[i] || 0) / 100, 0);
+  return Math.round(raw);
+}
+function bestBallsHoleNet(players, scores, hole, hcpScale) {
+  const hr   = hole.hcpRating ?? 0;
+  const nets = players.map(p => {
+    const gross = parseInt((scores[p.id] || {})[hole.num]) || 0;
+    if (!gross) return null;
+    return gross - strokesOnHole(p.courseHcp, hr, hcpScale);
+  }).filter(v => v !== null).sort((a, b) => a - b);
+  return nets.slice(0, 2);
+}
+function threeTwoOneBestNets(players, scores, hole, hcpScale) {
+  const hr   = hole.hcpRating ?? 0;
+  const take = hole.par === 3 ? 3 : hole.par === 4 ? 2 : 1;
+  const nets = players.map(p => {
+    const gross = parseInt((scores[p.id] || {})[hole.num]) || 0;
+    if (!gross) return null;
+    return gross - strokesOnHole(p.courseHcp, hr, hcpScale);
+  }).filter(v => v !== null).sort((a, b) => a - b);
+  return nets.slice(0, take);
+}
+function buildScoringCtx(players, course, nineMode, scores, groups, format, settings) {
+  /* A NINE OFF AN 18-HOLE COURSE (trips.js, 2026-10-05). Two things change:
+     the holes are re-ranked 1-9 so strokes fall on the nine's hardest holes
+     (as outingScoringCtx always did), and the course handicap uses the par of
+     the nine PLAYED. The 18-hole par went into the 9-hole formula, which gave
+     a 10 handicap -31 on a nine and added ~36 to every 9-hole round. */
+  const activeHolesRaw = getActiveHoles(course, nineMode);
+  const rankMap        = effectiveHcpRatings(course, activeHolesRaw);
+  const activeHoles = activeHolesRaw.map(h => ({
+    ...h, hcpRating: rankMap ? (rankMap[h.num] ?? 0) : (h.hcpRating ?? h.hcp ?? 0)
+  }));
+  const is9             = activeHoles.length === 9;
+  const hcpScale        = activeHoles.length || 18;
+  const strokeAllowance = (settings && settings.strokeAllowance) || 100;
+  const playedPar       = activeHoles.reduce((a, h) => a + (h.par || 0), 0);
+  const withCH = (players || []).map(p => ({
+    ...p,
+    courseHcp: courseHandicap(p.hcp || 0, p.teeSlope ?? (course.slope || 113), p.teeRating ?? (course.rating || 72),
+      is9 ? playedPar : (p.teePar ?? coursePar(course)), strokeAllowance, is9)
+  }));
+  return {
+    players: withCH, course, activeHoles, hcpScale, is9, nineMode,
+    scores:  scores || {},
+    groups:  (groups || []).map((g, i) => ({
+      playerIds: g.playerIds || [],
+      label:     g.label || g.teetime || g.name || ('Group ' + (i + 1))
+    })),
+    format:   format || 'stroke',
+    settings: settings || {}
+  };
+}
+function outingScoringCtx(g) {
+  const course = fsGetCourse(g.courseId); if (!course) return null;
+  const nineMode       = g.nineSide || 'all';
+  const activeHolesRaw = getActiveHoles(course, nineMode);
+  const rankMap        = effectiveHcpRatings(course, activeHolesRaw);
+  const activeHoles    = activeHolesRaw.map(h => ({
+    ...h, hcpRating: rankMap ? (rankMap[h.num] ?? 0) : (h.hcp ?? 0)
+  }));
+  const is9      = activeHoles.length === 9;
+  const hcpScale = activeHoles.length || 18;
+  const players  = (g.players || []).map(p => ({ ...p, courseHcp: p.courseHcp ?? 0 }));
+  const scramCfg = S.config.games?.fourPlayer?.scramble || {};
+  const pcts     = scramCfg.hcpMethod === 'none' ? [] :
+    (scramCfg.abcdPct && scramCfg.abcdPct.length >= players.length ? scramCfg.abcdPct :
+      players.length >= 4 ? [100,85,70,60] : players.length === 3 ? [100,85,70] : [100,85]);
+  return {
+    players, course, activeHoles, hcpScale, is9, nineMode,
+    scores:  g.scores || {},
+    groups:  (g.groups || []).map((gr, i) => ({
+      playerIds: gr.playerIds || [], label: gr.teetime || gr.name || ('Group ' + (i + 1))
+    })),
+    format:  g.gameType || 'stroke',
+    settings: {
+      scramblePcts:    pcts,
+      strokeAllowance: 100,
+      skins:           g.skinsCfg || {},
+      sfCfg:           S.config.games?.individual?.stableford || {},
+      resultMethod:    g.resultMethod || 'best2',
+      borrows:         []
+    }
+  };
+}
+function isTeamFormat(fmt) { return TEAM_FORMATS.has(fmt); }
+function isCompFormat(fmt) { return COMP_FORMATS.has(fmt); }
+function computeRoundResults(ctx) {
+  const { players, activeHoles, hcpScale, is9, scores, groups, format, settings } = ctx;
+  const sfCfg = settings.sfCfg || {};
+
+  if (format === 'scramble') {
+    const pcts   = settings.scramblePcts || [];
+    const parTot = activeHoles.reduce((a, h) => a + h.par, 0);
+    const entries = groups.map((grp, gi) => {
+      const gp    = grp.playerIds.map(id => players.find(p => p.id === id)).filter(Boolean);
+      if (!gp.length) return null;
+      const key   = `grp_${gi}`;
+      const gross = activeHoles.reduce((a, h) => a + (parseInt((scores[key] || {})[h.num]) || 0), 0);
+      if (!gross) return null;
+      const tCH   = scrambleTeamCH(gp, ctx.course, is9, pcts);
+      const net   = gross - tCH;
+      // Against par over the holes PLAYED, strokes on those holes only: mid-round
+      // the full team handicap came off a few holes (2026-10-05). Finished, it
+      // equals net - par.
+      let thru = 0, toPar = 0, parThru = 0;
+      activeHoles.forEach(h => { const g = parseInt((scores[key] || {})[h.num]) || 0; if (!g) return;
+        thru++; parThru += h.par; toPar += g - strokesOnHole(tCH, h.hcpRating || 0, hcpScale) - h.par; });
+      return { gi, label: grp.label, names: gp.map(p => (p.name||'').split(',')[0]||p.name).join(' / '),
+               gross, teamCH: tCH, net, netVsPar: toPar, thru, netThru: toPar + parThru };
+    }).filter(Boolean).sort((a, b) => a.netVsPar - b.netVsPar);
+    return { type: 'scramble', entries };
+  }
+
+  if (isTeamFormat(format)) {
+    const use321  = format === '321' || format === 'threeTwoOne' ||
+                    (format === 'shamble' && (settings.resultMethod || 'best2') === '321');
+    const borrows = settings.borrows || [];
+    const entries = groups.map((grp, gi) => {
+      const homePids  = grp.playerIds || [];
+      const borrow    = borrows.find(b => b.gi === gi);
+      const extraPids = borrow ? borrow.borrowedPids : [];
+      const gp = [...homePids, ...extraPids].map(id => players.find(p => p.id === id)).filter(Boolean);
+      if (!gp.length) return null;
+      const hasAny = gp.some(p => activeHoles.some(h => parseInt((scores[p.id]||{})[h.num]) > 0));
+      if (!hasAny) return null;
+      // Par counted for the scores actually used on each hole: the target
+      // was the whole round's, so two holes in a team stood ~60 under (2026-10-05).
+      let teamNet = 0, parEq = 0, thru = 0;
+      activeHoles.forEach(h => {
+        const nets = use321
+          ? threeTwoOneBestNets(gp, scores, h, hcpScale)
+          : bestBallsHoleNet(gp, scores, h, hcpScale);
+        teamNet += nets.reduce((a, v) => a + v, 0);
+        parEq   += h.par * nets.length;
+        if (nets.length) thru++;
+      });
+      const homeNames = homePids.map(id => { const p=players.find(x=>x.id===id); return p?(p.name||'').split(',')[0]:'?'; });
+      const xNames    = extraPids.map(id => { const p=players.find(x=>x.id===id); return p?(p.name||'').split(',')[0]+' (B)':'?'; });
+      return { gi, label: grp.label, names: [...homeNames,...xNames].join(' / '),
+               teamNet, parEq, netVsPar: teamNet - parEq, thru, hasBorrow: extraPids.length > 0 };
+    }).filter(Boolean).sort((a, b) => a.netVsPar - b.netVsPar);
+    return { type: 'team', entries, use321 };
+  }
+
+  // Individual: stroke / stableford
+  const isSF   = format === 'stableford';
+  const entries = players.map(p => {
+    const sc    = scores[p.id] || {};
+    const gross = activeHoles.reduce((a, h) => a + (parseInt(sc[h.num]) || 0), 0);
+    if (!gross) return null;
+    const net   = gross - p.courseHcp;
+    // Against par over the holes PLAYED, strokes on those holes only. Mid-round
+    // "gross so far minus the whole handicap" put the highest handicap in the
+    // lead after one hole (BZ, 2026-10-05). Finished, it equals net - par.
+    let thru = 0, toPar = 0, parThru = 0;
+    activeHoles.forEach(h => { const g = parseInt(sc[h.num]) || 0; if (!g) return;
+      thru++; parThru += h.par; toPar += g - strokesOnHole(p.courseHcp, h.hcpRating || 0, hcpScale) - h.par; });
+    let pts = 0;
+    if (isSF) {
+      activeHoles.forEach(h => {
+        const g2 = parseInt(sc[h.num]) || 0; if (!g2) return;
+        pts += stablefordPts((g2 - strokesOnHole(p.courseHcp, h.hcpRating||0, hcpScale)) - h.par, sfCfg);
+      });
+    }
+    return { playerId: p.id, name: p.name, ch: p.courseHcp, gross, net, toPar, thru, netThru: toPar + parThru, pts,
+             quota: pointTarget(p.courseHcp, is9) };
+  }).filter(Boolean).sort((a, b) => isSF ? sfRankOrder(a, b) : a.toPar - b.toPar);
+  return { type: 'individual', entries, isSF };
+}
+function computeSkins(ctx) {
+  const { players, activeHoles, hcpScale, is9, scores, groups, format, settings } = ctx;
+  const sk    = settings.skins || {};
+  const skAdj = sk.hcpAdj != null ? sk.hcpAdj : 100;
+  const sob   = sk.strokeOffBest === true;
+  const half  = sk.halfStroke === true;
+
+  if (isTeamFormat(format)) {
+    const wins = {}; groups.forEach((_, gi) => { wins[gi] = 0; });
+    const pcts = settings.scramblePcts || [];
+    activeHoles.forEach(h => {
+      const nets = groups.map((grp, gi) => {
+        const gp = grp.playerIds.map(id => players.find(p => p.id === id)).filter(Boolean);
+        if (!gp.length) return null;
+        if (format === 'scramble') {
+          const gross = parseInt((scores[`grp_${gi}`]||{})[h.num]) || 0;
+          if (!gross) return null;
+          const tCH = scrambleTeamCH(gp, ctx.course, is9, pcts);
+          return { gi, net: gross - strokesOnHole(tCH, h.hcpRating||0, hcpScale) };
+        }
+        const use321 = format==='321'||format==='threeTwoOne'||
+                       (format==='shamble'&&(settings.resultMethod||'best2')==='321');
+        const nets2  = use321
+          ? threeTwoOneBestNets(grp.playerIds.map(id=>players.find(p=>p.id===id)).filter(Boolean), scores, h, hcpScale)
+          : bestBallsHoleNet(grp.playerIds.map(id=>players.find(p=>p.id===id)).filter(Boolean), scores, h, hcpScale);
+        return nets2.length ? { gi, net: nets2.reduce((a,v)=>a+v,0) } : null;
+      }).filter(Boolean);
+      if (!nets.length) return;
+      const best = Math.min(...nets.map(x=>x.net));
+      const winners = nets.filter(x=>x.net===best);
+      if (winners.length===1) wins[winners[0].gi]++;
+    });
+    return { type: 'team', wins, anyWins: groups.some((_,gi)=>wins[gi]>0) };
+  }
+
+  // Individual
+  const hcps  = players.map(p => calcPlayingHcp(
+    calcRawCourseHcp(p.hcp||0, ctx.course.slope||113, ctx.course.rating||72, coursePar(ctx.course), is9), skAdj));
+  const lowCH = sob ? Math.min(...hcps) : null;
+  const wins  = {}; players.forEach(p => { wins[p.id] = 0; });
+  activeHoles.forEach(h => {
+    const hr = players.map((p, pi) => {
+      const gross = parseInt((scores[p.id]||{})[h.num]) || 0; if (!gross) return null;
+      const eff = skinsEffHcp(hcps[pi], lowCH, sob);
+      return { id:p.id, net: skinsNetOnHole(gross, eff, h.hcpRating||0, hcpScale, half) };
+    }).filter(Boolean);
+    if (!hr.length) return;
+    const best = Math.min(...hr.map(x=>x.net));
+    const winners = hr.filter(x=>x.net===best);
+    if (winners.length===1) wins[winners[0].id]++;
+  });
+  return { type:'individual', wins, anyWins: players.some(p=>wins[p.id]>0) };
 }
 function renderScorecardGroup(ctx, gi, grp, opts) {
   const { players, activeHoles, hcpScale, scores, format } = ctx;
@@ -283,6 +588,54 @@ function renderScorecardGroup(ctx, gi, grp, opts) {
     </div>
   </div>`;
 }
+function outingComputeTeamResults(g, course, _activeHolesIgnored) {
+  const ctx = outingScoringCtx(g); if (!ctx) return [];
+  const res = computeRoundResults(ctx);
+  const ah  = ctx.activeHoles;
+  // Map shared entries → legacy shape expected by outingRenderTeamResults
+  return res.entries.map(e => {
+    const grp     = ctx.groups[e.gi] || {};
+    const players = (grp.playerIds || []).map(id => g.players.find(p=>p.id===id)).filter(Boolean);
+    const color   = GROUP_COLORS[e.gi % 6];
+    const border  = GROUP_BORDERS[e.gi % 6];
+    if (res.type === 'scramble') {
+      const parTot = ah.reduce((a,h)=>a+h.par,0);
+      return { gi:e.gi, players, names:e.names, gross:e.gross, teamCH:e.teamCH,
+               teamNet:e.net, parEq:parTot, netVsPar:e.netVsPar, color, border };
+    }
+    return { gi:e.gi, players, names:e.names, gross:0, teamCH:0,
+             teamNet:e.teamNet, parEq:e.parEq, netVsPar:e.netVsPar, color, border };
+  });
+}
+function outingComputeTeamSkins(g, _course, _activeHolesIgnored) {
+  const ctx = outingScoringCtx(g); if (!ctx) return {};
+  const s   = computeSkins(ctx);
+  return s.wins; // already {gi → count}
+}
+function fsDate(ts) { return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function fsPlayerById(id) {
+  return S.players.find(p => p.id === id) || (window._fsGuests||[]).find(p => p.id === id) || null;
+}
+function fsGetCourse(id) { return (S.courses||[]).find(c => c.id === id) || null; }
+function courseTees(course) {
+  if (!course) return [];
+  const par = coursePar(course);
+  const base = { id: course.id, color: course.teeColor || 'Tees', slope: course.slope, rating: course.rating, holes: course.holes, par };
+  const extra = (course.tees || []).map(t => ({ id: t.id, color: t.color, slope: t.slope, rating: t.rating, holes: course.holes, par }));
+  const legacy = (S.courses || []).filter(c => c.id !== course.id && c.name === course.name)
+    .map(c => ({ id: c.id, color: c.teeColor || c.name, slope: c.slope, rating: c.rating, holes: c.holes, par: coursePar(c) }));
+  return [base, ...extra, ...legacy].sort((a, b) => (b.slope || 0) - (a.slope || 0));
+}
+function courseTeeById(course, teeId) { return courseTees(course).find(t => t.id === teeId) || null; }
+function withPlayerTee(p, ev, defaultCourse) {
+  const tid = (ev && ev.playerTees && ev.playerTees[p.id]) || (ev && ev.defaultTee);
+  if (!tid || !defaultCourse || tid === defaultCourse.id) return p;   // base/default tee
+  const tee = courseTeeById(defaultCourse, tid);
+  if (!tee) return p;
+  return { ...p, teeSlope: tee.slope, teeRating: tee.rating, teePar: tee.par, teeColor: tee.color, teeCourseId: tid };
+}
+function firstWord(name) { return (name || '').split(' ')[0]; }
+function lastName(pid) { const n = fsPlayerById(pid)?.name; return n ? (lastNameOf(n) || n) : '?'; }
 function buildScoringIndex(container, selector, mode) {
   selector = selector || '.game-score-input';
   const inputs = Array.from(container.querySelectorAll(selector));
@@ -316,6 +669,801 @@ function advanceToNext(input, ordered) {
     }
   }
 }
+function outingComputePartnerStableford(g, course, activeHoles) {
+  const hcpScale = activeHoles.length;
+  const isNine   = hcpScale === 9;
+  const rankMap  = effectiveHcpRatings(course, activeHoles);
+  const hcpRating = h => rankMap ? rankMap[h.num] : (h.hcp||0);
+  const cfg      = S.config.games?.individual?.stableford || {};
+
+  // Per-player stableford data
+  const playerData = {};
+  g.players.forEach(p => {
+    const sc = g.scores[p.id]||{};
+    let totalPts = 0;
+    const holePts = activeHoles.map(h => {
+      const gross = parseInt(sc[h.num])||0;
+      if (!gross) return 0;
+      const str = strokesOnHole(p.courseHcp, hcpRating(h), hcpScale);
+      const pts  = stablefordPts(gross - str - h.par, cfg);
+      totalPts  += pts;
+      return pts;
+    });
+    const totalGross = activeHoles.reduce((a,h)=>a+(parseInt(sc[h.num])||0),0);
+    const ptTarget   = pointTarget(p.courseHcp, isNine);
+    playerData[p.id] = { ...p, holePts, totalPts, ptTarget, totalGross };
+  });
+
+  // Per-group (pair) results
+  const pairResults = g.groups.map((grp, gi) => {
+    const pids    = grp.playerIds||[];
+    const players = pids.map(id=>g.players.find(p=>p.id===id)).filter(Boolean);
+    if (!players.length) return null;
+    const teamPts = players.reduce((a,p)=>a+(playerData[p.id]?.totalPts||0),0);
+    const hasAny  = players.some(p=>(playerData[p.id]?.totalGross||0)>0);
+    if (!hasAny) return null;
+    const names   = players.map(p=>esc(p.name)).join(' / ');
+    return { gi, players, names, teamPts };
+  }).filter(Boolean).sort((a,b)=>b.teamPts-a.teamPts);
+
+  return { pairResults, playerData, activeHoles };
+}
+function outingComputeBestBallMatch(g, course, activeHoles) {
+  const hcpScale = activeHoles.length;
+  const rankMap  = effectiveHcpRatings(course, activeHoles);
+  const hcpRating = h => rankMap ? rankMap[h.num] : (h.hcp||0);
+
+  // Best net per group per hole
+  function groupBestNet(grp, holeNum) {
+    const players = (grp.playerIds||[]).map(id=>g.players.find(p=>p.id===id)).filter(Boolean);
+    const nets = players.map(p=>{
+      const gross = parseInt((g.scores[p.id]||{})[holeNum])||0;
+      if (!gross) return null;
+      return gross - strokesOnHole(p.courseHcp, hcpRating(activeHoles.find(h=>h.num===holeNum)), hcpScale);
+    }).filter(v=>v!==null);
+    return nets.length ? Math.min(...nets) : null;
+  }
+
+  const groups = g.groups;
+
+  if (groups.length === 2) {
+    // Head-to-head match
+    let matchStatus = 0; // positive = group 0 leads, negative = group 1 leads
+    let holesPlayed = 0;
+    const holeResults = activeHoles.map(h => {
+      const n0 = groupBestNet(groups[0], h.num);
+      const n1 = groupBestNet(groups[1], h.num);
+      if (n0 === null || n1 === null) return { holeNum:h.num, result:null };
+      holesPlayed++;
+      if (n0 < n1)      { matchStatus++; return { holeNum:h.num, result:'grp0', n0, n1 }; }
+      else if (n1 < n0) { matchStatus--; return { holeNum:h.num, result:'grp1', n0, n1 }; }
+      return { holeNum:h.num, result:'halved', n0, n1 };
+    });
+    const holesRemaining = activeHoles.length - holesPlayed;
+    const dormie = Math.abs(matchStatus) > holesRemaining;
+    const names0 = (groups[0].playerIds||[]).map(id=>g.players.find(p=>p.id===id)).filter(Boolean).map(p=>p.name.split(',')[0]||p.name).join('/');
+    const names1 = (groups[1].playerIds||[]).map(id=>g.players.find(p=>p.id===id)).filter(Boolean).map(p=>p.name.split(',')[0]||p.name).join('/');
+    return { mode:'match', matchStatus, holesPlayed, holesRemaining, dormie, holeResults, names0, names1, activeHoles };
+  } else {
+    // 3+ groups: rank by lowest total best-net
+    const groupResults = groups.map((grp,gi)=>{
+      const players = (grp.playerIds||[]).map(id=>g.players.find(p=>p.id===id)).filter(Boolean);
+      const hasAny = players.some(p=>activeHoles.some(h=>parseInt((g.scores[p.id]||{})[h.num])>0));
+      if (!hasAny) return null;
+      const totalBestNet = activeHoles.reduce((a,h)=>{
+        const bn = groupBestNet(grp, h.num); return a + (bn||0);
+      },0);
+      const names = players.map(p=>p.name.split(',')[0]||p.name).join('/');
+      return { gi, names, totalBestNet };
+    }).filter(Boolean).sort((a,b)=>a.totalBestNet-b.totalBestNet);
+    return { mode:'rank', groupResults, activeHoles };
+  }
+}
+function outingShuffleArr(arr) {
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+function outingBuildTeams(players, teamSize, mode) {
+  if (!players.length) return [];
+  const sz = teamSize || 2;
+  const sorted = mode === 'ab'
+    ? [...players].sort((a,b) => (a.courseHcp||0) - (b.courseHcp||0))
+    : outingShuffleArr([...players]);
+
+  // Shuffle within each tier for blind draw A/B
+  if (mode === 'ab') {
+    const half = Math.floor(sorted.length / 2);
+    const As = outingShuffleArr(sorted.slice(0, half));
+    const Bs = outingShuffleArr(sorted.slice(half));
+    // Pair A+B: team size 2 → 1A+1B; size 4 → 2A+2B
+    const teams = [];
+    const perSlot = sz / 2; // A slots per team = B slots per team
+    const numTeams = Math.floor(Math.min(As.length, Bs.length) / perSlot);
+    for (let i = 0; i < numTeams; i++) {
+      const pids = [
+        ...As.slice(i*perSlot, (i+1)*perSlot).map(p=>p.id),
+        ...Bs.slice(i*perSlot, (i+1)*perSlot).map(p=>p.id),
+      ];
+      teams.push({ id: uid(), playerIds: pids });
+    }
+    // Handle leftovers (odd count) — borrow
+    const usedPids = new Set(teams.flatMap(t=>t.playerIds));
+    const leftover = players.filter(p => !usedPids.has(p.id));
+    if (leftover.length && teams.length) {
+      const borrowPid = leftover[0].id;
+      const shortTeam = teams[teams.length-1];
+      teams.push({ id: uid(), playerIds: [borrowPid, shortTeam.playerIds[0]], isBorrow: true, borrowId: borrowPid });
+    }
+    return teams;
+  } else {
+    // Pure random — shuffle and chunk by teamSize
+    const pids = sorted.map(p=>p.id);
+    const teams = [];
+    for (let i = 0; i < pids.length; i += sz) {
+      teams.push({ id: uid(), playerIds: pids.slice(i, i+sz) });
+    }
+    // Borrow if last team is short
+    if (teams.length > 1 && teams[teams.length-1].playerIds.length < sz) {
+      const short = teams[teams.length-1];
+      if (short.playerIds.length === 1) {
+        // Solo — borrow a player from prev team
+        const borrowPid = teams[teams.length-2].playerIds[0];
+        short.playerIds.push(borrowPid);
+        short.isBorrow = true;
+        short.borrowId = borrowPid;
+      }
+    }
+    return teams;
+  }
+}
+function outingEnsureTeams(g) {
+  if (!g.teamSize) return; // individual scoring
+  if (g.teamAssign === 'blind_ab' || g.teamAssign === 'blind_random') {
+    if (!g.teams || !g.teams.length) {
+      const mode = g.teamAssign === 'blind_ab' ? 'ab' : 'random';
+      g.teams = outingBuildTeams(g.players, g.teamSize, mode);
+      fsSaveGame(g);
+    }
+  }
+  // manual: g.teams already set by organizer
+}
+function outingIsTeamFormat(gt) {
+  return ['scramble','shamble','twoBestBall','threeTwoOne'].includes(gt);
+}
+function outingIsScramble(gt) { return gt === 'scramble'; }
+function outingComputeResults(g) {
+  const course = fsGetCourse(g.courseId);
+  if (!course) return null;
+  const nineSide    = g.nineSide || 'all';
+  const activeHoles = getActiveHoles(course, nineSide);
+
+  // Ensure scoring teams exist for blind draw
+  if (g.teamSize && (g.teamAssign === 'blind_ab' || g.teamAssign === 'blind_random')) {
+    outingEnsureTeams(g);
+  }
+
+  // Team formats return a different result shape (teamResults array)
+  if (outingIsTeamFormat(g.gameType)) {
+    const teamResults = outingComputeTeamResults(g, course, activeHoles);
+    const teamSkins   = g.skins ? outingComputeTeamSkins(g, course, activeHoles) : null;
+    return { teamResults, teamSkins, activeHoles, isTeam: true };
+  }
+  // Partner formats
+  if (g.gameType === 'pstableford') {
+    return { ...outingComputePartnerStableford(g, course, activeHoles), isPartnerStab: true };
+  }
+  if (g.gameType === 'bbmatch') {
+    return { ...outingComputeBestBallMatch(g, course, activeHoles), isBBMatch: true };
+  }
+
+  const isNine   = activeHoles.length === 9;
+  const hcpScale = activeHoles.length;
+  const rankMap  = effectiveHcpRatings(course, activeHoles);
+  const hcpRating = h => rankMap ? rankMap[h.num] : (h.hcp || 0);
+  const cfg      = S.config.games?.individual?.stableford || {};
+  const skinsCfg = g.skinsCfg || {};
+  const halfStroke = skinsCfg.halfStroke === true;
+  const sob        = skinsCfg.strokeOffBest === true;   // stroke off low man for skins
+  const lowCH      = sob ? Math.min(...g.players.map(p => p.courseHcp || 0)) : null;
+
+  const playerData = g.players.map(gp => {
+    const sc = g.scores[gp.id] || {};
+    const holeData = activeHoles.map(h => {
+      const gross     = parseInt(sc[h.num]) || 0;
+      const strokes   = strokesOnHole(gp.courseHcp, hcpRating(h), hcpScale);
+      const net       = gross > 0 ? gross - strokes : 0;
+      const grossVsPar= gross > 0 ? gross - h.par : 999;
+      const pts       = gross > 0 ? stablefordPts(grossVsPar, cfg) : 0;
+      const effCH       = skinsEffHcp(gp.courseHcp, lowCH, sob);
+      const skinsNetCmp = skinsNetOnHole(gross, effCH, hcpRating(h), hcpScale, halfStroke);
+      return { holeNum:h.num, par:h.par, gross, strokes, net, grossVsPar, pts, skinsNetCmp };
+    });
+    const totalGross = holeData.reduce((a,h)=>a+(h.gross||0), 0);
+    const totalNet   = holeData.reduce((a,h)=>a+(h.net||0),   0);
+    const totalPts   = holeData.reduce((a,h)=>a+h.pts,        0);
+    const ptTarget   = pointTarget(gp.courseHcp, isNine);
+    return { ...gp, holeData, totalGross, totalNet, totalPts, ptTarget };
+  });
+
+  // Skins — gross and net across the full field
+  function skinWinner(entries) {
+    const valid = entries.filter(e=>e.score>0);
+    if (!valid.length) return null;
+    const min = Math.min(...valid.map(e=>e.score));
+    const tops = valid.filter(e=>e.score===min);
+    return tops.length===1 ? tops[0] : null;
+  }
+  const grossSkins = activeHoles.map((_,i) => {
+    return skinWinner(playerData.map(p=>({id:p.id,name:p.name,score:p.holeData[i].gross})));
+  });
+  const netSkins = activeHoles.map((_,i) => {
+    return skinWinner(playerData.filter(p=>p.holeData[i].gross>0).map(p=>({id:p.id,name:p.name,score:p.holeData[i].skinsNetCmp})));
+  });
+  const grossTally = {}, netTally = {};
+  g.players.forEach(p=>{ grossTally[p.id]=0; netTally[p.id]=0; });
+  grossSkins.forEach(w=>{ if(w) grossTally[w.id]++; });
+  netSkins.forEach(w=>{   if(w) netTally[w.id]++;   });
+
+  // If teamSize set: aggregate per scoring team
+  let teamData = null;
+  if (g.teamSize && g.teams && g.teams.length) {
+    teamData = g.teams.map(team => {
+      const pids = team.playerIds || [];
+      const teamPlayers = pids.map(id => playerData.find(p => p.id === id)).filter(Boolean);
+      if (!teamPlayers.length) return null;
+      const isScramble = outingIsScramble(g.gameType);
+      // For scramble: use grp score; for others: combine individual
+      let teamPts = 0, teamNet = 0, teamGross = 0;
+      teamPlayers.forEach(p => { teamPts += p.totalPts||0; teamNet += p.totalNet||0; teamGross += p.totalGross||0; });
+      const teamTarget = teamPlayers.reduce((a,p)=>a+(p.ptTarget||0),0);
+      const names = teamPlayers.map(p=>esc(firstWord(p.name)||p.name)).join(' / ');
+      return { id: team.id, playerIds: pids, teamPlayers, names, teamPts, teamNet, teamGross, teamTarget,
+               isBorrow: team.isBorrow||false, borrowId: team.borrowId||null };
+    }).filter(Boolean);
+    teamData.sort((a,b) => {
+      const gt = g.gameType;
+      if (gt === 'lownet' || gt === 'gross') return a.teamNet - b.teamNet;
+      return b.teamPts - a.teamPts; // stableford: higher pts wins
+    });
+  }
+
+  return { playerData, grossSkins, netSkins, grossTally, netTally, activeHoles, teamData };
+}
+function tripById(id) {
+  return (S.events||[]).find(e=>e&&e.type==='trip'&&e.id===id)||null;
+}
+function tripActive() {
+  return S.activeTripId ? tripById(S.activeTripId) : null;
+}
+function tripPlayers(t) {
+  const ids = new Set((t&&t.players||[]).map(r=>r.id));
+  return (S.players||[]).filter(p=>ids.has(p.id));
+}
+function tripDays(t) {
+  if (!t||!t.startDate||!t.endDate) return [];
+  const excluded = new Set(t.excludedDays||[]);
+  const days=[],d=new Date(t.startDate+'T12:00:00'),end=new Date(t.endDate+'T12:00:00');
+  while(d<=end){
+    const ds=d.toISOString().slice(0,10);
+    if(!excluded.has(ds)) days.push(ds);
+    d.setDate(d.getDate()+1);
+  }
+  return days;
+}
+function tripCourseById(t,cid) { return (S.courses||[]).find(c=>c.id===cid)||null; }
+function tripTwoManRows(res, holes) {
+  if (!res) return [];
+  const vsPar = n => n === 0 ? 'E' : (n > 0 ? '+' + n : '' + n);
+  // Surnames as written: these rows also go to live.html, which has none of
+  // the app's CSS that capitalises lastName()'s lowercase sort keys.
+  const surname = pid => { const n = ((fsPlayerById(pid) || {}).name || '?').trim();
+    return n.includes(',') ? n.split(',')[0].trim() : n.split(/\s+/).pop(); };
+  const tied = p => res.rows.filter(y => y.pos === p).length > 1;
+  return res.rows.map(x => ({
+    pos: x.pos == null ? '' : (tied(x.pos) ? 'T' : '') + x.pos,
+    name: x.pids.map(surname).join(' / '),
+    primary: !x.thru ? '—' : res.game === 'bestball' ? vsPar(x.score) : x.score + ' pts',
+    secondary: boardStatus(x.thru, holes),
+    vals: [!x.thru ? '—' : res.game === 'bestball' ? vsPar(x.score) : String(x.score),
+      x.thru >= holes ? 'F' : !x.thru ? '—' : String(x.thru)]
+  }));
+}
+function tripScoringCtx(t,r){
+  /* Trip's adapter onto the shared engine. It used to compute course
+     handicaps itself, and the copy skipped the engine's nine-hole handling
+     (rule 30d; trips.js, 2026-10-05). It now says only what is Trip's own -
+     who is in the round, locked indexes, tees, the trip's settings - and
+     buildScoringCtx does the arithmetic. */
+  const c=tripCourseById(t,r.courseId);if(!c)return null;
+  const sa=(t.settings&&t.settings.scrambleAbcd)||{};
+  // Resolve players from all group playerIds — ensures scoring works even if
+  // trip roster (t.players) doesn't perfectly match who was assigned to groups
+  const groupPids=new Set((r.groups||[]).flatMap(g=>g.playerIds||[]));
+  const rosterPlayers=tripPlayers(t);
+  const allPids=new Set([...rosterPlayers.map(p=>p.id),...groupPids]);
+  const allPlayers=(S.players||[]).filter(p=>allPids.has(p.id));
+  const n=allPlayers.length;
+  const pcts=sa.noHcp?[]:n>=4?(sa.p4||[25,20,15,10]):n===3?(sa.p3||[30,20,10]):(sa.p2||[35,15]);
+  // Use locked HIs if set on the trip (locked at first round start)
+  const locked = t.lockedHcps || {};
+  const players=allPlayers.map(p=>{
+    const pt = withPlayerTee(p, r, c);
+    return {...pt, hcp: locked[p.id]!=null ? locked[p.id] : p.hcp};
+  });
+  const groups=(r.groups||[]).map((gr,i)=>({playerIds:gr.playerIds||[],label:gr.teetime||('Group '+(i+1))}));
+  return buildScoringCtx(players, c, r.nineMode||'all', r.scores||{}, groups, r.format||'stroke',
+    {scramblePcts:pcts,strokeAllowance:(t.settings&&t.settings.strokeAllowance)||100,skins:(t.settings&&t.settings.skins)||{},sfCfg:S.config.games?.individual?.stableford||{},resultMethod:r.resultMethod||'best2',borrows:r.borrows||[]});
+}
+function tripTwoManTeams(ctx, r) {
+  const ch = {}; ctx.players.forEach(p => { ch[p.id] = p.courseHcp; });
+  const picks = (r && r.pairPick) || {};
+  const teams = [], odd = [];
+  ctx.groups.forEach((g, gi) => {
+    const ids = (g.playerIds || []).filter(id => ch[id] != null).sort((a, b) => ch[a] - ch[b] || (a < b ? -1 : 1));
+    if (ids.length === 4) {
+      const [a1, a2, b1, b2] = ids;
+      const opts = [[[a1, b2], [a2, b1]], [[a1, b1], [a2, b2]], [[a1, a2], [b1, b2]]];
+      opts[(picks[gi] || 0) % 3].forEach(pids => teams.push({ gi, pids }));
+    } else {
+      let i = 0, j = ids.length - 1;
+      while (i < j) { teams.push({ gi, pids: [ids[i], ids[j]] }); i++; j--; }
+      if (i === j) odd.push(ids[i]);
+    }
+  });
+  for (let i = 0; i + 1 < odd.length; i += 2) teams.push({ gi: null, pids: [odd[i], odd[i + 1]] });
+  return { teams, unpaired: odd.length % 2 ? [odd[odd.length - 1]] : [] };
+}
+function tripTwoManResults(ctx, r) {
+  const game = r && r.twoMan && r.twoMan.game;
+  if (!game || !ctx) return null;
+  const { teams, unpaired } = tripTwoManTeams(ctx, r);
+  const byId = {}; ctx.players.forEach(p => { byId[p.id] = p; });
+  const sfCfg = (ctx.settings && ctx.settings.sfCfg) || {};
+  const agg = r.twoMan.sfMode === 'aggregate';
+  const rows = teams.map(t => {
+    let total = 0, par = 0, thru = 0;
+    ctx.activeHoles.forEach(h => {
+      const nets = t.pids.map(pid => {
+        const g = parseInt((ctx.scores[pid] || {})[h.num]);
+        return g > 0 ? g - strokesOnHole(byId[pid].courseHcp, h.hcpRating, ctx.hcpScale) : null;
+      });
+      if (nets.some(n => n == null)) return;
+      thru++; par += h.par;
+      if (game === 'bestball') total += Math.min(...nets);
+      else {
+        const pts = nets.map(n => stablefordPts(n - h.par, sfCfg));
+        total += agg ? pts[0] + pts[1] : Math.max(...pts);
+      }
+    });
+    return { pids: t.pids, gi: t.gi, thru, score: game === 'bestball' ? total - par : total };
+  });
+  const better = (a, b) => game === 'bestball' ? a.score < b.score : a.score > b.score;
+  const played = rows.filter(x => x.thru > 0), none = rows.filter(x => !x.thru);
+  played.sort((a, b) => game === 'bestball' ? a.score - b.score : b.score - a.score);
+  played.forEach(x => { x.pos = 1 + played.filter(y => better(y, x)).length; });
+  none.forEach(x => { x.pos = null; });
+  return { game, sfMode: agg ? 'aggregate' : 'better', rows: played.concat(none), unpaired };
+}
+function tripCardComplete(ctx, pid) {
+  const sc = (ctx.scores || {})[pid] || {};
+  return ctx.activeHoles.every(h => parseInt(sc[h.num]) > 0);
+}
+function tripCountback(pid, t) {
+  let back9=0, back6=0, back3=0, last1=0, found=false;
+  tripDays(t).forEach(d => {
+    const dr = t.days && t.days[d]; if (!dr) return;
+    (dr.rounds||[]).forEach(r => {
+      if (!r.completed || isTeamFormat(r.format) || !isCompFormat(r.format)) return;
+      const ctx = tripScoringCtx(t, r); if (!ctx) return;
+      const p   = ctx.players.find(x=>x.id===pid); if (!p) return;
+      if (!tripCardComplete(ctx, pid)) return;
+      // strokesOnHole is the app's one stroke allocation: a plus handicap gives
+      // strokes back on the EASIEST holes, not one on every hole (trips.js).
+      const nets = ctx.activeHoles.map(h =>
+        (parseInt((r.scores[pid]||{})[h.num]) || 0) - strokesOnHole(p.courseHcp, h.hcpRating, ctx.hcpScale));
+      found = true;
+      const n = nets.length;
+      if (n >= 18) {
+        back9 += nets.slice(9).reduce((a,b)=>a+b,0);
+        back6 += nets.slice(12).reduce((a,b)=>a+b,0);
+        back3 += nets.slice(15).reduce((a,b)=>a+b,0);
+        last1 += nets[17];
+      } else {
+        // 9-hole: treat all 9 as back9, last 6 as back6, etc.
+        back9 += nets.reduce((a,b)=>a+b,0);
+        back6 += nets.slice(3).reduce((a,b)=>a+b,0);
+        back3 += nets.slice(6).reduce((a,b)=>a+b,0);
+        last1 += nets[8];
+      }
+    });
+  });
+  return [back9, back6, back3, last1];
+}
+function tripLeaderboard(t) {
+  t = t || tripActive(); if (!t) return [];
+  const net={}, rnds={}, teamWins={}, grossT={}, parT={};
+  const players = tripPlayers(t);
+  tripDays(t).forEach(d => {
+    const dr = t.days && t.days[d]; if (!dr) return;
+    (dr.rounds||[]).forEach(r => {
+      if (!isCompFormat(r.format) || !r.completed) return;
+      const ctx = tripScoringCtx(t, r); if (!ctx) return;
+      if (isTeamFormat(r.format)) {
+        const res = computeRoundResults(ctx);
+        const entries = res.entries||[];
+        if (entries.length) {
+          const best = res.type==='scramble' ? entries[0].net : entries[0].netVsPar;
+          const winners = entries.filter(e => res.type==='scramble' ? e.net===best : e.netVsPar===best);
+          if (winners.length===1) (ctx.groups[winners[0].gi]?.playerIds||[]).forEach(pid => { teamWins[pid]=(teamWins[pid]||0)+1; });
+        }
+      } else {
+        /* Each player's net off the SAME course handicap the scorecard used -
+           locked index, allowance, tees and the nine played - and only for a
+           complete card: a card short of holes totalled lower and could lead
+           the trip (trips.js, 2026-10-05). */
+        ctx.players.forEach(p => {
+          if (!players.some(x => x.id === p.id) || !tripCardComplete(ctx, p.id)) return;
+          const gross = ctx.activeHoles.reduce((a,h) => a+(parseInt((r.scores[p.id]||{})[h.num])||0), 0);
+          net[p.id]  = (net[p.id]||0) + (gross - p.courseHcp);
+          grossT[p.id] = (grossT[p.id]||0) + gross;
+          parT[p.id]   = (parT[p.id]||0) + ctx.activeHoles.reduce((a,h) => a + h.par, 0);
+          rnds[p.id] = (rnds[p.id]||0) + 1;
+        });
+      }
+    });
+  });
+
+  const entries = Object.keys(net).map(pid => ({
+    playerId: pid,
+    totalNet: net[pid],
+    totalGross: grossT[pid],
+    totalPar: parT[pid],
+    rounds:   rnds[pid]||0,
+    teamWins: teamWins[pid]||0,
+    cb:       tripCountback(pid, t)   // [back9, back6, back3, last1]
+  }));
+  Object.keys(teamWins).forEach(pid => {
+    if (!net[pid]) entries.push({playerId:pid, totalNet:null, rounds:0, teamWins:teamWins[pid], cb:[0,0,0,0]});
+  });
+
+  entries.sort((a, b) => {
+    if (a.totalNet !== b.totalNet) {
+      if (a.totalNet === null) return 1;
+      if (b.totalNet === null) return -1;
+      return a.totalNet - b.totalNet;
+    }
+    // USGA countback: back 9 → back 6 → back 3 → last hole
+    for (let i = 0; i < 4; i++) {
+      if (a.cb[i] !== b.cb[i]) return a.cb[i] - b.cb[i];
+    }
+    return 0;
+  });
+  return entries;
+}
+function leagueActiveSeason(lg) {
+  if (!lg.seasons || !lg.seasons.length) {
+    lg.seasons = [{ id: uid(), name: 'Season 1', active: true, closed: false, partners: [], courseId: (leagueHomeCourse()||{}).id || null }];
+  }
+  return lg.seasons.find(s => s.active) || lg.seasons[lg.seasons.length - 1];
+}
+function leagueSessionAllowance(lg, s) {
+  const season = (lg.seasons||[]).find(x => x.id === s.seasonId) || leagueActiveSeason(lg);
+  return (season && season.strokeAllowance) || 100;
+}
+function leagueHomeCourse() { return (S.courses||[]).find(c=>c.homeCourse) || (S.courses||[])[0] || null; }
+function leagueSeasonCourseId(lg, season) {
+  return (season && season.courseId) || (lg && lg.courseId) || (leagueHomeCourse()||{}).id || null;
+}
+function leagueSessionCourse(lg, s) {
+  if (s && s.courseId) return fsGetCourse(s.courseId);
+  const season = (lg.seasons||[]).find(x => x.id === (s && s.seasonId)) || leagueActiveSeason(lg);
+  const id = leagueSeasonCourseId(lg, season);
+  return id ? fsGetCourse(id) : null;
+}
+function leagueBuildPool(lg, s) {
+  const rsvp=s.rsvp||{};
+  const tts=s.teeTimes||(leagueActiveSeason(lg).teeTimes||[]);
+  const pool=[];
+  (S.players||[]).filter(p=>p.regular).forEach(p=>{
+    const pr=rsvp[p.id]||{};
+    if(pr.status==='in'){
+      pool.push({...p,earliest:pr.earliest||tts[0]||'',courseHcp:p.hcp||0,isSub:false});
+    }
+    if(pr.status==='out'&&pr.subId){
+      const sub=(S.players||[]).find(x=>x.id===pr.subId);
+      if(sub) pool.push({...sub,earliest:tts[tts.length-1]||'',courseHcp:sub.hcp||0,isSub:true});
+    }
+    if(pr.status==='out'&&pr.guestName&&!pr.subId){
+      pool.push({id:'guest_'+p.id,name:pr.guestName+' (guest)',hcp:pr.guestHcp||0,
+        courseHcp:pr.guestHcp||0,earliest:tts[tts.length-1]||'',isSub:true,isGuest:true});
+    }
+  });
+  return pool;
+}
+function leaguePairHoleNet(pairPlayers, scores, hole, hcpScale) {
+  const nets = bestBallsHoleNet(pairPlayers, scores, hole, hcpScale);
+  return nets.length ? nets[0] : null;
+}
+function leagueGroupPairs(groupPlayerIds, seasonPartners) {
+  const set = new Set(groupPlayerIds || []);
+  const present = (seasonPartners || [])
+    .map(pr => (pr.playerIds || []).filter(id => set.has(id)))
+    .filter(ids => ids.length === 2);
+  return [present[0] || null, present[1] || null];
+}
+function leaguePartnerMatch(pairAPlayers, pairBPlayers, scores, activeHoles, hcpScale) {
+  const hs = activeHoles || [];
+  let holesA = 0, holesB = 0, played = 0, status = 0, closeAt = -1, closeStat = 0;
+  hs.forEach((h, i) => {
+    const na = leaguePairHoleNet(pairAPlayers, scores, h, hcpScale);
+    if (na === null) return;
+    const nb = pairBPlayers ? leaguePairHoleNet(pairBPlayers, scores, h, hcpScale) : h.par;
+    if (nb === null) return;                       // opponent hasn't scored → hole not decided
+    played++;
+    if (na < nb) { holesA++; status++; } else if (nb < na) { holesB++; status--; }
+    // Match closes the first time the lead exceeds the holes remaining (dormie-and-done).
+    if (closeAt < 0 && status !== 0 && Math.abs(status) > hs.length - (i + 1)) { closeAt = i; closeStat = status; }
+  });
+  const winner = holesA > holesB ? 'A' : holesB > holesA ? 'B' : 'tie';
+  let margin = 'Halved';
+  if (winner !== 'tie') {
+    margin = (closeAt >= 0 && closeAt < hs.length - 1)
+      ? `${Math.abs(closeStat)}&${hs.length - (closeAt + 1)}`   // closed early, e.g. "2&1"
+      : (Math.abs(status) === 1 ? '1 up' : `${Math.abs(status)} up`);
+  }
+  return { winner, holesA, holesB, holesPlayed: played, margin };
+}
+function leagueSessionCtx(lg, s){
+  const course = leagueSessionCourse(lg, s);
+  if(!course) return null;
+  const gameType = s.gameType||'stableford';
+  const nineMode = s.nineSide||'all';
+  /* The engine computes every course handicap, with the season's allowance
+     and the nine actually played. League used to work out its own (18-hole,
+     with the allowance) and then hand the engine 100%, which recomputed it -
+     so the pool and the scores disagreed and the allowance never reached
+     scoring (trips.js, 2026-10-05). The pool now carries the engine's value. */
+  const pool0 = leagueBuildPool(lg, s).map(p => withPlayerTee(p, s, course));
+  const skinsCfg = (lg.skins && s.skins!==false) ? lg.skins : {hcpAdj:100};
+  const ctx = buildScoringCtx(pool0, course, nineMode, s.scores||{},
+    (s.groups||[]).map((g,i)=>({playerIds:g.playerIds||[], label:g.teetime||('Group '+(i+1))})),
+    gameType,
+    {strokeAllowance:leagueSessionAllowance(lg,s), scramblePcts:[25,20,15,10], skins:skinsCfg,
+     sfCfg:S.config.games?.individual?.stableford||{}, resultMethod:s.resultMethod||'best2', borrows:[]});
+  const chOf = {}; ctx.players.forEach(p => { chOf[p.id] = p.courseHcp; });
+  const pool = pool0.map(p => ({ ...p, courseHcp: chOf[p.id] }));
+  return { course, gameType, nineMode, pool, ctx };
+}
+function leagueAccumCountback(cb, ctx, scores) {
+  const holes = ctx.activeHoles, scale = ctx.hcpScale;
+  (ctx.players || []).forEach(p => {
+    const gross = holes.map(h => parseInt((scores[p.id] || {})[h.num]) || 0);
+    if (!gross.some(g => g > 0)) return;   // no gross posted this session — skip (avoids phantom net)
+    const nets = holes.map((h, i) =>
+      gross[i] - (Math.floor(p.courseHcp / scale) + (h.hcpRating <= p.courseHcp % scale ? 1 : 0))
+    );
+    const e = cb[p.id] || (cb[p.id] = { back9:0, back6:0, back3:0, last1:0, found:false });
+    e.found = true;
+    const n = nets.length;
+    if (n >= 18) {
+      e.back9 += nets.slice(9).reduce((a,b)=>a+b,0);
+      e.back6 += nets.slice(12).reduce((a,b)=>a+b,0);
+      e.back3 += nets.slice(15).reduce((a,b)=>a+b,0);
+      e.last1 += nets[n-1];
+    } else {                            // 9-hole: back-half fallback, matches tripCountback
+      e.back9 += nets.reduce((a,b)=>a+b,0);
+      e.back6 += nets.slice(Math.max(0,n-6)).reduce((a,b)=>a+b,0);
+      e.back3 += nets.slice(Math.max(0,n-3)).reduce((a,b)=>a+b,0);
+      e.last1 += nets[n-1];
+    }
+  });
+}
+function leagueCmpCountback(a, b) {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return (a.back9-b.back9) || (a.back6-b.back6) || (a.back3-b.back3) || (a.last1-b.last1);
+}
+function boardStatus(thru, holes) { return !thru ? 'Not started' : thru >= holes ? 'Final' : 'Thru ' + thru; }
+function boardTie(rows, keys) {
+  rows.forEach((r, i) => {
+    const first = keys.indexOf(keys[i]), n = keys.filter(k => k === keys[i]).length;
+    r.pos = (n > 1 ? 'T' : '') + (first + 1);
+  });
+  return rows;
+}
+function tripBoardRows(t) {
+  const board = tripLeaderboard(t);
+  return boardTie(board.map((e, i) => ({ pos: i + 1, name: (fsPlayerById(e.playerId) || {}).name || '?',
+    primary: e.totalNet == null ? '—' : String(e.totalNet),
+    secondary: (e.rounds || 0) + ((e.rounds || 0) === 1 ? ' round' : ' rounds'),
+    vals: e.totalNet == null ? ['—', '—', '—', String(e.rounds || 0)]
+      : [String(e.totalGross), String(e.totalNet), (d => d === 0 ? 'E' : d > 0 ? '+' + d : '' + d)(e.totalNet - e.totalPar), String(e.rounds || 0)]
+  })), board.map(e => e.totalNet));
+}
+function liveRoundRows(ctx, skinsOn) {
+  const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
+  const res = computeRoundResults(ctx);
+  if (!res || !res.entries) return [];
+  const skins = skinsOn ? computeSkins(ctx) : { anyWins:false, wins:{}, type:'individual' };
+  const skinStr = (key,kind) => (skins.anyWins && skins.type===kind && skins.wins[key]) ? (' \u00b7 '+skins.wins[key]+' skin'+(skins.wins[key]>1?'s':'')) : '';
+  const es = res.entries.filter(Boolean), rows = [];
+  if (res.type === 'individual') {
+    const holes = ctx.activeHoles.length;
+    const thruStr = e => boardStatus(e.thru, holes);
+    const vsPar = n => n === 0 ? 'E' : netStr(n);
+    // The engine's order; net against par through the holes played (2026-10-05).
+    // vals feed the board's columns (liveRoundView): Gross, Net, [Pts], +/-, Thru, [Skins].
+    const thruCol = e => e.thru >= holes ? 'F' : !e.thru ? '—' : String(e.thru);
+    const skinN = k => (skins.anyWins && skins.type === 'individual' && skins.wins[k]) || '';
+    es.forEach((e,i)=>rows.push({ pos:i+1, name:e.name,
+      primary: res.isSF ? ((e.pts||0)+' pts') : vsPar(e.toPar),
+      secondary: thruStr(e) + (res.isSF ? ' · Net ' + vsPar(e.toPar) : '') + skinStr(e.playerId,'individual'),
+      vals: [String(e.gross || 0), String(e.netThru), ...(res.isSF ? [String(e.pts || 0), vsPar((e.pts || 0) - e.quota)] : [vsPar(e.toPar)]),
+        thruCol(e), ...(skinsOn ? [String(skinN(e.playerId))] : [])] }));
+    boardTie(rows, es.map(e => res.isSF ? (e.pts || 0) - e.quota : e.toPar));
+  } else {
+    const net = e => (e.netVsPar!=null?e.netVsPar:(e.net!=null?e.net:e.teamNet));
+    const holes = ctx.activeHoles.length;
+    const sorted = es.slice().sort((a,b)=>net(a)-net(b));
+    const scram = res.type === 'scramble';
+    const skinN = k => (skins.anyWins && skins.type === 'team' && skins.wins[k]) || '';
+    sorted.forEach((e,i)=>rows.push({ pos:i+1, name: e.names||e.label||('Team '+(i+1)),
+      primary: net(e) === 0 ? 'E' : netStr(net(e)),
+      secondary: (e.thru != null ? boardStatus(e.thru, holes) : '') + skinStr(e.gi,'team'),
+      // Best balls have no single gross: the columns are Net, +/-, Thru.
+      vals: [...(scram ? [String(e.gross || 0), String(e.netThru)] : [String(e.teamNet)]),
+        net(e) === 0 ? 'E' : netStr(net(e)), e.thru >= holes ? 'F' : String(e.thru || '—'),
+        ...(skinsOn ? [String(skinN(e.gi))] : [])] }));
+    boardTie(rows, sorted.map(net));
+  }
+  return rows;
+}
+function liveRoundView(id, label, ctx, skinsOn) {
+  const rows = liveRoundRows(ctx, skinsOn);
+  const sf = ctx.format === 'stableford', team = isTeamFormat(ctx.format), scram = ctx.format === 'scramble';
+  const cols = team && !scram ? ['Net', '+/−', 'Thru'] : ['Gross', 'Net', ...(sf ? ['Pts'] : []), '+/−', 'Thru'];
+  if (skinsOn) cols.push('Skins');
+  return { id, label, cols, rows };
+}
+function liveOutingRows(o) {
+  const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
+  const r = outingComputeResults(o); if (!r) return [];
+  if (r.isTeam && r.teamResults) {
+    const netOf = t => (t.netVsPar!=null?t.netVsPar:(t.teamNet!=null?t.teamNet:t.net));
+    return r.teamResults.filter(Boolean).slice().sort((a,b)=>netOf(a)-netOf(b))
+      .map((t,i)=>({ pos:i+1, name:t.names||('Team '+(i+1)), primary:netStr(netOf(t)), secondary:'' }));
+  }
+  const pd = r.playerData, arr = pd?(Array.isArray(pd)?pd:Object.values(pd)):[];
+  return arr.filter(p=>(p.totalGross||0)>0).sort((a,b)=>(a.totalNet??1e9)-(b.totalNet??1e9))
+    .map((p,i)=>({ pos:i+1, name:p.name, primary:netStr(p.totalNet), secondary:'' }));
+}
+function liveRoster(course, pool, groupsSrc, ctx) {
+  const holes = (ctx && ctx.activeHoles) || course.holes;
+  const c = { name: course.name, hcpScale: (ctx && ctx.hcpScale) || holes.length || 18, format: (ctx && ctx.format) || 'stroke',
+    holes: holes.map(h=>({num:h.num,par:h.par,hcp:h.hcp,hcpRating:h.hcpRating!=null?h.hcpRating:h.hcp})) };
+  const byId={}; (pool||[]).forEach(p=>byId[p.id]=p);
+  const groups = (groupsSrc||[]).map((g,i)=>({ idx:i, label:g.teetime||g.label||('Group '+(i+1)),
+    players:(g.playerIds||[]).map(pid=>({ id:pid, name:(byId[pid]||{}).name||'?', ch:(byId[pid]||{}).courseHcp||0 })) }));
+  return { course:c, groups };
+}
+function liveTripViews(t, r) {
+  const views = []; let course = null, groups = [];
+  const title = (r.label||'Round') + (t.name?(' · '+t.name):'');
+  const cw = tripScoringCtx(t, r);
+  if (cw) {
+    views.push(liveRoundView('round', r.label || 'Round', cw, true));
+    if (r.twoMan && r.twoMan.game) views.push({ id:'twoman', label:'2-Man', cols: [r.twoMan.game === 'bestball' ? '+/−' : 'Pts', 'Thru'], rows: tripTwoManRows(tripTwoManResults(cw, r), cw.activeHoles.length) });
+    ({course, groups} = liveRoster(cw.course, cw.players, r.groups, cw));
+  }
+  // The trip game is NET STROKES (BZ), shown as the app's leaderboard shows it:
+  // a total, not a score against par - "+240" read as 240 over (2026-10-05).
+  views.push({ id:'trip', label:'Trip', cols: ['Gross', 'Net', '+/−', 'Rnds'], rows: tripBoardRows(t) });
+  return { title, views, course, groups };
+}
+function liveLeagueViews(lg, s) {
+  const views = []; let course = null, groups = [];
+  const title = fsDate(s.date) + (lg.name?(' · '+lg.name):'');
+  const cw = leagueSessionCtx(lg, s);
+  if (cw) {
+    views.push(liveRoundView('night', 'Tonight', cw.ctx, !!lg.skins));
+    ({course, groups} = liveRoster(cw.course, cw.pool, s.groups, cw.ctx));
+  }
+  const st = leagueComputeStandings(lg, false);
+  views.push({ id:'season', label:'Season', rows: st.rows.map((p,i)=>({pos:i+1, name:p.name, primary:(st.points[p.id]||0)+' pts', secondary:(st.wins[p.id]||0)+' W'})) });
+  return { title, views, course, groups };
+}
+function liveOutingViews(o) {
+  let course = null, groups = [];
+  const views = [{ id:'board', label:'Leaderboard', rows: liveOutingRows(o) }];
+  const octx = outingScoringCtx(o);
+  if (octx) ({course, groups} = liveRoster(octx.course, octx.players, o.groups, octx));
+  return { title: o.name || 'Outing', views, course, groups };
+}
+function liveViews(kind, ev, unit) {
+  return kind === 'trip' ? liveTripViews(ev, unit) : kind === 'league' ? liveLeagueViews(ev, unit)
+    : kind === 'outing' ? liveOutingViews(unit) : null;
+}
+function liveFromSrc(src, phoneScores) {
+  const ev = src.event;
+  S = { players: src.players || [], courses: src.courses || [], events: [ev], config: src.config || {} };
+  const unit = src.kind === 'trip' ? Object.values(ev.days || {}).flatMap(d => d.rounds || []).find(x => x.id === src.unitId)
+    : src.kind === 'league' ? (ev.sessions || []).find(x => x.id === src.unitId) : ev;
+  if (!unit) return null;
+  liveMergeScores(unit, phoneScores);
+  return liveViews(src.kind, ev, unit);
+}
+function liveMergeScores(unit, shared) {
+  if (!shared) return false;
+  unit.scores = unit.scores || {}; unit.remoteSeen = unit.remoteSeen || {};
+  let changed = false;
+  Object.keys(shared).forEach(pid => {
+    const holes = shared[pid] || {};
+    const seen = unit.remoteSeen[pid] = unit.remoteSeen[pid] || {};
+    Object.keys(holes).forEach(h => {
+      const v = holes[h];
+      if (seen[h] === v) return;            // the phone has not changed it: leave ours
+      seen[h] = v;
+      if (!unit.scores[pid]) unit.scores[pid] = {};
+      if (unit.scores[pid][h] !== v) { unit.scores[pid][h] = v; }
+      changed = true;
+    });
+  });
+  return changed;
+}
+function leagueComputeStandings(lg, showSeason) {
+  const activeSeason = (lg.seasons||[]).find(s=>s.active);
+  const useSeason = showSeason && activeSeason;
+  const completed = (lg.sessions||[]).filter(s =>
+    s.completed && s.championship !== false && (!useSeason || s.seasonId === activeSeason.id)
+  );
+  const points={}, wins={}, cb={};
+  completed.forEach(s=>{
+    const sc=leagueSessionCtx(lg,s);
+    if(!sc||!sc.pool.length)return;
+    const {gameType, ctx}=sc;
+    if (lg.partnerLeague) {
+      // Partner league = better-ball match play, consistent regardless of the game-type setting.
+      // Each group is pair A vs pair B (or pair vs par on a bye). Win = +1, tie = +0.5.
+      const seas=(lg.seasons||[]).find(x=>x.id===s.seasonId)||activeSeason;
+      const partners=(seas&&seas.partners)||[];
+      const pById=id=>ctx.players.find(p=>p.id===id);
+      (s.groups||[]).forEach(grp=>{
+        const [pa,pb]=leagueGroupPairs(grp.playerIds||[], partners);
+        if(!pa)return;
+        const m=leaguePartnerMatch(pa.map(pById).filter(Boolean), pb?pb.map(pById).filter(Boolean):null, s.scores||{}, ctx.activeHoles, ctx.hcpScale);
+        if(m.winner==='tie'){ [...pa,...(pb||[])].forEach(id=>{points[id]=(points[id]||0)+0.5;}); }
+        else { const w=m.winner==='A'?pa:(m.winner==='B'?pb:null); if(w) w.forEach(id=>{points[id]=(points[id]||0)+1; wins[id]=(wins[id]||0)+1;}); }
+      });
+      return;   // partner leagues never use the 3/2/1 finish-rank system
+    }
+    const res=computeRoundResults(ctx);
+    const entries=res.entries||[];
+    [3,2,1].forEach((pts,rank)=>{
+      const e=entries[rank];if(!e)return;
+      if(res.type==='individual'){
+        const pid=e.playerId;if(!pid)return;
+        points[pid]=(points[pid]||0)+pts;
+      }else{
+        const grp=(s.groups||[])[e.gi];
+        (grp&&grp.playerIds||[]).forEach(pid=>{points[pid]=(points[pid]||0)+pts;});
+      }
+    });
+    if(entries[0]&&res.type==='individual'){wins[entries[0].playerId]=(wins[entries[0].playerId]||0)+1;}
+    if(res.type==='individual'&&!isTeamFormat(gameType)) leagueAccumCountback(cb,ctx,s.scores||{});
+  });
+  const allPids=new Set([...Object.keys(points),...completed.flatMap(s=>[
+    ...Object.entries(s.rsvp||{}).filter(([,v])=>(v||{}).status==='in').map(([pid])=>pid),
+    ...(lg.partnerLeague?(s.groups||[]).flatMap(g=>g.playerIds||[]):[])
+  ])]);
+  const rows=[...(S.players||[])].filter(p=>allPids.has(p.id)).sort((a,b)=>{
+    const dp=(points[b.id]||0)-(points[a.id]||0);
+    if(dp!==0)return dp;
+    return leagueCmpCountback(cb[a.id],cb[b.id]);
+  });
+  return { points, wins, cb, rows, useSeason, activeSeason, completed };
+}
 /* END COPIED-JS */
 
 /* This page only. The scorecard is the app's renderScorecardGroup and the
@@ -325,6 +1473,11 @@ const DB = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live'
 const params = new URLSearchParams(location.search);
 const id = params.get('id');
 const KEY = 'mg-me-' + id;                       // who this phone is, for this round
+/* The copied engine reads the app's state as S; liveFromSrc fills it from
+   the round's published source. */
+let S = { players: [], courses: [], events: [] };
+/* The page never saves (pages.py STOP): an outing's blind-draw teams arrive drawn. */
+function fsSaveGame() {}
 let _data = null, _me = null, _gi = -1, _watch = false, _tab = 0, _token = null, _scores = {}, _order = [], _boardT = null;
 
 const store = { get() { try { return localStorage.getItem(KEY); } catch (e) { return null; } },
@@ -341,6 +1494,7 @@ async function boot() {
   if (!id) { msg('No id in this link.'); return; }
   try { _data = await fetchRound(); } catch (e) { msg('Could not load. Check the link and your connection.'); return; }
   if (!_data) { msg('This round is not available - it may not be shared, or sharing was stopped.'); return; }
+  _data.views = viewsOf(_data).views;
   document.getElementById('title').textContent = _data.title || 'Live';
   document.getElementById('sub').textContent = (_data.course && _data.course.name) || '';
   // Who this phone was last time in this round; otherwise ask.
@@ -387,12 +1541,26 @@ async function tabTo(i) {
 }
 function stopBoard() { if (_boardT) { clearInterval(_boardT); _boardT = null; } }
 
+/* THE BOARD, worked out HERE from the round's source and the phones' scores,
+   with the app's own engine - so it moves while the organizer's app is shut
+   (BZ, 2026-10-05: nine holes typed, the board had not moved). A round
+   published without a source (outings, leagues, an older app) shows the
+   app's last publish. */
+function viewsOf(d) {
+  if (d && d.src) {
+    try { const lt = liveFromSrc(d.src, d.scores || {}); if (lt) return { views: lt.views, mine: true }; }
+    catch (e) { console.warn('board from source failed', e); }
+  }
+  return { views: (d && d.views) || [], mine: false };
+}
 async function boardNow() {
   try {
     const d = await fetchRound(); if (!d) return;
-    _data.views = d.views; _data.updated = d.updated;
+    const vs = viewsOf(d);
+    _data.views = vs.views; _data.updated = d.updated;
     document.getElementById('board').innerHTML = MGBoard.table(tabList()[_tab]);
-    if (d.updated) document.getElementById('upd').textContent = 'Updated ' + new Date(d.updated).toLocaleTimeString();
+    document.getElementById('upd').textContent = vs.mine ? 'Live · checked ' + new Date().toLocaleTimeString()
+      : d.updated ? 'Updated ' + new Date(d.updated).toLocaleTimeString() : '';
     tabs();
   } catch (e) { document.getElementById('upd').textContent = 'Reconnecting…'; }
 }

@@ -140,6 +140,14 @@ Credentials: BZ's `gh auth login` (has the `workflow` scope push.py needs).
   anonymously and writes only `live/{shareId}/scores/{pid}/{hole}`.
   `liveMonitorPoll` (15s) folds those in with `liveMergeScores`, a union
   that never overwrites the organizer's own group.
+- EVERY live board (trip, league, outing) is worked out on live.html itself, so it moves while the
+  organizer's app is shut (BZ, 2026-10-05: nine holes in, it had not moved).
+  The app publishes `src` (`liveSrc`: the event, its players' id/name/
+  index only, its courses, the Stableford settings); the page runs the app's
+  own `liveFromSrc` → `liveViews`, copied by pages.py, which follows
+  calls from ROOTS so a new engine helper is carried without listing it.
+  trips.js shuts the app, scores from phones, and requires the page's board
+  to equal the app's. Leagues and outings work the same way (`liveViews` / `liveSrc` / `liveFromSrc`); the walk checks both boards equal the app's.
 
 ## Services BZ owns
 

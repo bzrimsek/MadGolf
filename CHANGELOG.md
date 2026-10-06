@@ -2,6 +2,18 @@
 
 Newest first. The file header in index.html carries the headlines; the full entries live here.
 
+## v0.91.32  ·  2026-10-05 09:14 PM ET
+
+Comments name the live-board functions by their final names (liveViews, liveSrc, liveFromSrc).
+
+## v0.91.31  ·  2026-10-05 09:14 PM ET
+
+Leagues and outings follow the same pattern as trips (BZ): every live board is now worked out on the live page itself, with the app's own engine, so it keeps moving while the organizer's app is shut. One builder per kind (liveViews) serves both the app's publish and the page, and one source (liveSrc) carries what it reads: the event, its players' names, indexes and regular flag only, its courses, and the Stableford and scramble settings. An outing's copied players lose their phone, email and GHIN number before publishing. The page never saves: pages.py stops at fsSaveGame, which outing results call only to keep blind-draw teams, and the published outing already has them. The walk now requires the league and outing boards on the page to equal the app's. Ships with v0.91.30's trip change.
+
+## v0.91.30  ·  2026-10-05 09:08 PM ET
+
+The trip leaderboard keeps moving while the organizer's app is shut. BZ scored nine holes on the live page and the board did not move until he went back to the app: the app was the only thing working the board out, and a phone app in the background does nothing. The app now publishes what the board is made from (the trip, its players' names and indexes only, its courses, the Stableford settings), and live.html runs the app's own trip engine on it, with the phones' scores folded in exactly as the app folds them, every ten seconds. pages.py now copies that engine by following the calls from a few root functions, so a helper added later is carried without being listed. The trip simulator shuts the app while two phones score and requires the board to move, and requires the page's board to equal the app's; breaking the page on purpose turns it red. Leagues and outings still show the app's last publish.
+
 ## v0.91.29  ·  2026-10-05 08:07 PM ET
 
 One link for the whole round, like Golf Genius. live.html now opens on Who are you?, a list of the round's players by foursome to pick from (never typed), plus Just watching. A player then gets two kinds of tab: Scorecard, their own foursome on the app's own card, and the leaderboard views. The phone remembers who it is for that round; Not you? asks again. The share sheet offers that one link and lists the foursomes instead of a Text button per group. score.html now only forwards an old per-group link to live.html, its foursome listed first. The walk and the trip simulator open the one page, pick a name, score, and watch.

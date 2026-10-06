@@ -481,6 +481,10 @@ async function main() {
     }
     await lp.locator('#who .who-w').click();
     await lp.waitForSelector('#board tr', { timeout: 6000 });
+    // A trip board is worked out ON THE PAGE. Falling back to the app's last
+    // publish hid a crash here once (2026-10-05) and let page==app pass empty.
+    const upd = await lp.locator('#upd').innerText();
+    expect(/^Live/.test(upd), 'the page did not work the board out itself (footer "' + upd + '")');
   };
   await step(ctx, 'live.html: groups 1 and 2 score all 18 holes from their own phones at once', async () => {
     expect(shareId, 'no live round');
@@ -508,6 +512,9 @@ async function main() {
       await sp.waitForTimeout(600);
       await sp.close();
     };
+    // THE ORGANIZER'S APP IS SHUT while the phones score, as BZ's was in his
+    // pocket (2026-10-05): no poll, no publish. The board must move anyway.
+    await page.evaluate(() => { window.__u = window._currentUser; window._currentUser = null; });
     await Promise.all([phone(0), phone(1)]);
     const sc = store.read('/bz-apps/golf/live/' + shareId + '/scores') || {};
     let wrong = 0, n = 0;
@@ -517,7 +524,23 @@ async function main() {
     expect(!wrong, wrong + ' of ' + n + ' remote scores were not stored as tapped');
     return n + ' scores from two phones';
   });
+  await step(ctx, "live.html: with the organizer's app shut, the board still moves", async () => {
+    expect(shareId, 'no live round');
+    const live = store.read('/bz-apps/golf/live/' + shareId);
+    const thruCol = v => v.cols.indexOf('Thru');
+    const fin = v => (v.rows || []).filter(r => r.vals && r.vals[thruCol(v)] === 'F').length;
+    // Proof the app did not do it: what the APP last published has nobody finished.
+    expect(fin(live.views[0]) === 0, 'the app published while shut - this check cannot tell the page did it');
+    const lp = await context.newPage(); listen(lp, rep);
+    await watchBoard(lp, shareId);
+    const v = await lp.evaluate(() => _data.views[0]);
+    await shot(lp, 'live-board-app-shut');
+    await lp.close();
+    expect(fin(v) === 8, 'with the app shut the board shows ' + fin(v) + ' of 8 phone scorers finished');
+    return fin(v) + " finished on the board, 0 in the app's last publish";
+  });
   await step(ctx, 'the app takes in the remote scores and the third group scores in the app', async () => {
+    await page.evaluate(() => { window._currentUser = window.__u; });
     await page.evaluate(() => liveMonitorPoll()); await pause(page, 800);
     const typed = await scoreRound(page, 2, 0, 4, [2]);
     const t = await tripNow(page);
@@ -565,6 +588,10 @@ async function main() {
     await page.evaluate(() => scheduleLiveRepublish && scheduleLiveRepublish()); await pause(page, 4800);
     const lp = await context.newPage(); listen(lp, rep);
     await watchBoard(lp, shareId);
+    // The page works the board out itself; it must say exactly what the app says.
+    const mine = await lp.evaluate(() => JSON.stringify(_data.views));
+    const apps = JSON.stringify(store.read('/bz-apps/golf/live/' + shareId).views);
+    expect(mine === apps, "the page's own board differs from the app's: page " + mine.slice(0, 400) + ' | app ' + apps.slice(0, 400));
     const tabs = await lp.locator('#tabs .tab').allInnerTexts();
     await shot(lp, 'live-board-round');
     const tripTab = lp.locator('#tabs .tab').filter({ hasText: /^Trip$/i });

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.29  Build 2026-10-05 08:07 PM ET
+     Version : v0.91.32  Build 2026-10-05 09:14 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,9 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.32  2026-10-05  Comments name the live-board functions by their final names (liveViews, liveSrc, liveFromSrc).
+// v0.91.31  2026-10-05  Leagues and outings follow the same pattern as trips (BZ): every live board is now worked out on the live page itself, with the app's own engine, so…
+// v0.91.30  2026-10-05  The trip leaderboard keeps moving while the organizer's app is shut.
 // v0.91.29  2026-10-05  One link for the whole round, like Golf Genius.
 // v0.91.28  2026-10-05  Test live scoring now builds one Test Trip with several rounds, as a real trip has.
 // v0.91.27  2026-10-05  Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text).
@@ -17,9 +20,6 @@ CHANGELOG
 // v0.91.25  2026-10-05  The scoring link and the live board now use the app's own look.
 // v0.91.24  2026-10-05  Fixed: the Text button for each group's scoring link on the live share sheet did nothing.
 // v0.91.23  2026-10-05  New Settings button, Test live scoring: one tap makes a throwaway Test Trip (you plus three regulars, your home course, one round today, already…
-// v0.91.22  2026-10-05  Nine holes always play off half the handicap index, as WHS says.
-// v0.91.21  2026-10-05  Trips made solid for a real trip, checked by a new simulator (trips.js) that plays four whole trips through the screens, two groups scoring from…
-// v0.91.20  2026-10-04  Headers are centered and action buttons stay on one line on every screen.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -1220,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.29';
-const BUILD_TIME = '2026-10-05 08:07 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.32';
+const BUILD_TIME = '2026-10-05 09:14 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
@@ -14390,38 +14390,87 @@ function liveRoster(course, pool, groupsSrc, ctx) {
     players:(g.playerIds||[]).map(pid=>({ id:pid, name:(byId[pid]||{}).name||'?', ch:(byId[pid]||{}).courseHcp||0 })) }));
   return { course:c, groups };
 }
-function liveUnitPayload(kind, ev, unit) {
-  const netStr = n => (n==null?'\u2014':(n>0?'+'+n:''+n));
-  const views=[]; let title='', course=null, groups=[];
-  if (kind === 'league') {
-    const lg=ev, s=unit;
-    title = fsDate(s.date) + (lg.name?(' \u00b7 '+lg.name):'');
-    const cw = leagueSessionCtx(lg, s);
-    if (cw) {
-      views.push(liveRoundView('night', 'Tonight', cw.ctx, !!lg.skins));
-      ({course, groups} = liveRoster(cw.course, cw.pool, s.groups, cw.ctx));
-    }
-    const st = leagueComputeStandings(lg, false);
-    views.push({ id:'season', label:'Season', rows: st.rows.map((p,i)=>({pos:i+1, name:p.name, primary:(st.points[p.id]||0)+' pts', secondary:(st.wins[p.id]||0)+' W'})) });
-  } else if (kind === 'trip') {
-    const t=ev, r=unit;
-    title = (r.label||'Round') + (t.name?(' \u00b7 '+t.name):'');
-    const cw = tripScoringCtx(t, r);
-    if (cw) {
-      views.push(liveRoundView('round', r.label || 'Round', cw, true));
-      if (r.twoMan && r.twoMan.game) views.push({ id:'twoman', label:'2-Man', cols: [r.twoMan.game === 'bestball' ? '+/−' : 'Pts', 'Thru'], rows: tripTwoManRows(tripTwoManResults(cw, r), cw.activeHoles.length) });
-      ({course, groups} = liveRoster(cw.course, cw.players, r.groups, cw));
-    }
-    // The trip game is NET STROKES (BZ), shown as the app's leaderboard shows it:
-    // a total, not a score against par - "+240" read as 240 over (2026-10-05).
-    views.push({ id:'trip', label:'Trip', cols: ['Gross', 'Net', '+/−', 'Rnds'], rows: tripBoardRows(t) });
-  } else if (kind === 'outing') {
-    const o=unit; title = o.name || 'Outing';
-    views.push({ id:'board', label:'Leaderboard', rows: liveOutingRows(o) });
-    const octx = outingScoringCtx(o);
-    if (octx) ({course, groups} = liveRoster(octx.course, octx.players, o.groups, octx));
+/** A trip round's board: the round, its 2-man game, the trip (see liveViews). */
+function liveTripViews(t, r) {
+  const views = []; let course = null, groups = [];
+  const title = (r.label||'Round') + (t.name?(' · '+t.name):'');
+  const cw = tripScoringCtx(t, r);
+  if (cw) {
+    views.push(liveRoundView('round', r.label || 'Round', cw, true));
+    if (r.twoMan && r.twoMan.game) views.push({ id:'twoman', label:'2-Man', cols: [r.twoMan.game === 'bestball' ? '+/−' : 'Pts', 'Thru'], rows: tripTwoManRows(tripTwoManResults(cw, r), cw.activeHoles.length) });
+    ({course, groups} = liveRoster(cw.course, cw.players, r.groups, cw));
   }
-  return { v:2, kind, title, updated:Date.now(), views, course, groups, format: course ? course.format : 'stroke' };
+  // The trip game is NET STROKES (BZ), shown as the app's leaderboard shows it:
+  // a total, not a score against par - "+240" read as 240 over (2026-10-05).
+  views.push({ id:'trip', label:'Trip', cols: ['Gross', 'Net', '+/−', 'Rnds'], rows: tripBoardRows(t) });
+  return { title, views, course, groups };
+}
+/** A league night's board: tonight, and the season. */
+function liveLeagueViews(lg, s) {
+  const views = []; let course = null, groups = [];
+  const title = fsDate(s.date) + (lg.name?(' · '+lg.name):'');
+  const cw = leagueSessionCtx(lg, s);
+  if (cw) {
+    views.push(liveRoundView('night', 'Tonight', cw.ctx, !!lg.skins));
+    ({course, groups} = liveRoster(cw.course, cw.pool, s.groups, cw.ctx));
+  }
+  const st = leagueComputeStandings(lg, false);
+  views.push({ id:'season', label:'Season', rows: st.rows.map((p,i)=>({pos:i+1, name:p.name, primary:(st.points[p.id]||0)+' pts', secondary:(st.wins[p.id]||0)+' W'})) });
+  return { title, views, course, groups };
+}
+/** An outing's board. */
+function liveOutingViews(o) {
+  let course = null, groups = [];
+  const views = [{ id:'board', label:'Leaderboard', rows: liveOutingRows(o) }];
+  const octx = outingScoringCtx(o);
+  if (octx) ({course, groups} = liveRoster(octx.course, octx.players, o.groups, octx));
+  return { title: o.name || 'Outing', views, course, groups };
+}
+/** One builder per kind, used by the app's publish AND by live.html, which
+ *  runs this same code (pages.py copies it) on liveSrc - so a board moves
+ *  while the organizer's app is shut (BZ, 2026-10-05: nine holes in, the
+ *  board had not moved; the app was in the background and was the only one
+ *  working it out. "Leagues and outings should follow the same pattern."). */
+function liveViews(kind, ev, unit) {
+  return kind === 'trip' ? liveTripViews(ev, unit) : kind === 'league' ? liveLeagueViews(ev, unit)
+    : kind === 'outing' ? liveOutingViews(unit) : null;
+}
+/** What liveViews reads, and nothing else - this goes to a PUBLIC path.
+ *  Players carry id, name, index and the league's regular flag only (no
+ *  phone, email or GHIN number); courses are the ones the event can play;
+ *  config is the game settings the engine reads (Stableford points, scramble
+ *  percentages). */
+function liveSrc(kind, ev, unit) {
+  const clone = x => JSON.parse(JSON.stringify(x));
+  const evJson = JSON.stringify(ev);
+  const g = (S.config && S.config.games) || {};
+  const config = { games: { individual: { stableford: (g.individual && g.individual.stableford) || {} },
+    fourPlayer: { scramble: (g.fourPlayer && g.fourPlayer.scramble) || {} } } };
+  // A player or course the event names anywhere (rounds, groups, RSVPs, subs).
+  const named = x => evJson.indexOf('"' + x.id + '"') >= 0;
+  const players = (S.players || []).filter(p => named(p) || (kind === 'league' && p.regular))
+    .map(p => ({ id: p.id, name: p.name, hcp: p.hcp, regular: !!p.regular }));
+  const courses = clone((S.courses || []).filter(c => named(c) || c.homeCourse || (kind === 'league' && c === (S.courses || [])[0])));
+  const event = clone(ev);
+  // An outing carries copies of its players, contact details and all.
+  if (kind === 'outing') (event.players || []).forEach(p => { delete p.phone; delete p.email; delete p.ghin; });
+  return { kind, event, unitId: kind === 'outing' ? null : unit.id, players, courses, config };
+}
+/** live.html's side: the board from liveSrc plus the phones' scores, folded
+ *  in exactly as the app's poll folds them (liveMergeScores). */
+function liveFromSrc(src, phoneScores) {
+  const ev = src.event;
+  S = { players: src.players || [], courses: src.courses || [], events: [ev], config: src.config || {} };
+  const unit = src.kind === 'trip' ? Object.values(ev.days || {}).flatMap(d => d.rounds || []).find(x => x.id === src.unitId)
+    : src.kind === 'league' ? (ev.sessions || []).find(x => x.id === src.unitId) : ev;
+  if (!unit) return null;
+  liveMergeScores(unit, phoneScores);
+  return liveViews(src.kind, ev, unit);
+}
+function liveUnitPayload(kind, ev, unit) {
+  const lv = liveViews(kind, ev, unit) || { title: '', views: [], course: null, groups: [] };
+  const { title, views, course, groups } = lv;
+  return { v:2, kind, title, updated:Date.now(), views, course, groups, format: course ? course.format : 'stroke', src: liveSrc(kind, ev, unit) };
 }
 // ── Live standings publish (shareable, near-real-time via live.html) ──────────
 const LIVE_BASE = 'https://madgolf-c8789-default-rtdb.firebaseio.com/bz-apps/golf/live';
@@ -14439,8 +14488,17 @@ async function publishLiveUnit(kind, ev, unit) {
   if (!unit.shareId) unit.shareId = liveNewShareId();
   try {
     const token = await getIdToken();
-    const res = await fetchWithTimeout(`${LIVE_BASE}/${unit.shareId}.json?auth=${token}`,
-      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(liveUnitPayload(kind, ev, unit)) });
+    const send = pl => fetchWithTimeout(`${LIVE_BASE}/${unit.shareId}.json?auth=${token}`,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pl) });
+    const pl = liveUnitPayload(kind, ev, unit);
+    let res = await send(pl);
+    // The live rules live in the console, unseen by the gate: if they refuse
+    // the new src field, the board must still publish - it then moves only
+    // while this app is open, and the log says so.
+    if (!res.ok && pl.src) {
+      appLog('live board source refused (HTTP ' + res.status + '): the board moves only while the app is open');
+      delete pl.src; res = await send(pl);
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return unit.shareId;
   } catch (e) { appLog('live unit publish failed: ' + e.message); return null; }

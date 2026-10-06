@@ -449,6 +449,17 @@ async function walk(ctx, page, store, context) {
 
   /* ---- 6. OUTING. */
   let shareId = null;
+  /* Every live board is worked out ON THE PAGE from what the app publishes
+     (BZ, 2026-10-05), and must say exactly what the app says. The footer
+     proves the page did it rather than falling back to the app's publish. */
+  const sameBoardAsApp = async (lp, sid, kind) => {
+    const upd = await lp.locator('#upd').innerText();
+    expect(/^Live/.test(upd), 'the ' + kind + ' board was not worked out on the page (footer "' + upd + '")');
+    const mine = await lp.evaluate(() => JSON.stringify(_data.views));
+    const apps = JSON.stringify(store.read('/bz-apps/golf/live/' + sid).views);
+    expect(mine === apps, 'the ' + kind + " board on the page differs from the app's: page " + mine.slice(0, 300) + ' | app ' + apps.slice(0, 300));
+    return JSON.parse(mine).length;
+  };
   await step(ctx, 'Outing: create, add eight players, pick the course', async () => {
     await page.click('#tab-home'); await pause(page);
     await tap(page, '#homeGrid [onclick="launchEvent(\'outing\')"]');
@@ -582,6 +593,23 @@ async function walk(ctx, page, store, context) {
     expect(/\b3\b/.test(top), 'the leader does not have 3 points: "' + top.replace(/\s+/g, ' ') + '"');
     return '7 rows, leader on 3 pts';
   });
+  await step(ctx, 'League: the live board is worked out on the page, and says what the app says', async () => {
+    const sid = await page.evaluate(async () => {
+      const lg = S.events.find(e => e.type === 'league');
+      await unitShareLive('league', lg, lg.sessions[0]);
+      return lg.sessions[0].shareId;
+    });
+    expect(sid, 'the league session did not go live');
+    await tap(page, '#liveShareModal button:has-text("Done")');
+    const lp = await context.newPage(); listen(lp, ctx.rep);
+    await lp.goto(ORIGIN + '/live.html?id=' + sid);
+    await lp.waitForSelector('#who .who-w', { timeout: 5000 });
+    await lp.locator('#who .who-w').click();
+    await lp.waitForSelector('#board tr', { timeout: 5000 });
+    const n = await sameBoardAsApp(lp, sid, 'league');
+    await lp.close();
+    return n + ' views, page = app';
+  });
 
   /* ---- 8. TRIP. */
   await step(ctx, 'Trip: create, roster of four, course, one round with a tee time', async () => {
@@ -709,6 +737,7 @@ async function walk(ctx, page, store, context) {
     expect(await lp.locator('#who input').count() === 0, '"Who are you?" asks for typing, not a pick');
     await lp.locator('#who .who-w').click();
     await lp.waitForSelector('#board tr', { timeout: 5000 });
+    await sameBoardAsApp(lp, shareId, 'outing');
     expect(!(await lp.locator('#tabs .tab:has-text("Scorecard")').count()), 'someone just watching is offered a Scorecard');
     const rows = await lp.locator('#board tr').count();
     const title = await lp.locator('#title').innerText();
