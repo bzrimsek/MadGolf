@@ -455,6 +455,12 @@ async function walk(ctx, page, store, context) {
   const sameBoardAsApp = async (lp, sid, kind) => {
     const upd = await lp.locator('#upd').innerText();
     expect(/^Live/.test(upd), 'the ' + kind + ' board was not worked out on the page (footer "' + upd + '")');
+    // BZ: say the delay, and count down to the next check.
+    expect(/within about 10 seconds/.test(upd) && /next check in \d+s/.test(upd), 'the footer does not say the delay or count down: "' + upd + '"');
+    const n1 = Number((upd.match(/next check in (\d+)s/) || [])[1]);
+    await lp.waitForTimeout(2100);
+    const n2 = Number(((await lp.locator('#upd').innerText()).match(/next check in (\d+)s/) || [])[1]);
+    expect(n2 < n1, 'the countdown did not move: ' + n1 + 's, then ' + n2 + 's');
     const mine = await lp.evaluate(() => JSON.stringify(_data.views));
     const apps = JSON.stringify(store.read('/bz-apps/golf/live/' + sid).views);
     expect(mine === apps, 'the ' + kind + " board on the page differs from the app's: page " + mine.slice(0, 300) + ' | app ' + apps.slice(0, 300));

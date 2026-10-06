@@ -1537,9 +1537,25 @@ async function tabTo(i) {
   if (!_watch && i === 0) { await card(); _boardT = setInterval(cardRefresh, 10000); return; }
   show('boardPane');
   await boardNow();
-  _boardT = setInterval(boardNow, 10000);
+  _boardT = setInterval(boardNow, EVERY);
+  _tickT = setInterval(paintUpd, 1000);
 }
-function stopBoard() { if (_boardT) { clearInterval(_boardT); _boardT = null; } }
+function stopBoard() {
+  if (_boardT) { clearInterval(_boardT); _boardT = null; }
+  if (_tickT) { clearInterval(_tickT); _tickT = null; }
+}
+/* THE DELAY, SAID (BZ, 2026-10-05: "the leaderboard should have a note about
+   a delay and, if reasonable, a timer"). The board checks every EVERY ms; the
+   footer says how fresh it is and counts down to the next check. */
+const EVERY = 10000;
+let _tickT = null, _nextAt = 0, _updMsg = '';
+function paintUpd() {
+  const el = document.getElementById('upd');
+  const n = Math.max(0, Math.ceil((_nextAt - Date.now()) / 1000));
+  el.innerHTML = esc2(_updMsg) + '<br>Scores show here within about ' + (EVERY / 1000)
+    + ' seconds' + (_nextAt ? ' · next check in ' + n + 's' : '');
+}
+function esc2(t) { return String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]); }
 
 /* THE BOARD, worked out HERE from the round's source and the phones' scores,
    with the app's own engine - so it moves while the organizer's app is shut
@@ -1559,10 +1575,14 @@ async function boardNow() {
     const vs = viewsOf(d);
     _data.views = vs.views; _data.updated = d.updated;
     document.getElementById('board').innerHTML = MGBoard.table(tabList()[_tab]);
-    document.getElementById('upd').textContent = vs.mine ? 'Live · checked ' + new Date().toLocaleTimeString()
-      : d.updated ? 'Updated ' + new Date(d.updated).toLocaleTimeString() : '';
+    // An event published by an older app carries no source: then the board is
+    // the app's last publish and moves only while that app is open - say so.
+    _updMsg = vs.mine ? 'Live · checked ' + new Date().toLocaleTimeString()
+      : "Last updated by the organizer's app " +(d.updated ? new Date(d.updated).toLocaleTimeString() : '')
+        + ' · it moves while their MadGolf app is open (an app update fixes this)';
+    _nextAt = Date.now() + EVERY; paintUpd();
     tabs();
-  } catch (e) { document.getElementById('upd').textContent = 'Reconnecting…'; }
+  } catch (e) { _updMsg = 'Reconnecting…'; _nextAt = Date.now() + EVERY; paintUpd(); }
 }
 
 /* THE SCORECARD: this player's foursome, the app's own card. Signing in
@@ -1663,7 +1683,7 @@ function flash(t) { const el = document.getElementById('saved'); el.textContent 
 
 Object.assign(window, { pick, notMe, watch, tabTo, scInput });
 boot();
-document.addEventListener('visibilitychange', () => { if (!document.hidden && _boardT) boardNow(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && _tickT) boardNow(); });
 </script>
 </body>
 </html>

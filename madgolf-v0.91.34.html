@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- ============================================================
      MadGolf — Unified Golf PWA
-     Version : v0.91.33  Build 2026-10-05 09:21 PM ET
+     Version : v0.91.34  Build 2026-10-05 09:42 PM ET
      Author  : BiZStoryGuru LLC
      Deploy  : upload index.html + sw.js + manifest.json + logo.webp to GitHub repo root
      SW Cache: CACHE_NAME in sw.js is updated automatically by bump.py
@@ -10,6 +10,7 @@
 ============================================================ -->
 <!--
 CHANGELOG
+// v0.91.34  2026-10-05  The leaderboard says its delay and counts down (BZ: a note about the delay and, if reasonable, a timer).
 // v0.91.33  2026-10-05  Two phones scoring one foursome now see each other's scores.
 // v0.91.32  2026-10-05  Comments name the live-board functions by their final names (liveViews, liveSrc, liveFromSrc).
 // v0.91.31  2026-10-05  Leagues and outings follow the same pattern as trips (BZ): every live board is now worked out on the live page itself, with the app's own engine, so…
@@ -19,7 +20,6 @@ CHANGELOG
 // v0.91.27  2026-10-05  Leaderboards in columns, like a pro board with one more: Pos, Player, Gross, Net, +/-, Thru (BZ: Gross, Net, +/- as columns, not random text).
 // v0.91.26  2026-10-05  Boards show net only and mark ties.
 // v0.91.25  2026-10-05  The scoring link and the live board now use the app's own look.
-// v0.91.24  2026-10-05  Fixed: the Text button for each group's scoring link on the live share sheet did nothing.
 // Older entries are in CHANGELOG.md.
 -->
 <html lang="en">
@@ -1220,8 +1220,8 @@ _fbOnAuthStateChanged(_auth, user => {
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS & STATE
 // ═══════════════════════════════════════════════════════════════
-const APP_VERSION = '0.91.33';
-const BUILD_TIME = '2026-10-05 09:21 PM ET';  // written by bump.py
+const APP_VERSION = '0.91.34';
+const BUILD_TIME = '2026-10-05 09:42 PM ET';  // written by bump.py
 const LS_KEY         = 'mg_v1';                  // localStorage key for app state
 const COURSES_CACHE  = 'mg_courses_cache';        // localStorage key for courses cache
 const DEBOUNCE_MS    = 1500;
